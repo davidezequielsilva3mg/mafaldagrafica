@@ -749,6 +749,482 @@ function LoginScreen() {
   );
 }
 
+// ── Helpers para comprobante ─────────────────────────────────────────────
+function buildComprobanteHTML(venta, empresa) {
+  const num    = `X-${String(venta.numero||1).padStart(5,"0")}`;
+  const now    = new Date();
+  const fecha  = venta.fecha || now.toLocaleDateString("es-AR");
+  const hora   = now.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+  const nombre = empresa?.nombre || "Mafalda Gráfica";
+  const rows   = venta.items.map(it => `
+    <tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0">${it.cantidad}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0">${it.codigo||"—"}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0">${it.nombre}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:right">$${parseFloat(it.precio).toLocaleString("es-AR")}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:700">$${(it.cantidad*it.precio).toLocaleString("es-AR")}</td>
+    </tr>`).join("");
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
+<title>${num}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340;padding:20mm}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:3px solid #e65100;margin-bottom:18px}
+  .brand{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#e65100}
+  .brand-sub{font-size:11px;color:#a09080;margin-top:3px;line-height:1.6}
+  .comp-num{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#e65100;text-align:right}
+  .comp-tipo{font-size:11px;color:#a09080;text-align:right;margin-top:3px}
+  .badge-x{display:inline-block;background:#fff3e0;color:#e65100;border:2px solid #e65100;border-radius:6px;padding:3px 10px;font-size:13px;font-weight:700;margin-top:4px}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+  .ibox{background:#fffaf7;border-radius:7px;padding:9px 12px;border-left:3px solid #e65100}
+  .ilbl{font-size:10px;font-weight:600;color:#a09080;text-transform:uppercase;letter-spacing:.7px;margin-bottom:3px}
+  .ival{font-size:13px;font-weight:600;color:#1a2340}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
+  thead tr{background:#fff3e0}
+  th{padding:9px 10px;text-align:left;font-size:11px;font-weight:700;color:#bf360c;text-transform:uppercase;letter-spacing:.5px}
+  th:last-child,th:nth-last-child(2){text-align:right}
+  .total-box{background:#fff3e0;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+  .total-lbl{font-size:13px;font-weight:600;color:#bf360c;text-transform:uppercase;letter-spacing:.7px}
+  .total-val{font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:#e65100}
+  .metodo{font-size:12px;color:#a09080;margin-bottom:16px}
+  .foot{border-top:1.5px solid #f0e8e0;padding-top:12px;display:flex;justify-content:space-between;font-size:10px;color:#c0b0a0}
+  .no-valido{text-align:center;font-size:11px;color:#c0b0a0;margin-bottom:10px;letter-spacing:.5px}
+  @media print{body{padding:12mm 14mm}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    ${empresa?.logo?`<img src="${empresa.logo}" style="height:50px;object-fit:contain;margin-bottom:6px;display:block"/>`:""}
+    <div class="brand">${nombre}</div>
+    <div class="brand-sub">
+      ${empresa?.titular?`Titular: ${empresa.titular}<br/>`:""}
+      ${empresa?.cuit?`CUIT: ${empresa.cuit}<br/>`:""}
+      ${empresa?.direccion?`${empresa.direccion}<br/>`:""}
+      ${empresa?.telefono?`Tel: ${empresa.telefono}`:""}
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div class="comp-num">${num}</div>
+    <div class="comp-tipo">Comprobante</div>
+    <div class="badge-x">NO VÁLIDO COMO FACTURA</div>
+    <div style="font-size:11px;color:#a09080;margin-top:4px">${fecha} · ${hora}</div>
+  </div>
+</div>
+<div class="info-grid">
+  <div class="ibox"><div class="ilbl">Cliente</div><div class="ival">${venta.clienteNombre||"Consumidor Final"}</div></div>
+  <div class="ibox"><div class="ilbl">Método de Pago</div><div class="ival">${venta.metodoPago||"—"}</div></div>
+</div>
+<table>
+  <thead><tr><th>Cant.</th><th>Código</th><th>Detalle</th><th style="text-align:right">P.Unit.</th><th style="text-align:right">Subtotal</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="total-box">
+  <div class="total-lbl">Total</div>
+  <div class="total-val">$${parseFloat(venta.total).toLocaleString("es-AR")}</div>
+</div>
+<div class="no-valido">⚠️ Este comprobante no tiene validez fiscal · Solo para uso interno</div>
+<div class="foot"><span>${nombre}</span><span>${num} · ${fecha}</span></div>
+<script>window.onload=()=>window.print();</script>
+</body></html>`;
+}
+
+function imprimirComprobante(venta, empresa) {
+  const html = buildComprobanteHTML(venta, empresa);
+  const win  = window.open("","_blank","width=860,height=700");
+  if (!win) { alert("Habilitá los popups para imprimir."); return; }
+  win.document.write(html);
+  win.document.close();
+}
+
+// ── Componente: Historial de Ventas ───────────────────────────────────────
+function VentasView({ setView, showToast, clientes, empresa }) {
+  const [ventas, setVentas]     = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [busq, setBusq]         = useState("");
+  const [filtroFecha, setFiltroFecha] = useState("hoy");
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "ventas"), snap => {
+      const data = snap.docs.map(d=>({...d.data(), fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0);
+      setVentas(data);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const hoy = new Date().toISOString().split("T")[0];
+  const filtradas = ventas.filter(v => {
+    const q = busq.toLowerCase();
+    const matchBusq = !busq || v.clienteNombre?.toLowerCase().includes(q) || v.numero?.toString().includes(q);
+    if (filtroFecha==="hoy")   return matchBusq && v.fecha===hoy;
+    if (filtroFecha==="semana") {
+      const d = new Date(); d.setDate(d.getDate()-7);
+      return matchBusq && v.fecha >= d.toISOString().split("T")[0];
+    }
+    if (filtroFecha==="mes") {
+      return matchBusq && v.fecha?.startsWith(hoy.slice(0,7));
+    }
+    return matchBusq;
+  });
+
+  const totalFiltrado = filtradas.reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalEfectivo = filtradas.filter(v=>v.metodoPago==="Efectivo").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalTransfer = filtradas.filter(v=>v.metodoPago==="Transferencia").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalCtaCte   = filtradas.filter(v=>v.metodoPago==="Cuenta Corriente").reduce((s,v)=>s+parseFloat(v.total||0),0);
+
+  const handleDelete = async (v) => {
+    if (!window.confirm("¿Eliminar esta venta?")) return;
+    await deleteDoc(doc(db, "ventas", v.fireId));
+    showToast("Venta eliminada", "error");
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div>
+          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>💰 Ventas</h2>
+          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{filtradas.length} venta{filtradas.length!==1?"s":""} · Total: <strong style={{color:"#e65100"}}>${totalFiltrado.toLocaleString("es-AR")}</strong></p>
+        </div>
+        <button onClick={() => setView("nuevaVenta")}
+          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+          ➕ Nueva Venta
+        </button>
+      </div>
+
+      {/* Stats rápidos */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
+        {[
+          { label:"Total", value:`$${totalFiltrado.toLocaleString("es-AR")}`, color:"#e65100" },
+          { label:"Efectivo", value:`$${totalEfectivo.toLocaleString("es-AR")}`, color:"#2e7d32" },
+          { label:"Transferencia", value:`$${totalTransfer.toLocaleString("es-AR")}`, color:"#1565c0" },
+          { label:"Cta. Corriente", value:`$${totalCtaCte.toLocaleString("es-AR")}`, color:"#6a1b9a" },
+        ].map((s,i) => (
+          <div key={i} style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px" }}>
+            <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>{s.label}</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
+        <div style={{ position:"relative", flex:"1 1 200px" }}>
+          <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
+          <input placeholder="Buscar por cliente o número..." value={busq} onChange={e=>setBusq(e.target.value)}
+            style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+        </div>
+        {["hoy","semana","mes","todos"].map(f => (
+          <button key={f} onClick={() => setFiltroFecha(f)}
+            style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:filtroFecha===f?"#e65100":"#fff8f5", color:filtroFecha===f?"#fff":"#a09080",
+              boxShadow:filtroFecha===f?"0 3px 10px rgba(230,81,0,.2)":"none" }}>
+            {f==="hoy"?"Hoy":f==="semana"?"Esta semana":f==="mes"?"Este mes":"Todas"}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign:"center", padding:40, color:"#a09080" }}>Cargando ventas...</div>
+      ) : filtradas.length === 0 ? (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+          <div style={{ fontSize:40, marginBottom:14 }}>💰</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>Sin ventas {filtroFecha==="hoy"?"hoy":filtroFecha==="semana"?"esta semana":filtroFecha==="mes"?"este mes":""}</div>
+          <div style={{ color:"#a09080", fontSize:14 }}>Registrá una nueva venta con el botón de arriba</div>
+        </div>
+      ) : (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+            <thead>
+              <tr style={{ background:"#fffaf7" }}>
+                {["N°","Fecha","Cliente","Items","Método de Pago","Total",""].map(h=>(
+                  <th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0", whiteSpace:"nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtradas.map(v => {
+                const mpColor = v.metodoPago==="Efectivo"?"#2e7d32":v.metodoPago==="Transferencia"?"#1565c0":v.metodoPago==="Cuenta Corriente"?"#6a1b9a":"#e65100";
+                const mpBg    = v.metodoPago==="Efectivo"?"#e8f5e9":v.metodoPago==="Transferencia"?"#e3f2fd":v.metodoPago==="Cuenta Corriente"?"#f3e5f5":"#fff3e0";
+                return (
+                  <tr key={v.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                    <td style={{ padding:"12px 16px", fontFamily:"monospace", color:"#a09080", fontSize:12 }}>X-{String(v.numero||1).padStart(5,"0")}</td>
+                    <td style={{ padding:"12px 16px", color:"#4a5568" }}>{v.fecha||"—"}</td>
+                    <td style={{ padding:"12px 16px", fontWeight:600, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</td>
+                    <td style={{ padding:"12px 16px", color:"#4a5568" }}>{v.items?.length||0} producto{v.items?.length!==1?"s":""}</td>
+                    <td style={{ padding:"12px 16px" }}>
+                      <span style={{ background:mpBg, color:mpColor, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{v.metodoPago||"—"}</span>
+                    </td>
+                    <td style={{ padding:"12px 16px", fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:"#e65100" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</td>
+                    <td style={{ padding:"12px 14px" }}>
+                      <div style={{ display:"flex", gap:6 }}>
+                        <button onClick={() => imprimirComprobante(v, empresa)}
+                          style={{ background:"#e65100", color:"#fff", border:"none", padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>🖨️</button>
+                        <button onClick={() => handleDelete(v)}
+                          style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Componente: Nueva Venta ───────────────────────────────────────────────
+function NuevaVentaView({ setView, showToast, clientes, empresa }) {
+  const [insumos, setInsumos]           = useState([]);
+  const [items, setItems]               = useState([]);
+  const [busqProd, setBusqProd]         = useState("");
+  const [clienteSearch, setClienteSearch] = useState("");
+  const [clienteDropdown, setClienteDropdown] = useState(false);
+  const [clienteSelId, setClienteSelId] = useState(null);
+  const [clienteNombre, setClienteNombre] = useState("");
+  const [metodoPago, setMetodoPago]     = useState("Efectivo");
+  const [saving, setSaving]             = useState(false);
+  const [tipoPrecios, setTipoPrecios]   = useState("venta"); // venta | gremio
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "insumos"), snap => {
+      setInsumos(snap.docs.map(d=>({...d.data(), fireId:d.id})));
+    });
+    return () => unsub();
+  }, []);
+
+  const prodFiltrados = insumos.filter(i => {
+    const q = busqProd.toLowerCase();
+    return !busqProd || i.nombre?.toLowerCase().includes(q) || i.codigo?.toLowerCase().includes(q);
+  }).slice(0,80);
+
+  const agregarItem = (ins) => {
+    setItems(prev => {
+      const existe = prev.find(it => it.insumoId === ins.fireId);
+      if (existe) return prev.map(it => it.insumoId===ins.fireId ? {...it, cantidad:it.cantidad+1} : it);
+      const precio = tipoPrecios==="gremio" ? (parseFloat(ins.precioGremio)||parseFloat(ins.precioVenta)||0) : (parseFloat(ins.precioVenta)||0);
+      return [...prev, { insumoId:ins.fireId, codigo:ins.codigo||"", nombre:ins.nombre, precio, cantidad:1, stockDisp:parseFloat(ins.stock)||0 }];
+    });
+  };
+
+  const updateCantidad = (insumoId, val) => {
+    const n = Math.max(1, parseInt(val)||1);
+    setItems(prev => prev.map(it => it.insumoId===insumoId ? {...it, cantidad:n} : it));
+  };
+
+  const removeItem = (insumoId) => setItems(prev => prev.filter(it => it.insumoId!==insumoId));
+
+  const total = items.reduce((s,it)=>s+it.cantidad*it.precio, 0);
+
+  const handleGuardar = async () => {
+    if (items.length===0) { showToast("Agregá al menos un producto", "error"); return; }
+    setSaving(true);
+    try {
+      // Obtener número correlativo
+      const ventasSnap = await import("firebase/firestore").then(m =>
+        m.getDocs(m.collection(db, "ventas"))
+      );
+      const numero = ventasSnap.size + 1;
+
+      // Guardar venta
+      const venta = {
+        numero,
+        fecha:         new Date().toISOString().split("T")[0],
+        clienteId:     clienteSelId||null,
+        clienteNombre: clienteNombre||"Consumidor Final",
+        metodoPago,
+        items,
+        total,
+        creadoEn:      new Date().toISOString(),
+      };
+      await addDoc(collection(db, "ventas"), venta);
+
+      // Descontar stock de cada insumo
+      for (const it of items) {
+        const ins = insumos.find(i => i.fireId===it.insumoId);
+        if (ins) {
+          const nuevoStock = Math.max(0, (parseFloat(ins.stock)||0) - it.cantidad);
+          await updateDoc(doc(db, "insumos", ins.fireId), { stock: nuevoStock });
+        }
+      }
+
+      // Si es cuenta corriente, sumar al saldo del cliente
+      if (metodoPago==="Cuenta Corriente" && clienteSelId) {
+        const cl = clientes.find(c=>c.fireId===clienteSelId);
+        if (cl) {
+          const nuevoSaldo = (parseFloat(cl.saldoCuenta)||0) + total;
+          await updateDoc(doc(db, "clientes", clienteSelId), { saldoCuenta: nuevoSaldo });
+          await addDoc(collection(db, "movimientosCuenta"), {
+            clienteId: clienteSelId,
+            tipo: "cargo",
+            monto: total,
+            fecha: new Date().toISOString().split("T")[0],
+            descripcion: `Venta X-${String(numero).padStart(5,"0")}`
+          });
+        }
+      }
+
+      showToast(`Venta registrada ✅ · $${total.toLocaleString("es-AR")}`);
+
+      // Imprimir comprobante
+      setTimeout(() => imprimirComprobante(venta, empresa), 400);
+      setView("ventas");
+    } catch(e) {
+      console.error(e);
+      showToast("Error al guardar la venta", "error");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <button onClick={() => setView("ventas")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 420px", gap:20, alignItems:"start" }}>
+
+        {/* ── Columna izquierda: productos ── */}
+        <div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px", marginBottom:16 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>🔍 Productos</div>
+              <div style={{ display:"flex", gap:6 }}>
+                {[["venta","Precio Venta"],["gremio","Precio Gremio"]].map(([val,lbl]) => (
+                  <button key={val} onClick={()=>setTipoPrecios(val)}
+                    style={{ padding:"5px 12px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer", border:"none",
+                      background:tipoPrecios===val?"#e65100":"#fff8f5", color:tipoPrecios===val?"#fff":"#a09080" }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input placeholder="Buscar por nombre o código..." value={busqProd} onChange={e=>setBusqProd(e.target.value)}
+              style={{ width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", marginBottom:14 }}/>
+            <div style={{ maxHeight:420, overflowY:"auto", display:"flex", flexDirection:"column", gap:6 }}>
+              {prodFiltrados.length===0 ? (
+                <div style={{ textAlign:"center", padding:"24px 0", color:"#a09080", fontSize:13 }}>Sin productos{busqProd?" con ese criterio":""}</div>
+              ) : prodFiltrados.map(ins => {
+                const precio = tipoPrecios==="gremio" ? (parseFloat(ins.precioGremio)||parseFloat(ins.precioVenta)||0) : (parseFloat(ins.precioVenta)||0);
+                const enCarrito = items.find(it=>it.insumoId===ins.fireId);
+                return (
+                  <div key={ins.fireId} onClick={() => agregarItem(ins)}
+                    style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", borderRadius:9, border:`1.5px solid ${enCarrito?"#e65100":"#f0d5c0"}`, background:enCarrito?"#fff8f5":"#fff", cursor:"pointer", transition:"all .15s" }}
+                    onMouseOver={e=>e.currentTarget.style.borderColor="#e65100"}
+                    onMouseOut={e=>{ if(!enCarrito) e.currentTarget.style.borderColor="#f0d5c0"; }}>
+                    <div>
+                      <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{ins.nombre}</div>
+                      <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>{ins.codigo||""} {ins.categoria?`· ${ins.categoria}`:""} · Stock: {parseFloat(ins.stock)||0}</div>
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <span style={{ fontWeight:700, color:"#e65100", fontSize:14 }}>${precio.toLocaleString("es-AR")}</span>
+                      {enCarrito
+                        ? <span style={{ background:"#e65100", color:"#fff", borderRadius:"50%", width:22, height:22, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700 }}>{enCarrito.cantidad}</span>
+                        : <span style={{ color:"#e65100", fontSize:18, fontWeight:300 }}>+</span>
+                      }
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Columna derecha: carrito + datos ── */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+          {/* Cliente */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+            <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>👤 Cliente</div>
+            {clienteSelId ? (
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#fff8f5", borderRadius:8, padding:"10px 14px", border:"1.5px solid #e65100" }}>
+                <div style={{ fontWeight:600, fontSize:13 }}>{clienteNombre}</div>
+                <button onClick={() => { setClienteSelId(null); setClienteNombre(""); setClienteSearch(""); }}
+                  style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:16, fontWeight:700 }}>✕</button>
+              </div>
+            ) : (
+              <div style={{ position:"relative" }}>
+                <input value={clienteSearch} onChange={e=>{ setClienteSearch(e.target.value); setClienteDropdown(true); }} onFocus={()=>setClienteDropdown(true)}
+                  placeholder="Consumidor Final (dejar vacío)"
+                  style={{ width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                {clienteDropdown && clienteSearch && (
+                  <div style={{ position:"absolute", top:"100%", left:0, right:0, background:"#fff", border:"1.5px solid #f0d5c0", borderRadius:8, boxShadow:"0 8px 24px rgba(230,81,0,.1)", zIndex:100, maxHeight:180, overflowY:"auto", marginTop:4 }}>
+                    {clientes.filter(c=>`${c.nombre} ${c.apellido} ${c.empresa||""}`.toLowerCase().includes(clienteSearch.toLowerCase())).map(cl=>(
+                      <div key={cl.fireId} onClick={()=>{ setClienteSelId(cl.fireId); setClienteNombre(`${cl.nombre} ${cl.apellido}`.trim()); setClienteDropdown(false); }}
+                        style={{ padding:"9px 14px", cursor:"pointer", fontSize:13, fontWeight:600, borderBottom:"1px solid #fef0e8" }}
+                        onMouseOver={e=>e.currentTarget.style.background="#fff8f5"}
+                        onMouseOut={e=>e.currentTarget.style.background="#fff"}>
+                        {cl.nombre} {cl.apellido} {cl.empresa&&`— ${cl.empresa}`}
+                        {cl.saldoCuenta>0 && <span style={{ marginLeft:8, fontSize:11, color:"#c62828", fontWeight:700 }}>Debe ${parseFloat(cl.saldoCuenta).toLocaleString("es-AR")}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Método de pago */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+            <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>💳 Método de Pago</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+              {["Efectivo","Transferencia","Tarjeta de Crédito","Cuenta Corriente"].map(m=>(
+                <button key={m} onClick={()=>setMetodoPago(m)}
+                  style={{ padding:"10px 8px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`2px solid ${metodoPago===m?"#e65100":"#f0d5c0"}`,
+                    background:metodoPago===m?"#e65100":"#fff", color:metodoPago===m?"#fff":"#4a5568", transition:"all .15s" }}>
+                  {m==="Efectivo"?"💵 Efectivo":m==="Transferencia"?"📲 Transferencia":m==="Tarjeta de Crédito"?"💳 Tarjeta":"📒 Cta. Corriente"}
+                </button>
+              ))}
+            </div>
+            {metodoPago==="Cuenta Corriente" && !clienteSelId && (
+              <div style={{ marginTop:10, fontSize:12, color:"#c62828", background:"#ffebee", padding:"8px 12px", borderRadius:7 }}>
+                ⚠️ Seleccioná un cliente para usar cuenta corriente
+              </div>
+            )}
+          </div>
+
+          {/* Carrito */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+            <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>🛒 Carrito ({items.length})</div>
+            {items.length===0 ? (
+              <div style={{ textAlign:"center", padding:"20px 0", color:"#d4bfb0", fontSize:13 }}>Hacé clic en un producto para agregarlo</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
+                {items.map(it=>(
+                  <div key={it.insumoId} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, background:"#fffaf7", border:"1px solid #f5e8e0" }}>
+                    <div style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", lineHeight:1.3 }}>{it.nombre}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                      <button onClick={()=>updateCantidad(it.insumoId,it.cantidad-1)} style={{ background:"#ffebee", border:"none", color:"#c62828", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>−</button>
+                      <input type="number" value={it.cantidad} onChange={e=>updateCantidad(it.insumoId,e.target.value)}
+                        style={{ width:40, textAlign:"center", border:"1.5px solid #f0d5c0", borderRadius:5, fontSize:13, fontWeight:700, padding:"2px 4px", fontFamily:"'DM Sans',sans-serif" }}/>
+                      <button onClick={()=>updateCantidad(it.insumoId,it.cantidad+1)} style={{ background:"#e8f5e9", border:"none", color:"#2e7d32", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>+</button>
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:700, color:"#e65100", minWidth:70, textAlign:"right" }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</div>
+                    <button onClick={()=>removeItem(it.insumoId)} style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:14, fontWeight:700 }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Total */}
+            <div style={{ borderTop:"2px solid #f5e8e0", paddingTop:14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>TOTAL</span>
+                <span style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#e65100" }}>${total.toLocaleString("es-AR")}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Botón confirmar */}
+          <button onClick={handleGuardar} disabled={saving||items.length===0}
+            style={{ width:"100%", padding:"15px", background: items.length===0?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:16, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
+            {saving ? "Guardando..." : "✅ Confirmar Venta · Imprimir Comprobante"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente: Insumos ───────────────────────────────────────────────────
 function InsumosView({ setView, showToast }) {
   const [insumos, setInsumos]         = useState([]);
@@ -1663,6 +2139,7 @@ export default function App() {
             <div className={`nav-lnk ${(view==="lista"||view==="listos"||view==="formulario"||view==="detalle")?"act":""}`} onClick={() => setView("lista")}>📋 Pedidos</div>
             <div className={`nav-lnk ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}`} onClick={() => setView("clientes")}>👥 Clientes</div>
             <div className={`nav-lnk ${(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo")?"act":""}`} onClick={() => setView("insumos")}>📦 Insumos</div>
+            <div className={`nav-lnk ${(view==="ventas"||view==="nuevaVenta")?"act":""}`} onClick={() => setView("ventas")}>💰 Ventas</div>
             <div className={`nav-lnk ${view==="config"?"act":""}`} onClick={() => setView("config")}>⚙️ Configuración</div>
 
             {/* Separador */}
@@ -1708,6 +2185,16 @@ export default function App() {
                   ➕ Nuevo Insumo
                 </div>
               </>
+            )}
+
+            {/* Botones Ventas */}
+            {(view==="ventas"||view==="nuevaVenta") && (
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                onClick={() => setView("nuevaVenta")}
+                onMouseOver={e=>e.currentTarget.style.background="#fff"}
+                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
+                ➕ Nueva Venta
+              </div>
             )}
 
             {/* Salir */}
@@ -2200,6 +2687,14 @@ export default function App() {
             setView={setView}
             showToast={showToast}
           />
+        )}
+
+        {/* ── VENTAS ── */}
+        {view==="ventas" && (
+          <VentasView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} />
+        )}
+        {view==="nuevaVenta" && (
+          <NuevaVentaView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} />
         )}
 
         {/* ── CONFIGURACIÓN ── */}
