@@ -4,6 +4,11 @@ import {
   collection, onSnapshot, addDoc, updateDoc,
   deleteDoc, doc, setDoc, getDoc
 } from "firebase/firestore";
+import {
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+} from "firebase/auth";
+
+const auth = getAuth();
 
 const CATEGORIAS = [
   "Vinilo Impreso", "Vinilo Calado", "Diseño", "Impresiones",
@@ -668,9 +673,81 @@ function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
   );
 }
 
+// ── Pantalla de Login ─────────────────────────────────────────────────────
+function LoginScreen() {
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+
+  const handleLogin = async () => {
+    if (!email || !password) { setError("Completá email y contraseña"); return; }
+    setLoading(true);
+    setError("");
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (e) {
+      setError("Email o contraseña incorrectos");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg, #1a2e8a 0%, #111f6b 100%)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif", padding:20 }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');`}</style>
+      <div style={{ background:"#fff", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:"0 24px 60px rgba(0,0,0,.25)" }}>
+        {/* Logo / título */}
+        <div style={{ textAlign:"center", marginBottom:36 }}>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:32, fontWeight:700, color:"#1a2e8a", marginBottom:6 }}>Mafalda Gráfica</div>
+          <div style={{ fontSize:14, color:"#8a93a8" }}>Sistema de gestión de pedidos</div>
+        </div>
+
+        {/* Form */}
+        <div style={{ marginBottom:18 }}>
+          <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:7 }}>Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleLogin()}
+            placeholder="tu@email.com"
+            style={{ width:"100%", padding:"11px 14px", borderRadius:9, border:"1.5px solid #dde3ef", fontSize:14, fontFamily:"'DM Sans',sans-serif", color:"#1a2340", outline:"none", boxSizing:"border-box" }}/>
+        </div>
+        <div style={{ marginBottom:24 }}>
+          <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:7 }}>Contraseña</label>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleLogin()}
+            placeholder="••••••••"
+            style={{ width:"100%", padding:"11px 14px", borderRadius:9, border:"1.5px solid #dde3ef", fontSize:14, fontFamily:"'DM Sans',sans-serif", color:"#1a2340", outline:"none", boxSizing:"border-box" }}/>
+        </div>
+
+        {error && (
+          <div style={{ background:"#ffebee", color:"#c62828", padding:"10px 14px", borderRadius:8, fontSize:13, marginBottom:18, textAlign:"center" }}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        <button onClick={handleLogin} disabled={loading}
+          style={{ width:"100%", padding:"13px", background:"#1a2e8a", color:"#fff", border:"none", borderRadius:9, fontSize:15, fontWeight:700, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all .18s", opacity:loading?0.7:1 }}>
+          {loading ? "Ingresando..." : "🔐 Ingresar"}
+        </button>
+
+        <div style={{ textAlign:"center", marginTop:20, fontSize:12, color:"#c5cce0" }}>
+          Acceso restringido · Solo personal autorizado
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [pedidos, setPedidos]             = useState([]);
   const [loading, setLoading]             = useState(true);
+  const [user, setUser]                   = useState(null);
+  const [authChecked, setAuthChecked]     = useState(false);
   const [view, setView]                   = useState("lista");
   const [selectedPedido, setSelectedPedido] = useState(null);
   const [formData, setFormData]           = useState(EMPTY_FORM);
@@ -687,6 +764,15 @@ export default function App() {
   const [empresa, setEmpresa]             = useState(EMPTY_EMPRESA);
   const [empresaSaved, setEmpresaSaved]   = useState(false);
   const [vistaLista, setVistaLista]       = useState("categorias");
+
+  // ── Firebase: verificar sesión ──
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthChecked(true);
+    });
+    return () => unsub();
+  }, []);
 
   // ── Firebase: escuchar pedidos en tiempo real ──
   useEffect(() => {
@@ -705,6 +791,8 @@ export default function App() {
       if (snap.exists()) setEmpresa(snap.data());
     });
   }, []);
+
+  const handleLogout = () => signOut(auth);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -808,6 +896,15 @@ export default function App() {
     color:"#1a2340", outline:"none", boxSizing:"border-box", transition:"border-color 0.2s"
   });
 
+  if (!authChecked) return (
+    <div style={{ minHeight:"100vh", background:"#f0f3f9", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
+      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:"#1a2e8a", marginBottom:12 }}>Mafalda Gráfica</div>
+      <div style={{ fontSize:14, color:"#8a93a8" }}>Iniciando...</div>
+    </div>
+  );
+
+  if (!user) return <LoginScreen />;
+
   if (loading) return (
     <div style={{ minHeight:"100vh", background:"#f0f3f9", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
       <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:"#1a2e8a", marginBottom:12 }}>Mafalda Gráfica</div>
@@ -874,6 +971,7 @@ export default function App() {
               + Nuevo Pedido
             </div>
             <div className={`nav-lnk ${view==="config"?"act":""}`} onClick={() => setView("config")}>⚙️ Configuración</div>
+            <div className="nav-lnk" onClick={handleLogout} style={{ marginLeft:8, background:"rgba(255,255,255,.15)", color:"#fff" }}>🔒 Salir</div>
           </nav>
         </div>
       </div>
