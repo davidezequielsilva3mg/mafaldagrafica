@@ -996,8 +996,10 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
   }, []);
 
   const prodFiltrados = insumos.filter(i => {
-    const q = busqProd.toLowerCase();
-    return !busqProd || i.nombre?.toLowerCase().includes(q) || i.codigo?.toLowerCase().includes(q);
+    if (!busqProd) return true;
+    const palabras = busqProd.toLowerCase().split(/\s+/).filter(Boolean);
+    const texto = `${i.nombre||""} ${i.codigo||""} ${i.categoria||""}`.toLowerCase();
+    return palabras.every(p => texto.includes(p));
   }).slice(0,80);
 
   const agregarItem = (ins) => {
@@ -1248,9 +1250,12 @@ function InsumosView({ setView, showToast }) {
   const categorias = ["Todas", ...Array.from(new Set(insumos.map(i => i.categoria).filter(Boolean))).sort()];
 
   const filtrados = insumos.filter(i => {
-    const q = busq.toLowerCase();
-    return (!busq || i.nombre?.toLowerCase().includes(q) || i.codigo?.toLowerCase().includes(q))
-      && (filtroCat === "Todas" || i.categoria === filtroCat);
+    if (busq) {
+      const palabras = busq.toLowerCase().split(/\s+/).filter(Boolean);
+      const texto = `${i.nombre||""} ${i.codigo||""} ${i.categoria||""}`.toLowerCase();
+      if (!palabras.every(p => texto.includes(p))) return false;
+    }
+    return filtroCat === "Todas" || i.categoria === filtroCat;
   }).sort((a,b) => (a.categoria||"").localeCompare(b.categoria||"") || (a.nombre||"").localeCompare(b.nombre||""));
 
   // ── Importar Excel ──
@@ -2126,13 +2131,18 @@ export default function App() {
 
       {/* HEADER */}
       <div style={{ background:"linear-gradient(135deg,#bf360c 0%,#e65100 55%,#ff6d00 100%)", boxShadow:"0 4px 20px rgba(191,54,12,.35)" }}>
-        <div style={{ maxWidth:1220, margin:"0 auto", padding:"0 28px", display:"flex", alignItems:"center", justifyContent:"space-between", height:70 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-            <div style={{ width:42, height:42, background:"rgba(255,255,255,.13)", borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🖨️</div>
-            <div>
-              <div style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:21, fontWeight:700, color:"#fff", lineHeight:1.1 }}>Mafalda Gráfica</div>
-              <div style={{ fontSize:11, color:"rgba(255,255,255,.55)", letterSpacing:"1px", textTransform:"uppercase" }}>Sistema de Pedidos</div>
-            </div>
+        <div style={{ padding:"0 28px", display:"flex", alignItems:"center", justifyContent:"space-between", height:70 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer" }} onClick={() => setView("lista")}>
+            {empresa.logo
+              ? <img src={empresa.logo} alt="Logo" style={{ height:46, maxWidth:160, objectFit:"contain", borderRadius:8 }}/>
+              : <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ width:42, height:42, background:"rgba(255,255,255,.13)", borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🖨️</div>
+                  <div>
+                    <div style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:21, fontWeight:700, color:"#fff", lineHeight:1.1 }}>{empresa.nombre||"Mafalda Gráfica"}</div>
+                    <div style={{ fontSize:11, color:"rgba(255,255,255,.55)", letterSpacing:"1px", textTransform:"uppercase" }}>Sistema de Pedidos</div>
+                  </div>
+                </div>
+            }
           </div>
           <nav style={{ display:"flex", alignItems:"center", gap:4 }}>
             {/* Tabs principales */}
@@ -2203,7 +2213,7 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ maxWidth:1220, margin:"0 auto", padding:"26px 28px" }}>
+      <div style={{ padding:"26px 32px" }}>
 
         {/* STATS — solo en pestaña Pedidos */}
         {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && (
