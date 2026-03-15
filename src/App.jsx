@@ -2707,6 +2707,636 @@ function BuscadorGlobal({ pedidos, clientes, busqueda, setBusqueda, onClose, onS
   );
 }
 
+// ── Componente: Finanzas ─────────────────────────────────────────────────
+function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showToast }) {
+  const [pin, setPin]               = useState("");
+  const [pinError, setPinError]     = useState(false);
+  const [tabActiva, setTabActiva]   = useState("resumen");
+  const [ventas, setVentas]         = useState([]);
+  const [gastos, setGastos]         = useState([]);
+  const [movCaja, setMovCaja]       = useState([]);
+  const [empleados, setEmpleados]   = useState([]);
+  const [pinConfig, setPinConfig]   = useState("1234");
+  const [periodoFin, setPeriodoFin] = useState("mes");
+
+  // Modales
+  const [modalGasto, setModalGasto]       = useState(false);
+  const [modalCaja, setModalCaja]         = useState(null); // "ingreso" | "egreso"
+  const [modalEmpleado, setModalEmpleado] = useState(null);
+  const [modalPago, setModalPago]         = useState(null);
+  const [selectedEmp, setSelectedEmp]     = useState(null);
+
+  useEffect(() => {
+    if (!desbloqueado) return;
+    const u1 = onSnapshot(collection(db,"ventas"), snap => setVentas(snap.docs.map(d=>({...d.data(),fireId:d.id}))));
+    const u2 = onSnapshot(collection(db,"gastos"), snap => setGastos(snap.docs.map(d=>({...d.data(),fireId:d.id}))));
+    const u3 = onSnapshot(collection(db,"movCaja"), snap => setMovCaja(snap.docs.map(d=>({...d.data(),fireId:d.id}))));
+    const u4 = onSnapshot(collection(db,"empleados"), snap => setEmpleados(snap.docs.map(d=>({...d.data(),fireId:d.id}))));
+    getDoc(doc(db,"config","finanzas")).then(snap => { if(snap.exists()) setPinConfig(snap.data().pin||"1234"); });
+    return () => { u1();u2();u3();u4(); };
+  }, [desbloqueado]);
+
+  const hoy    = new Date().toISOString().split("T")[0];
+  const mesAct = hoy.slice(0,7);
+  const semAct = (() => { const d=new Date(); d.setDate(d.getDate()-7); return d.toISOString().split("T")[0]; })();
+
+  const filtrarPeriodo = (arr, campo="fecha") => {
+    if (periodoFin==="hoy")   return arr.filter(x=>x[campo]===hoy);
+    if (periodoFin==="semana") return arr.filter(x=>x[campo]>=semAct);
+    if (periodoFin==="mes")   return arr.filter(x=>x[campo]?.startsWith(mesAct));
+    return arr;
+  };
+
+  const ventasFilt  = filtrarPeriodo(ventas);
+  const gastosFilt  = filtrarPeriodo(gastos);
+
+  const totalVentas    = ventasFilt.reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalGastos    = gastosFilt.reduce((s,g)=>s+parseFloat(g.monto||0),0);
+  const totalEfectivo  = ventasFilt.filter(v=>v.metodoPago==="Efectivo").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalTransfer  = ventasFilt.filter(v=>v.metodoPago==="Transferencia").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalTarjeta   = ventasFilt.filter(v=>v.metodoPago==="Tarjeta de Crédito").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalCtaCte    = ventasFilt.filter(v=>v.metodoPago==="Cuenta Corriente").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const saldoCaja      = movCaja.reduce((s,m)=>s+(m.tipo==="ingreso"?parseFloat(m.monto||0):-parseFloat(m.monto||0)),0) + totalEfectivo;
+  const ganancia       = totalVentas - totalGastos;
+
+  // Datos para gráfico de barras (últimos 7 días)
+  const ultimos7 = Array.from({length:7},(_,i)=>{
+    const d=new Date(); d.setDate(d.getDate()-6+i);
+    const f=d.toISOString().split("T")[0];
+    const total=ventas.filter(v=>v.fecha===f).reduce((s,v)=>s+parseFloat(v.total||0),0);
+    const gastoD=gastos.filter(g=>g.fecha===f).reduce((s,g)=>s+parseFloat(g.monto||0),0);
+    return { fecha:f, dia:d.toLocaleDateString("es-AR",{weekday:"short",day:"numeric"}), total, gasto:gastoD };
+  });
+  const maxBar = Math.max(...ultimos7.map(d=>Math.max(d.total,d.gasto)),1);
+
+  // ── PIN screen ──
+  if (!desbloqueado) {
+    const handlePin = async () => {
+      const snap = await getDoc(doc(db,"config","finanzas")).catch(()=>null);
+      const savedPin = snap?.exists() ? snap.data().pin : "1234";
+      if (pin === savedPin) { setDesbloqueado(true); setPinError(false); }
+      else { setPinError(true); setPin(""); }
+    };
+    return (
+      <div style={{ minHeight:"60vh", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <div style={{ background:"#fff", borderRadius:20, padding:"48px 44px", width:340, boxShadow:"0 8px 32px rgba(230,81,0,.12)", textAlign:"center" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>💼</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>Finanzas</div>
+          <div style={{ fontSize:14, color:"#a09080", marginBottom:28 }}>Ingresá tu PIN para continuar</div>
+          <div style={{ display:"flex", gap:12, justifyContent:"center", marginBottom:24 }}>
+            {[0,1,2,3].map(i=>(
+              <div key={i} style={{ width:48, height:56, border:`2px solid ${pinError?"#ef5350":pin.length>i?"#e65100":"#f0d5c0"}`, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, fontWeight:700, color:"#e65100", background:pin.length>i?"#fff8f5":"#fff", transition:"all .15s" }}>
+                {pin.length>i?"●":""}
+              </div>
+            ))}
+          </div>
+          {pinError && <div style={{ color:"#ef5350", fontSize:13, marginBottom:14, fontWeight:600 }}>PIN incorrecto. Intentá de nuevo.</div>}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:12 }}>
+            {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((n,i)=>(
+              <button key={i} onClick={()=>{
+                if(n==="⌫") setPin(p=>p.slice(0,-1));
+                else if(n!=="" && pin.length<4) { const np=pin+n; setPin(np); if(np.length===4) setTimeout(()=>{ /* auto check */ },100); }
+              }}
+              style={{ padding:"14px 0", borderRadius:10, border:"1.5px solid #f0d5c0", background:n===""?"transparent":"#fff", fontSize:18, fontWeight:700, color:"#1a2340", cursor:n===""?"default":"pointer", transition:"all .15s" }}
+              onMouseOver={e=>{ if(n!=="") e.currentTarget.style.background="#fff8f5"; }}
+              onMouseOut={e=>{ e.currentTarget.style.background=n===""?"transparent":"#fff"; }}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <button onClick={handlePin} disabled={pin.length<4}
+            style={{ width:"100%", padding:"13px", background:pin.length<4?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:15, fontWeight:700, cursor:pin.length<4?"not-allowed":"pointer", transition:"all .2s" }}>
+            Ingresar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const TABS = [
+    {id:"resumen",   label:"📊 Resumen"},
+    {id:"caja",      label:"🏦 Caja"},
+    {id:"gastos",    label:"💸 Gastos"},
+    {id:"ventas",    label:"🧾 Ventas"},
+    {id:"empleados", label:"👷 RRHH"},
+    {id:"config",    label:"⚙️ Config"},
+  ];
+
+  return (
+    <div>
+      {/* Header Finanzas */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div>
+          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>💼 Finanzas</h2>
+          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>Panel financiero privado</p>
+        </div>
+        <button onClick={()=>setDesbloqueado(false)}
+          style={{ background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+          🔒 Bloquear
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:6, marginBottom:20, flexWrap:"wrap" }}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTabActiva(t.id)}
+            style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:tabActiva===t.id?"#e65100":"#fff", color:tabActiva===t.id?"#fff":"#4a5568",
+              boxShadow:tabActiva===t.id?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+            {t.label}
+          </button>
+        ))}
+        {/* Selector período */}
+        <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
+          {["hoy","semana","mes","total"].map(p=>(
+            <button key={p} onClick={()=>setPeriodoFin(p)}
+              style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer", border:"none",
+                background:periodoFin===p?"#1a2340":"#fff", color:periodoFin===p?"#fff":"#4a5568" }}>
+              {p==="hoy"?"Hoy":p==="semana"?"Semana":p==="mes"?"Mes":"Total"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── TAB: RESUMEN ── */}
+      {tabActiva==="resumen" && (
+        <div>
+          {/* KPIs */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>
+            {[
+              {label:"Ventas",    value:`$${totalVentas.toLocaleString("es-AR")}`,   color:"#e65100", icon:"💰"},
+              {label:"Gastos",    value:`$${totalGastos.toLocaleString("es-AR")}`,   color:"#c62828", icon:"💸"},
+              {label:"Ganancia",  value:`$${ganancia.toLocaleString("es-AR")}`,      color:ganancia>=0?"#2e7d32":"#c62828", icon:"📈"},
+              {label:"Saldo Caja",value:`$${saldoCaja.toLocaleString("es-AR")}`,     color:"#1565c0", icon:"🏦"},
+            ].map((k,i)=>(
+              <div key={i} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+                <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:8 }}>{k.label}</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:k.color }}>{k.value}</div>
+                  <span style={{ fontSize:24 }}>{k.icon}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Métodos de pago */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:24 }}>
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:16 }}>💳 Ventas por método de pago</div>
+              {[
+                {label:"Efectivo",       value:totalEfectivo, color:"#2e7d32", bg:"#e8f5e9"},
+                {label:"Transferencia",  value:totalTransfer, color:"#1565c0", bg:"#e3f2fd"},
+                {label:"Tarjeta",        value:totalTarjeta,  color:"#6a1b9a", bg:"#f3e5f5"},
+                {label:"Cta. Corriente", value:totalCtaCte,   color:"#e65100", bg:"#fff3e0"},
+              ].map((m,i)=>(
+                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid #fef0e8" }}>
+                  <span style={{ background:m.bg, color:m.color, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{m.label}</span>
+                  <span style={{ fontWeight:700, color:m.color, fontSize:15 }}>${m.value.toLocaleString("es-AR")}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Gráfico barras últimos 7 días */}
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:16 }}>📊 Últimos 7 días</div>
+              <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:120 }}>
+                {ultimos7.map((d,i)=>(
+                  <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                    <div style={{ width:"100%", display:"flex", gap:2, alignItems:"flex-end", height:100 }}>
+                      <div title={`Ventas: $${d.total.toLocaleString("es-AR")}`}
+                        style={{ flex:1, background:"#e65100", borderRadius:"4px 4px 0 0", height:`${Math.round((d.total/maxBar)*100)}%`, minHeight:d.total>0?4:0, transition:"height .3s" }}/>
+                      <div title={`Gastos: $${d.gasto.toLocaleString("es-AR")}`}
+                        style={{ flex:1, background:"#ffccbc", borderRadius:"4px 4px 0 0", height:`${Math.round((d.gasto/maxBar)*100)}%`, minHeight:d.gasto>0?4:0, transition:"height .3s" }}/>
+                    </div>
+                    <div style={{ fontSize:9, color:"#a09080", textAlign:"center", lineHeight:1.2 }}>{d.dia}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:"flex", gap:16, marginTop:10, justifyContent:"center" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:"#a09080" }}><span style={{ width:10, height:10, background:"#e65100", borderRadius:2, display:"inline-block" }}></span>Ventas</div>
+                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:"#a09080" }}><span style={{ width:10, height:10, background:"#ffccbc", borderRadius:2, display:"inline-block" }}></span>Gastos</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Ventas recientes */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>🧾 Últimas ventas</div>
+            {ventasFilt.length===0 ? <div style={{ color:"#a09080", fontSize:14, textAlign:"center", padding:"20px 0" }}>Sin ventas en este período</div> :
+              ventasFilt.slice(0,8).map(v=>(
+                <div key={v.fireId} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 0", borderBottom:"1px solid #fef0e8" }}>
+                  <div>
+                    <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</div>
+                    <div style={{ fontSize:11, color:"#a09080" }}>{v.fecha} · {v.items?.length||0} producto{v.items?.length!==1?"s":""} · {v.metodoPago}</div>
+                  </div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:"#e65100" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: CAJA ── */}
+      {tabActiva==="caja" && (
+        <div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>Saldo en caja</div>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:700, color:saldoCaja>=0?"#2e7d32":"#c62828" }}>${saldoCaja.toLocaleString("es-AR")}</div>
+              <div style={{ fontSize:12, color:"#a09080", marginTop:4 }}>Incluye ventas en efectivo + movimientos manuales</div>
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setModalCaja("ingreso")} style={{ background:"#e8f5e9", border:"1.5px solid #2e7d32", color:"#2e7d32", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Ingreso</button>
+              <button onClick={()=>setModalCaja("egreso")}  style={{ background:"#ffebee", border:"1.5px solid #c62828", color:"#c62828", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>− Egreso</button>
+            </div>
+          </div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr style={{ background:"#fffaf7" }}>
+                {["Fecha","Tipo","Descripción","Monto"].map(h=><th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {[...movCaja,...ventasFilt.filter(v=>v.metodoPago==="Efectivo").map(v=>({tipo:"ingreso",descripcion:`Venta - ${v.clienteNombre||"Consumidor Final"}`,monto:v.total,fecha:v.fecha,fireId:v.fireId+"_v"}))].sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).slice(0,30).map((m,i)=>(
+                  <tr key={i} style={{ borderBottom:"1px solid #fef0e8" }}>
+                    <td style={{ padding:"10px 16px", color:"#a09080" }}>{m.fecha}</td>
+                    <td style={{ padding:"10px 16px" }}><span style={{ background:m.tipo==="ingreso"?"#e8f5e9":"#ffebee", color:m.tipo==="ingreso"?"#2e7d32":"#c62828", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700 }}>{m.tipo==="ingreso"?"↑ Ingreso":"↓ Egreso"}</span></td>
+                    <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{m.descripcion||"—"}</td>
+                    <td style={{ padding:"10px 16px", fontWeight:700, color:m.tipo==="ingreso"?"#2e7d32":"#c62828" }}>${parseFloat(m.monto||0).toLocaleString("es-AR")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: GASTOS ── */}
+      {tabActiva==="gastos" && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>
+              💸 Gastos — <span style={{ color:"#c62828" }}>${totalGastos.toLocaleString("es-AR")}</span>
+            </div>
+            <button onClick={()=>setModalGasto(true)} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Cargar Gasto</button>
+          </div>
+          {gastosFilt.length===0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center", color:"#a09080" }}>Sin gastos en este período</div>
+          ) : (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr style={{ background:"#fffaf7" }}>
+                  {["Fecha","Categoría","Descripción","Monto",""].map(h=><th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {gastosFilt.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(g=>(
+                    <tr key={g.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                      <td style={{ padding:"10px 16px", color:"#a09080" }}>{g.fecha}</td>
+                      <td style={{ padding:"10px 16px" }}><span style={{ background:"#ffebee", color:"#c62828", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{g.categoria||"Varios"}</span></td>
+                      <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{g.descripcion}</td>
+                      <td style={{ padding:"10px 16px", fontWeight:700, color:"#c62828" }}>${parseFloat(g.monto||0).toLocaleString("es-AR")}</td>
+                      <td style={{ padding:"10px 14px" }}><button onClick={async()=>{ await deleteDoc(doc(db,"gastos",g.fireId)); showToast("Gasto eliminado","error"); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, cursor:"pointer", fontSize:12 }}>🗑</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: VENTAS DETALLE ── */}
+      {tabActiva==="ventas" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <div style={{ padding:"16px 20px", borderBottom:"1px solid #f5e8e0", fontWeight:700, fontSize:15, color:"#1a2340" }}>
+            🧾 Detalle de ventas — {ventasFilt.length} venta{ventasFilt.length!==1?"s":""} · ${totalVentas.toLocaleString("es-AR")}
+          </div>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+            <thead><tr style={{ background:"#fffaf7" }}>
+              {["N°","Fecha","Cliente","Items","Método","Total"].map(h=><th key={h} style={{ padding:"10px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {ventasFilt.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(v=>(
+                <tr key={v.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                  <td style={{ padding:"10px 16px", color:"#a09080", fontFamily:"monospace", fontSize:12 }}>X-{String(v.numero||1).padStart(5,"0")}</td>
+                  <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.fecha}</td>
+                  <td style={{ padding:"10px 16px", fontWeight:600, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</td>
+                  <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.items?.map(i=>`${i.cantidad}x ${i.nombre}`).join(", ").slice(0,50)||"—"}</td>
+                  <td style={{ padding:"10px 16px" }}><span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.metodoPago}</span></td>
+                  <td style={{ padding:"10px 16px", fontFamily:"'Playfair Display',serif", fontWeight:700, color:"#e65100", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── TAB: EMPLEADOS / RRHH ── */}
+      {tabActiva==="empleados" && (
+        <div>
+          {!selectedEmp ? (
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>👷 Empleados ({empleados.length})</div>
+                <button onClick={()=>setModalEmpleado({})} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Nuevo Empleado</button>
+              </div>
+              {empleados.length===0 ? (
+                <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center", color:"#a09080" }}>Sin empleados cargados</div>
+              ) : (
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:16 }}>
+                  {empleados.map(e=>(
+                    <div key={e.fireId} onClick={()=>setSelectedEmp(e.fireId)}
+                      style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px", cursor:"pointer", borderTop:"3px solid #e65100" }}
+                      onMouseOver={ev=>ev.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
+                      onMouseOut={ev=>ev.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
+                      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{e.nombre}</div>
+                      <div style={{ fontSize:13, color:"#a09080", marginBottom:10 }}>{e.cargo||"Sin cargo"}</div>
+                      <div style={{ fontSize:13, color:"#e65100", fontWeight:700 }}>Sueldo: ${parseFloat(e.sueldo||0).toLocaleString("es-AR")}</div>
+                      {e.ingreso && <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>Desde: {e.ingreso}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <EmpleadoDetalle
+              empId={selectedEmp}
+              empleados={empleados}
+              setSelectedEmp={setSelectedEmp}
+              showToast={showToast}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: CONFIG PIN ── */}
+      {tabActiva==="config" && (
+        <div style={{ maxWidth:480 }}>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"28px 32px" }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:6 }}>🔐 Cambiar PIN de Finanzas</div>
+            <p style={{ fontSize:14, color:"#a09080", marginBottom:20 }}>El PIN actual es de 4 dígitos. Solo vos debés conocerlo.</p>
+            <CambiarPin showToast={showToast} />
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: GASTO ── */}
+      {modalGasto && <ModalGasto onClose={()=>setModalGasto(false)} showToast={showToast}/>}
+
+      {/* ── MODAL: MOVIMIENTO CAJA ── */}
+      {modalCaja && <ModalCaja tipo={modalCaja} onClose={()=>setModalCaja(null)} showToast={showToast}/>}
+
+      {/* ── MODAL: NUEVO EMPLEADO ── */}
+      {modalEmpleado && <ModalEmpleado emp={modalEmpleado} onClose={()=>setModalEmpleado(null)} showToast={showToast}/>}
+    </div>
+  );
+}
+
+// ── Detalle Empleado ──────────────────────────────────────────────────────
+function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
+  const emp = empleados.find(e=>e.fireId===empId);
+  const [pagos, setPagos]       = useState([]);
+  const [vacas, setVacas]       = useState([]);
+  const [notas, setNotas]       = useState([]);
+  const [tab, setTab]           = useState("pagos");
+  const [modalPago, setModalPago] = useState(false);
+  const [modalVaca, setModalVaca] = useState(false);
+  const [nuevaNota, setNuevaNota] = useState("");
+
+  useEffect(() => {
+    if (!emp) return;
+    const u1 = onSnapshot(collection(db,"pagosSueldo"), snap => setPagos(snap.docs.map(d=>({...d.data(),fireId:d.id})).filter(p=>p.empId===empId)));
+    const u2 = onSnapshot(collection(db,"vacaciones"), snap => setVacas(snap.docs.map(d=>({...d.data(),fireId:d.id})).filter(v=>v.empId===empId)));
+    const u3 = onSnapshot(collection(db,"notasEmp"), snap => setNotas(snap.docs.map(d=>({...d.data(),fireId:d.id})).filter(n=>n.empId===empId)));
+    return () => { u1();u2();u3(); };
+  }, [empId]);
+
+  if (!emp) return null;
+
+  const totalPagado = pagos.reduce((s,p)=>s+parseFloat(p.monto||0),0);
+  const diasTomados = vacas.filter(v=>v.tipo==="tomado").reduce((s,v)=>s+parseInt(v.dias||0),0);
+  const diasDisp    = (parseFloat(emp.diasVacaciones||14)) - diasTomados;
+
+  const agregarNota = async () => {
+    if (!nuevaNota.trim()) return;
+    await addDoc(collection(db,"notasEmp"), { empId, texto:nuevaNota.trim(), fecha:new Date().toISOString().split("T")[0] });
+    setNuevaNota("");
+    showToast("Nota guardada ✅");
+  };
+
+  return (
+    <div>
+      <button onClick={()=>setSelectedEmp(null)} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16 }}>← Volver</button>
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 26px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:16 }}>
+        <div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{emp.nombre}</div>
+          <div style={{ fontSize:13, color:"#a09080", marginTop:2 }}>{emp.cargo||"Sin cargo"} · Desde {emp.ingreso||"—"}</div>
+          {emp.telefono && <div style={{ fontSize:13, color:"#e65100", fontWeight:700, marginTop:6 }}>📞 {emp.telefono}</div>}
+        </div>
+        <div style={{ display:"flex", gap:12 }}>
+          <div style={{ background:"#fff8f5", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Sueldo</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#e65100" }}>${parseFloat(emp.sueldo||0).toLocaleString("es-AR")}</div>
+          </div>
+          <div style={{ background:"#f1f8e9", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Días vac.</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#2e7d32" }}>{diasDisp}</div>
+          </div>
+          <div style={{ background:"#e3f2fd", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Total pagado</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1565c0" }}>${totalPagado.toLocaleString("es-AR")}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs empleado */}
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {[["pagos","💵 Pagos"],["vacaciones","🏖️ Vacaciones"],["notas","📝 Notas"]].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)}
+            style={{ padding:"7px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
+              background:tab===t?"#e65100":"#fff", color:tab===t?"#fff":"#4a5568",
+              boxShadow:tab===t?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+            {l}
+          </button>
+        ))}
+        <button onClick={()=>setModalPago(true)} style={{ marginLeft:"auto", background:"#2e7d32", color:"#fff", border:"none", padding:"7px 16px", borderRadius:20, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Registrar Pago</button>
+      </div>
+
+      {tab==="pagos" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          {pagos.length===0 ? <div style={{ padding:"32px", textAlign:"center", color:"#a09080" }}>Sin pagos registrados</div> :
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr style={{ background:"#fffaf7" }}>
+                {["Fecha","Concepto","Monto",""].map(h=><th key={h} style={{ padding:"10px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {pagos.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(p=>(
+                  <tr key={p.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                    <td style={{ padding:"10px 16px", color:"#a09080" }}>{p.fecha}</td>
+                    <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{p.concepto||"Sueldo"}</td>
+                    <td style={{ padding:"10px 16px", fontWeight:700, color:"#2e7d32" }}>${parseFloat(p.monto||0).toLocaleString("es-AR")}</td>
+                    <td style={{ padding:"10px 14px" }}><button onClick={async()=>{ await deleteDoc(doc(db,"pagosSueldo",p.fireId)); showToast("Eliminado","error"); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"3px 7px", borderRadius:5, cursor:"pointer", fontSize:11 }}>🗑</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          }
+        </div>
+      )}
+
+      {tab==="vacaciones" && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+            <button onClick={()=>setModalVaca(true)} style={{ background:"#e65100", color:"#fff", border:"none", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Registrar Vacaciones</button>
+          </div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+            {vacas.length===0 ? <div style={{ padding:"32px", textAlign:"center", color:"#a09080" }}>Sin registros de vacaciones</div> :
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr style={{ background:"#fffaf7" }}>
+                  {["Fecha","Tipo","Días","Nota",""].map(h=><th key={h} style={{ padding:"10px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {vacas.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(v=>(
+                    <tr key={v.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                      <td style={{ padding:"10px 16px", color:"#a09080" }}>{v.fecha}</td>
+                      <td style={{ padding:"10px 16px" }}><span style={{ background:v.tipo==="tomado"?"#fff3e0":"#e8f5e9", color:v.tipo==="tomado"?"#e65100":"#2e7d32", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.tipo==="tomado"?"Tomado":"Acreditado"}</span></td>
+                      <td style={{ padding:"10px 16px", fontWeight:700 }}>{v.dias}</td>
+                      <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.nota||"—"}</td>
+                      <td style={{ padding:"10px 14px" }}><button onClick={async()=>{ await deleteDoc(doc(db,"vacaciones",v.fireId)); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"3px 7px", borderRadius:5, cursor:"pointer", fontSize:11 }}>🗑</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            }
+          </div>
+        </div>
+      )}
+
+      {tab==="notas" && (
+        <div>
+          <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+            <input value={nuevaNota} onChange={e=>setNuevaNota(e.target.value)} onKeyDown={e=>e.key==="Enter"&&agregarNota()}
+              placeholder="Escribí una nota sobre el empleado..."
+              style={{ flex:1, padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
+            <button onClick={agregarNota} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>Agregar</button>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {notas.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(n=>(
+              <div key={n.fireId} style={{ background:"#fff", borderRadius:10, padding:"14px 18px", boxShadow:"0 1px 6px rgba(230,81,0,.07)", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                <div>
+                  <div style={{ fontSize:14, color:"#1a2340", lineHeight:1.5 }}>{n.texto}</div>
+                  <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>{n.fecha}</div>
+                </div>
+                <button onClick={async()=>{ await deleteDoc(doc(db,"notasEmp",n.fireId)); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"3px 7px", borderRadius:5, cursor:"pointer", fontSize:11 }}>🗑</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {modalPago && (
+        <ModalSimple titulo="💵 Registrar Pago de Sueldo" onClose={()=>setModalPago(false)} onSave={async(form)=>{
+          await addDoc(collection(db,"pagosSueldo"),{empId,...form,fecha:form.fecha||new Date().toISOString().split("T")[0]});
+          showToast("Pago registrado ✅"); setModalPago(false);
+        }} campos={[{key:"monto",label:"Monto",type:"number",placeholder:"0"},{key:"concepto",label:"Concepto",placeholder:"Sueldo quincenal..."},{key:"fecha",label:"Fecha",type:"date"}]}/>
+      )}
+      {modalVaca && (
+        <ModalSimple titulo="🏖️ Registrar Vacaciones" onClose={()=>setModalVaca(false)} onSave={async(form)=>{
+          await addDoc(collection(db,"vacaciones"),{empId,...form,fecha:form.fecha||new Date().toISOString().split("T")[0]});
+          showToast("Vacaciones registradas ✅"); setModalVaca(false);
+        }} campos={[{key:"dias",label:"Días",type:"number",placeholder:"0"},{key:"tipo",label:"Tipo",type:"select",options:["tomado","acreditado"]},{key:"nota",label:"Nota",placeholder:"Opcional..."},{key:"fecha",label:"Fecha",type:"date"}]}/>
+      )}
+    </div>
+  );
+}
+
+// ── Modal Simple reutilizable ─────────────────────────────────────────────
+function ModalSimple({ titulo, campos, onClose, onSave }) {
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+  const handleSave = async () => { setSaving(true); await onSave(form); setSaving(false); };
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{titulo}</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {campos.map(c=>(
+            <div key={c.key}>
+              <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>{c.label}</label>
+              {c.type==="select"
+                ? <select value={form[c.key]||""} onChange={e=>setForm(f=>({...f,[c.key]:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+                    <option value="">Seleccionar...</option>
+                    {c.options.map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}
+                  </select>
+                : <input type={c.type||"text"} value={form[c.key]||""} onChange={e=>setForm(f=>({...f,[c.key]:e.target.value}))} placeholder={c.placeholder||""} style={inp}/>
+              }
+            </div>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:20 }}>
+          <button onClick={onClose} style={{ padding:"9px 18px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving} style={{ padding:"9px 22px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            {saving?"Guardando...":"✅ Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modales Finanzas ──────────────────────────────────────────────────────
+function ModalGasto({ onClose, showToast }) {
+  return <ModalSimple titulo="💸 Cargar Gasto" onClose={onClose} onSave={async(form)=>{
+    await addDoc(collection(db,"gastos"),{...form,fecha:form.fecha||new Date().toISOString().split("T")[0],monto:parseFloat(form.monto)||0});
+    showToast("Gasto cargado ✅"); onClose();
+  }} campos={[{key:"descripcion",label:"Descripción",placeholder:"Ej: Compra de insumos"},{key:"monto",label:"Monto",type:"number",placeholder:"0"},{key:"categoria",label:"Categoría",placeholder:"Insumos, Servicios, Personal..."},{key:"fecha",label:"Fecha",type:"date"}]}/>;
+}
+
+function ModalCaja({ tipo, onClose, showToast }) {
+  return <ModalSimple titulo={tipo==="ingreso"?"+ Ingreso Manual a Caja":"− Egreso Manual de Caja"} onClose={onClose} onSave={async(form)=>{
+    await addDoc(collection(db,"movCaja"),{...form,tipo,fecha:form.fecha||new Date().toISOString().split("T")[0],monto:parseFloat(form.monto)||0});
+    showToast(`${tipo==="ingreso"?"Ingreso":"Egreso"} registrado ✅`); onClose();
+  }} campos={[{key:"monto",label:"Monto",type:"number",placeholder:"0"},{key:"descripcion",label:"Descripción",placeholder:"Motivo..."},{key:"fecha",label:"Fecha",type:"date"}]}/>;
+}
+
+function ModalEmpleado({ emp, onClose, showToast }) {
+  return <ModalSimple titulo={emp.fireId?"✏️ Editar Empleado":"👷 Nuevo Empleado"} onClose={onClose} onSave={async(form)=>{
+    if(emp.fireId) { await updateDoc(doc(db,"empleados",emp.fireId),form); showToast("Empleado actualizado ✅"); }
+    else { await addDoc(collection(db,"empleados"),form); showToast("Empleado creado ✅"); }
+    onClose();
+  }} campos={[{key:"nombre",label:"Nombre completo",placeholder:"Nombre y apellido"},{key:"cargo",label:"Cargo",placeholder:"Cajero, Operario..."},{key:"sueldo",label:"Sueldo base",type:"number",placeholder:"0"},{key:"ingreso",label:"Fecha de ingreso",type:"date"},{key:"telefono",label:"Teléfono",placeholder:"11-xxxx-xxxx"},{key:"diasVacaciones",label:"Días de vacaciones/año",type:"number",placeholder:"14"}]}/>;
+}
+
+function CambiarPin({ showToast }) {
+  const [pinActual, setPinActual] = useState("");
+  const [pinNuevo, setPinNuevo]   = useState("");
+  const [pinConf, setPinConf]     = useState("");
+  const [saving, setSaving]       = useState(false);
+  const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+  const handleSave = async () => {
+    if (pinNuevo.length!==4||!/^\d{4}$/.test(pinNuevo)) { showToast("El PIN debe ser exactamente 4 dígitos","error"); return; }
+    if (pinNuevo!==pinConf) { showToast("Los PINs no coinciden","error"); return; }
+    setSaving(true);
+    const snap = await getDoc(doc(db,"config","finanzas")).catch(()=>null);
+    const savedPin = snap?.exists() ? snap.data().pin : "1234";
+    if (pinActual!==savedPin) { showToast("PIN actual incorrecto","error"); setSaving(false); return; }
+    await setDoc(doc(db,"config","finanzas"),{pin:pinNuevo});
+    showToast("PIN actualizado ✅"); setPinActual(""); setPinNuevo(""); setPinConf(""); setSaving(false);
+  };
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div><label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>PIN actual</label><input type="password" maxLength={4} value={pinActual} onChange={e=>setPinActual(e.target.value)} placeholder="••••" style={inp}/></div>
+      <div><label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>PIN nuevo (4 dígitos)</label><input type="password" maxLength={4} value={pinNuevo} onChange={e=>setPinNuevo(e.target.value)} placeholder="••••" style={inp}/></div>
+      <div><label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Confirmar PIN nuevo</label><input type="password" maxLength={4} value={pinConf} onChange={e=>setPinConf(e.target.value)} placeholder="••••" style={inp}/></div>
+      <button onClick={handleSave} disabled={saving} style={{ padding:"11px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:4 }}>
+        {saving?"Guardando...":"🔐 Cambiar PIN"}
+      </button>
+      <p style={{ fontSize:12, color:"#a09080" }}>El PIN por defecto es <strong>1234</strong>. Cambialo antes de usar.</p>
+    </div>
+  );
+}
+
 // ── Helper para imprimir con config lista ────────────────────────────────
 function imprimirConConfig(fn, empresa, configCargada) {
   if (!configCargada) {
@@ -2747,6 +3377,7 @@ export default function App() {
   const [editingInsumoId, setEditingInsumoId]     = useState(null);
   const [nuevoEventoModal, setNuevoEventoModal]   = useState(false);
   const [menuAbierto, setMenuAbierto]             = useState(false);
+  const [finanzasDesbloqueado, setFinanzasDesbloqueado] = useState(false);
   const [busquedaGlobal, setBusquedaGlobal]       = useState("");
   const [busqGlobalOpen, setBusqGlobalOpen]       = useState(false);
 
@@ -3001,6 +3632,7 @@ export default function App() {
             <div className={`nav-lnk ${view==="agenda"?"act":""}`} onClick={() => setView("agenda")}>📅 Agenda</div>
             <div className={`nav-lnk ${(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}`} onClick={() => setView("proveedores")}>🏭 Proveedores</div>
             <div className={`nav-lnk ${view==="config"?"act":""}`} onClick={() => setView("config")}>⚙️ Config</div>
+            <div className={`nav-lnk ${view==="finanzas"?"act":""}`} onClick={() => setView("finanzas")} style={{ background:"rgba(255,255,255,.15)", fontWeight:700 }}>💼 Finanzas</div>
             <div style={{ width:1, height:24, background:"rgba(255,255,255,.2)", margin:"0 4px" }}></div>
 
             {/* Contextuales pedidos */}
@@ -3602,6 +4234,17 @@ export default function App() {
           <ProveedoresView
             view={view}
             setView={setView}
+            showToast={showToast}
+          />
+        )}
+
+        {/* ── FINANZAS ── */}
+        {view==="finanzas" && (
+          <FinanzasView
+            pedidos={pedidos}
+            clientes={clientes}
+            desbloqueado={finanzasDesbloqueado}
+            setDesbloqueado={setFinanzasDesbloqueado}
             showToast={showToast}
           />
         )}
