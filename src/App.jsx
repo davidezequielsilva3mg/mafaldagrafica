@@ -3376,7 +3376,7 @@ export default function App() {
   const [editingClienteId, setEditingClienteId]   = useState(null);
   const [editingInsumoId, setEditingInsumoId]     = useState(null);
   const [nuevoEventoModal, setNuevoEventoModal]   = useState(false);
-  const [menuAbierto, setMenuAbierto]             = useState(false);
+  const [menuAbierto, setMenuAbierto]             = useState(true);
   const [finanzasDesbloqueado, setFinanzasDesbloqueado] = useState(false);
   const [busquedaGlobal, setBusquedaGlobal]       = useState("");
   const [busqGlobalOpen, setBusqGlobalOpen]       = useState(false);
@@ -3542,7 +3542,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ fontFamily:"'DM Sans',sans-serif", minHeight:"100vh", background:"#fff8f5", color:"#1a2340" }}>
+    <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#1a2340" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
@@ -3575,25 +3575,47 @@ export default function App() {
         @keyframes fIn{from{opacity:0}to{opacity:1}}
         @keyframes pIn{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
         /* ── Responsive ── */
-        .nav-desktop{display:flex;align-items:center;gap:4px}
-        .nav-mobile-btn{display:none;background:rgba(255,255,255,.15);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:20px}
-        .nav-mobile-menu{display:none;position:absolute;top:70px;left:0;right:0;background:linear-gradient(135deg,#bf360c,#e65100);z-index:500;padding:12px 16px;flex-direction:column;gap:6px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
-        .nav-mobile-menu.open{display:flex}
-        .nav-mobile-item{padding:12px 16px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;color:rgba(255,255,255,.85);transition:all .18s}
-        .nav-mobile-item:hover,.nav-mobile-item.act{background:rgba(255,255,255,.2);color:#fff;font-weight:700}
-        .main-content{padding:20px 28px}
+        /* ── Sidebar layout ── */
+        .app-shell{display:flex;min-height:100vh}
+        .sidebar{width:220px;min-height:100vh;background:linear-gradient(180deg,#bf360c 0%,#e65100 100%);display:flex;flex-direction:column;transition:width .25s cubic-bezier(.4,0,.2,1);flex-shrink:0;position:relative;z-index:100;box-shadow:4px 0 20px rgba(191,54,12,.25)}
+        .sidebar.collapsed{width:64px}
+        .sidebar-logo{display:flex;align-items:center;gap:10px;padding:18px 14px 14px;border-bottom:1px solid rgba(255,255,255,.15);min-height:70px;overflow:hidden}
+        .sidebar-logo img{height:38px;object-fit:contain;border-radius:6px;flex-shrink:0}
+        .sidebar-logo-txt{overflow:hidden;white-space:nowrap}
+        .sidebar-logo-name{font-family:"Playfair Display",serif;font-size:16px;font-weight:700;color:#fff;line-height:1.2}
+        .sidebar-logo-sub{font-size:9px;color:rgba(255,255,255,.55);letter-spacing:1px;text-transform:uppercase}
+        .sidebar-toggle{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:14px;flex-shrink:0;transition:background .18s;margin-left:auto}
+        .sidebar-toggle:hover{background:rgba(255,255,255,.25)}
+        .sidebar-nav{flex:1;padding:10px 8px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;overflow-x:hidden}
+        .sidebar-item{display:flex;align-items:center;gap:12px;padding:10px 10px;border-radius:10px;cursor:pointer;transition:all .18s;color:rgba(255,255,255,.75);white-space:nowrap;overflow:hidden;font-size:14px;font-weight:500;font-family:"DM Sans",sans-serif;border:none;background:transparent;width:100%;text-align:left}
+        .sidebar-item:hover{background:rgba(255,255,255,.15);color:#fff}
+        .sidebar-item.act{background:rgba(255,255,255,.22);color:#fff;font-weight:700}
+        .sidebar-item.finanzas-item{background:rgba(255,255,255,.12);margin-top:auto}
+        .sidebar-item.finanzas-item.act{background:rgba(255,255,255,.25)}
+        .sidebar-icon{font-size:18px;flex-shrink:0;width:22px;text-align:center}
+        .sidebar-label{overflow:hidden;transition:opacity .2s,max-width .25s;max-width:160px;opacity:1}
+        .collapsed .sidebar-label{max-width:0;opacity:0}
+        .sidebar-bottom{padding:10px 8px;border-top:1px solid rgba(255,255,255,.15)}
+        .sidebar-badge{background:#f57f17;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-left:auto;flex-shrink:0}
+        .main-area{flex:1;display:flex;flex-direction:column;min-width:0;background:#fff8f5}
+        .topbar{height:58px;background:#fff;border-bottom:1px solid #f0d5c0;display:flex;align-items:center;padding:0 24px;gap:12px;box-shadow:0 1px 8px rgba(230,81,0,.06);flex-shrink:0}
+        .topbar-title{font-family:"Playfair Display",serif;font-size:18px;font-weight:700;color:#1a2340;flex:1}
+        .main-content{padding:24px 28px;flex:1}
         .grid-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
         .grid-2col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
         .grid-nueva-venta{display:grid;grid-template-columns:1fr 420px;gap:20px;align-items:start}
         .grid-agenda{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start}
         .busq-global-overlay{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.4)}
-        .busq-global-box{position:fixed;top:80px;left:50%;transform:translateX(-50%);width:min(600px,92vw);background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.2);z-index:401;overflow:hidden}
-        .busq-global-input{width:100%;padding:16px 20px;font-size:16px;border:none;outline:none;font-family:'DM Sans',sans-serif;color:#1a2340}
+        .busq-global-box{position:fixed;top:70px;left:50%;transform:translateX(-50%);width:min(600px,92vw);background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.2);z-index:401;overflow:hidden}
+        .busq-global-input{width:100%;padding:16px 20px;font-size:16px;border:none;outline:none;font-family:"DM Sans",sans-serif;color:#1a2340}
         .busq-global-result{padding:11px 20px;cursor:pointer;border-top:1px solid #fef0e8;display:flex;align-items:center;gap:12px;transition:background .15s}
         .busq-global-result:hover{background:#fff8f5}
+        .ctx-btn{background:rgba(230,81,0,.1);color:#e65100;border:1.5px solid rgba(230,81,0,.3);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:"DM Sans",sans-serif;transition:all .18s}
+        .ctx-btn:hover{background:#e65100;color:#fff}
         @media(max-width:900px){
-          .nav-desktop{display:none}
-          .nav-mobile-btn{display:block}
+          .sidebar{position:fixed;top:0;left:0;height:100vh;z-index:200;transform:translateX(0)}
+          .sidebar.collapsed{width:0;overflow:hidden}
+          .main-area{margin-left:0}
           .main-content{padding:16px}
           .grid-stats{grid-template-columns:repeat(2,1fr)}
           .grid-2col{grid-template-columns:1fr}
@@ -3606,127 +3628,166 @@ export default function App() {
         }
       `}</style>
 
-      {/* HEADER */}
-      <div style={{ background:"linear-gradient(135deg,#bf360c 0%,#e65100 55%,#ff6d00 100%)", boxShadow:"0 4px 20px rgba(191,54,12,.35)", position:"relative" }}>
-        <div style={{ padding:"0 20px", display:"flex", alignItems:"center", justifyContent:"space-between", height:70 }}>
+      {/* ── SIDEBAR + MAIN LAYOUT ── */}
+      <div className="app-shell">
+
+        {/* ── SIDEBAR ── */}
+        <aside className={`sidebar${menuAbierto?"":" collapsed"}`}>
           {/* Logo */}
-          <div style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer", flexShrink:0 }} onClick={() => setView("lista")}>
+          <div className="sidebar-logo">
             {empresa.logo
-              ? <img src={empresa.logo} alt="Logo" style={{ height:46, maxWidth:140, objectFit:"contain", borderRadius:8 }}/>
-              : <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                  <div style={{ width:42, height:42, background:"rgba(255,255,255,.13)", borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🖨️</div>
-                  <div style={{ display:"flex", flexDirection:"column" }}>
-                    <div style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:19, fontWeight:700, color:"#fff", lineHeight:1.1 }}>{empresa.nombre||"Mafalda Gráfica"}</div>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,.55)", letterSpacing:"1px", textTransform:"uppercase" }}>Sistema de Pedidos</div>
-                  </div>
-                </div>
+              ? <img src={empresa.logo} alt="Logo" style={{ height:38, maxWidth:120, objectFit:"contain", borderRadius:6, flexShrink:0 }}/>
+              : <span className="sidebar-icon" style={{ fontSize:26 }}>🖨️</span>
             }
+            <div className="sidebar-logo-txt">
+              <div className="sidebar-logo-name">{empresa.nombre||"Mafalda"}</div>
+              <div className="sidebar-logo-sub">Gestión</div>
+            </div>
+            <button className="sidebar-toggle" onClick={()=>setMenuAbierto(m=>!m)} title={menuAbierto?"Colapsar menú":"Expandir menú"}>
+              {menuAbierto?"◀":"▶"}
+            </button>
           </div>
 
-          {/* Nav desktop */}
-          <nav className="nav-desktop">
-            <div className={`nav-lnk ${(view==="lista"||view==="listos"||view==="formulario"||view==="detalle")?"act":""}`} onClick={() => setView("lista")}>📋 Pedidos</div>
-            <div className={`nav-lnk ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}`} onClick={() => setView("clientes")}>👥 Clientes</div>
-            <div className={`nav-lnk ${(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo")?"act":""}`} onClick={() => setView("insumos")}>📦 Insumos</div>
-            <div className={`nav-lnk ${(view==="ventas"||view==="nuevaVenta")?"act":""}`} onClick={() => setView("ventas")}>💰 Ventas</div>
-            <div className={`nav-lnk ${view==="agenda"?"act":""}`} onClick={() => setView("agenda")}>📅 Agenda</div>
-            <div className={`nav-lnk ${(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}`} onClick={() => setView("proveedores")}>🏭 Proveedores</div>
-            <div className={`nav-lnk ${view==="config"?"act":""}`} onClick={() => setView("config")}>⚙️ Config</div>
-            <div className={`nav-lnk ${view==="finanzas"?"act":""}`} onClick={() => setView("finanzas")} style={{ background:"rgba(255,255,255,.15)", fontWeight:700 }}>💼 Finanzas</div>
-            <div style={{ width:1, height:24, background:"rgba(255,255,255,.2)", margin:"0 4px" }}></div>
+          {/* Nav items */}
+          <nav className="sidebar-nav">
+            <button className={`sidebar-item ${(view==="lista"||view==="listos"||view==="formulario"||view==="detalle")?"act":""}` + ""} onClick={()=>{ setView("lista"); }}>
+              <span className="sidebar-icon">📋</span>
+              <span className="sidebar-label">Pedidos</span>
+            </button>
+            <button className={`sidebar-item ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}` + ""} onClick={()=>{ setView("clientes"); }}>
+              <span className="sidebar-icon">👥</span>
+              <span className="sidebar-label">Clientes</span>
+            </button>
+            <button className={`sidebar-item ${(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo")?"act":""}` + ""} onClick={()=>{ setView("insumos"); }}>
+              <span className="sidebar-icon">📦</span>
+              <span className="sidebar-label">Insumos</span>
+            </button>
+            <button className={`sidebar-item ${(view==="ventas"||view==="nuevaVenta")?"act":""}` + ""} onClick={()=>{ setView("ventas"); }}>
+              <span className="sidebar-icon">💰</span>
+              <span className="sidebar-label">Ventas</span>
+            </button>
+            <button className={`sidebar-item ${(view==="agenda")?"act":""}` + ""} onClick={()=>{ setView("agenda"); }}>
+              <span className="sidebar-icon">📅</span>
+              <span className="sidebar-label">Agenda</span>
+            </button>
+            <button className={`sidebar-item ${(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}` + ""} onClick={()=>{ setView("proveedores"); }}>
+              <span className="sidebar-icon">🏭</span>
+              <span className="sidebar-label">Proveedores</span>
+            </button>
+            <button className={`sidebar-item ${(view==="config")?"act":""}` + ""} onClick={()=>{ setView("config"); }}>
+              <span className="sidebar-icon">⚙️</span>
+              <span className="sidebar-label">Configuración</span>
+            </button>
 
-            {/* Contextuales pedidos */}
-            {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && (<>
-              <div className={`nav-lnk ${view==="listos"?"act":""}`} onClick={() => setView("listos")} style={{ position:"relative", fontSize:13 }}>
-                ✅ Listos
-                {pedidos.filter(p=>p.estado==="Listo").length > 0 && (
-                  <span style={{ position:"absolute", top:2, right:2, background:"#f57f17", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:10, fontWeight:700, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
-                    {pedidos.filter(p=>p.estado==="Listo").length}
-                  </span>
-                )}
-              </div>
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                onClick={() => { setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); }}>
-                + Nuevo Pedido
-              </div>
-            </>)}
-            {(view==="clientes"||view==="nuevoCliente"||view==="editarCliente") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setView("nuevoCliente")}>➕ Cliente</div>
+            {/* Listos badge */}
+            {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && pedidos.filter(p=>p.estado==="Listo").length > 0 && (
+              <button className={`sidebar-item ${view==="listos"?"act":""}`} onClick={()=>setView("listos")} style={{ marginTop:-2 }}>
+                <span className="sidebar-icon">✅</span>
+                <span className="sidebar-label">Listos</span>
+                <span className="sidebar-badge">{pedidos.filter(p=>p.estado==="Listo").length}</span>
+              </button>
             )}
-            {(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setView("nuevoInsumo")}>➕ Insumo</div>
+          </nav>
+
+          {/* Finanzas al fondo */}
+          <div className="sidebar-bottom">
+            <button className={`sidebar-item finanzas-item ${view==="finanzas"?"act":""}`} onClick={()=>setView("finanzas")}>
+              <span className="sidebar-icon">💼</span>
+              <span className="sidebar-label">Finanzas</span>
+            </button>
+            <button className="sidebar-item" onClick={handleLogout} style={{ marginTop:4 }}>
+              <span className="sidebar-icon">🔒</span>
+              <span className="sidebar-label">Salir</span>
+            </button>
+          </div>
+        </aside>
+
+        {/* ── MAIN AREA ── */}
+        <div className="main-area">
+
+          {/* Topbar */}
+          <div className="topbar">
+            {/* Toggle en mobile */}
+            <button onClick={()=>setMenuAbierto(m=>!m)}
+              style={{ background:"transparent", border:"none", color:"#e65100", fontSize:20, cursor:"pointer", padding:"4px 6px", borderRadius:6, marginRight:4, display:"none" }}
+              className="mobile-menu-btn">
+              ☰
+            </button>
+            <div className="topbar-title">
+              {view==="lista" ? "📋 Pedidos" :
+          view==="listos" ? "📋 Pedidos" :
+          view==="formulario" ? "📋 Pedidos" :
+          view==="detalle" ? "📋 Pedidos" :
+          view==="clientes" ? "👥 Clientes" :
+          view==="nuevoCliente" ? "👥 Clientes" :
+          view==="editarCliente" ? "👥 Clientes" :
+          view==="insumos" ? "📦 Insumos" :
+          view==="nuevoInsumo" ? "📦 Insumos" :
+          view==="editarInsumo" ? "📦 Insumos" :
+          view==="ventas" ? "💰 Ventas" :
+          view==="nuevaVenta" ? "💰 Ventas" :
+          view==="agenda" ? "📅 Agenda" :
+          view==="proveedores" ? "🏭 Proveedores" :
+          view==="nuevoProveedor" ? "🏭 Proveedores" :
+          view==="editarProveedor" ? "🏭 Proveedores" :
+          view==="config" ? "⚙️ Configuración" :
+          view==="finanzas" ? "💼 Finanzas" :
+          "Sistema"}
+            </div>
+
+            {/* Botones contextuales en topbar */}
+            {(view==="lista"||view==="formulario"||view==="detalle") && (
+              <button className="ctx-btn" onClick={()=>{ setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); }}>
+                + Nuevo Pedido
+              </button>
+            )}
+            {(view==="clientes"||view==="nuevoCliente") && (
+              <button className="ctx-btn" onClick={()=>setView("nuevoCliente")}>➕ Nuevo Cliente</button>
+            )}
+            {(view==="insumos"||view==="nuevoInsumo") && (
+              <button className="ctx-btn" onClick={()=>setView("nuevoInsumo")}>➕ Nuevo Insumo</button>
             )}
             {(view==="ventas"||view==="nuevaVenta") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setView("nuevaVenta")}>➕ Venta</div>
+              <button className="ctx-btn" onClick={()=>setView("nuevaVenta")}>➕ Nueva Venta</button>
             )}
             {view==="agenda" && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setNuevoEventoModal(true)}>➕ Evento</div>
+              <button className="ctx-btn" onClick={()=>setNuevoEventoModal(true)}>➕ Nuevo Evento</button>
             )}
-            {(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setView("nuevoProveedor")}>➕ Proveedor</div>
+            {(view==="proveedores"||view==="nuevoProveedor") && (
+              <button className="ctx-btn" onClick={()=>setView("nuevoProveedor")}>➕ Nuevo Proveedor</button>
             )}
 
             {/* Buscador global */}
-            <button onClick={() => setBusqGlobalOpen(true)}
-              style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", padding:"7px 12px", borderRadius:8, cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", gap:6 }}
-              title="Búsqueda global">
-              🔍
+            <button onClick={()=>setBusqGlobalOpen(true)}
+              style={{ background:"rgba(230,81,0,.08)", border:"1.5px solid rgba(230,81,0,.2)", color:"#e65100", padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", gap:6, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>
+              🔍 <span style={{ fontSize:13 }}>Buscar</span>
             </button>
 
             {!configCargada && (
-              <div style={{ fontSize:11, color:"rgba(255,255,255,.6)", display:"flex", alignItems:"center", gap:4 }}>
-                <span style={{ width:8, height:8, borderRadius:"50%", background:"#ffb74d", display:"inline-block", animation:"pulse 1s infinite" }}></span>
-              </div>
+              <span style={{ fontSize:11, color:"#a09080", display:"flex", alignItems:"center", gap:4 }}>
+                <span style={{ width:7, height:7, borderRadius:"50%", background:"#ffb74d", display:"inline-block", animation:"pulse 1s infinite" }}></span>
+              </span>
             )}
-            <div className="nav-lnk" onClick={handleLogout} style={{ marginLeft:2, background:"rgba(255,255,255,.15)", color:"#fff", fontSize:13 }}>🔒 Salir</div>
-          </nav>
-
-          {/* Nav mobile: solo iconos + hamburguesa */}
-          <div style={{ display:"flex", alignItems:"center", gap:8 }} className="nav-mobile-only" style={{ display:"none" }}>
-            <button onClick={() => setBusqGlobalOpen(true)} style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", padding:"8px 10px", borderRadius:8, cursor:"pointer", fontSize:18 }}>🔍</button>
-            <button className="nav-mobile-btn" onClick={() => setMenuAbierto(m=>!m)}>☰</button>
           </div>
-        </div>
 
-        {/* Menú mobile desplegable */}
-        <div className={`nav-mobile-menu${menuAbierto?" open":""}`}>
-          {[
-            {v:"lista",      label:"📋 Pedidos",       active:["lista","listos","formulario","detalle"]},
-            {v:"clientes",   label:"👥 Clientes",       active:["clientes","nuevoCliente","editarCliente"]},
-            {v:"insumos",    label:"📦 Insumos",        active:["insumos","nuevoInsumo","editarInsumo"]},
-            {v:"ventas",     label:"💰 Ventas",         active:["ventas","nuevaVenta"]},
-            {v:"agenda",     label:"📅 Agenda",         active:["agenda"]},
-            {v:"proveedores",label:"🏭 Proveedores",    active:["proveedores","nuevoProveedor","editarProveedor"]},
-            {v:"config",     label:"⚙️ Configuración",  active:["config"]},
-          ].map(item => (
-            <div key={item.v} className={`nav-mobile-item${item.active.includes(view)?" act":""}`}
-              onClick={() => { setView(item.v); setMenuAbierto(false); }}>
-              {item.label}
-            </div>
-          ))}
-          <div style={{ borderTop:"1px solid rgba(255,255,255,.2)", marginTop:4, paddingTop:8 }}>
-            <div className="nav-mobile-item" onClick={handleLogout}>🔒 Cerrar sesión</div>
-          </div>
-        </div>
-      </div>
+          {/* Buscador Global */}
+          {busqGlobalOpen && (
+            <BuscadorGlobal
+              pedidos={pedidos}
+              clientes={clientes}
+              busqueda={busquedaGlobal}
+              setBusqueda={setBusquedaGlobal}
+              onClose={() => { setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+              onSelectPedido={(p) => { setSelectedPedido(p); setView("detalle"); setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+              onSelectCliente={() => { setView("clientes"); setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+              ESTADO_COLOR={ESTADO_COLOR}
+              CATEGORIA_COLOR={CATEGORIA_COLOR}
+              CATEGORIA_ICON={CATEGORIA_ICON}
+            />
+          )}
 
-      {/* ── Buscador Global ── */}
-      {busqGlobalOpen && (
-        <BuscadorGlobal
-          pedidos={pedidos}
-          clientes={clientes}
-          busqueda={busquedaGlobal}
-          setBusqueda={setBusquedaGlobal}
-          onClose={() => { setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
-          onSelectPedido={(p) => { setSelectedPedido(p); setView("detalle"); setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
-          onSelectCliente={() => { setView("clientes"); setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
-          ESTADO_COLOR={ESTADO_COLOR}
-          CATEGORIA_COLOR={CATEGORIA_COLOR}
-          CATEGORIA_ICON={CATEGORIA_ICON}
-        />
-      )}
+          <div className="main-content" onClick={()=>{ if(window.innerWidth<=900) setMenuAbierto(false); }}>
 
-      <div className="main-content" onClick={() => setMenuAbierto(false)}>
 
         {/* STATS — solo en pestaña Pedidos */}
         {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && (
@@ -4339,6 +4400,9 @@ export default function App() {
           {toast.type==="error"?"🗑 ":"✅ "}{toast.msg}
         </div>
       )}
+          </div>{/* end main-content */}
+        </div>{/* end main-area */}
+      </div>{/* end app-shell */}
     </div>
   );
 }
