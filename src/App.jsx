@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   collection, onSnapshot, addDoc, updateDoc,
@@ -951,7 +951,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
 
   return (
     <div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:20, alignItems:"start" }}>
+      <div className="grid-agenda">
 
         {/* ── Calendario ── */}
         <div>
@@ -1521,7 +1521,7 @@ function FormularioProveedor({ prov, setView, setSelected, showToast }) {
 }
 
 // ── Componente: Historial de Ventas ───────────────────────────────────────
-function VentasView({ setView, showToast, clientes, empresa }) {
+function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
   const [ventas, setVentas]     = useState([]);
   const [loading, setLoading]   = useState(true);
   const [busq, setBusq]         = useState("");
@@ -1643,7 +1643,7 @@ function VentasView({ setView, showToast, clientes, empresa }) {
                     <td style={{ padding:"12px 14px" }}>
                       <div style={{ display:"flex", gap:6 }}>
                         <button onClick={() => imprimirComprobante(v, empresa)}
-                          style={{ background:"#e65100", color:"#fff", border:"none", padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>🖨️</button>
+                          style={{ background: configCargada?"#e65100":"#ccc", color:"#fff", border:"none", padding:"5px 10px", borderRadius:6, fontSize:12, cursor: configCargada?"pointer":"not-allowed", fontWeight:600 }} title={configCargada?"Imprimir comprobante":"Cargando configuración..."}>🖨️</button>
                         <button onClick={() => handleDelete(v)}
                           style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
                       </div>
@@ -1660,7 +1660,7 @@ function VentasView({ setView, showToast, clientes, empresa }) {
 }
 
 // ── Componente: Nueva Venta ───────────────────────────────────────────────
-function NuevaVentaView({ setView, showToast, clientes, empresa }) {
+function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }) {
   const [insumos, setInsumos]           = useState([]);
   const [items, setItems]               = useState([]);
   const [busqProd, setBusqProd]         = useState("");
@@ -1768,7 +1768,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
     <div>
       <button onClick={() => setView("ventas")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 420px", gap:20, alignItems:"start" }}>
+      <div className="grid-nueva-venta">
 
         {/* ── Columna izquierda: productos ── */}
         <div>
@@ -1903,7 +1903,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
           {/* Botón confirmar */}
           <button onClick={handleGuardar} disabled={saving||items.length===0}
             style={{ width:"100%", padding:"15px", background: items.length===0?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:16, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
-            {saving ? "Guardando..." : "✅ Confirmar Venta · Imprimir Comprobante"}
+            {saving ? "Guardando..." : !configCargada ? "⏳ Cargando configuración..." : "✅ Confirmar Venta · Imprimir Comprobante"}
           </button>
         </div>
       </div>
@@ -2595,6 +2595,127 @@ function FormularioCliente({ view, editingClienteId, clientes, setView, setSelec
   );
 }
 
+// ── Buscador Global ───────────────────────────────────────────────────────
+function BuscadorGlobal({ pedidos, clientes, busqueda, setBusqueda, onClose, onSelectPedido, onSelectCliente, ESTADO_COLOR, CATEGORIA_COLOR, CATEGORIA_ICON }) {
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const palabras = busqueda.toLowerCase().split(/\s+/).filter(Boolean);
+
+  const matchTexto = (texto) => {
+    if (!palabras.length) return false;
+    const t = texto.toLowerCase();
+    return palabras.every(p => t.includes(p));
+  };
+
+  const pedidosFiltrados = busqueda.length >= 2 ? pedidos.filter(p =>
+    matchTexto(`${p.nombre} ${p.cliente} ${p.telefono||""} ${p.categoria} ${p.estado}`)
+  ).slice(0, 6) : [];
+
+  const clientesFiltrados = busqueda.length >= 2 ? clientes.filter(c =>
+    matchTexto(`${c.nombre} ${c.apellido||""} ${c.empresa||""} ${c.telefono||""} ${c.mail||""}`)
+  ).slice(0, 4) : [];
+
+  const total = pedidosFiltrados.length + clientesFiltrados.length;
+
+  return (
+    <>
+      <div className="busq-global-overlay" onClick={onClose}/>
+      <div className="busq-global-box">
+        <div style={{ display:"flex", alignItems:"center", borderBottom:"1px solid #f0d5c0", padding:"0 16px" }}>
+          <span style={{ fontSize:20, marginRight:10, color:"#e65100" }}>🔍</span>
+          <input
+            ref={inputRef}
+            className="busq-global-input"
+            placeholder="Buscar pedidos, clientes, teléfonos..."
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            onKeyDown={e => e.key==="Escape" && onClose()}
+          />
+          <button onClick={onClose} style={{ background:"transparent", border:"none", color:"#a09080", fontSize:20, cursor:"pointer", padding:"4px 8px" }}>✕</button>
+        </div>
+
+        {busqueda.length < 2 ? (
+          <div style={{ padding:"24px 20px", textAlign:"center", color:"#a09080", fontSize:14 }}>
+            Escribí al menos 2 caracteres para buscar
+          </div>
+        ) : total === 0 ? (
+          <div style={{ padding:"24px 20px", textAlign:"center", color:"#a09080", fontSize:14 }}>
+            Sin resultados para "<strong>{busqueda}</strong>"
+          </div>
+        ) : (
+          <div style={{ maxHeight:420, overflowY:"auto" }}>
+            {pedidosFiltrados.length > 0 && (
+              <>
+                <div style={{ padding:"8px 20px 4px", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", background:"#fffaf7" }}>
+                  📋 Pedidos ({pedidosFiltrados.length})
+                </div>
+                {pedidosFiltrados.map(p => {
+                  const ec = ESTADO_COLOR[p.estado] || {bg:"#f5f5f5",text:"#616161"};
+                  const cc = CATEGORIA_COLOR[p.categoria] || {bg:"#f5f5f5",text:"#424242",accent:"#9e9e9e"};
+                  return (
+                    <div key={p.fireId||p.id} className="busq-global-result" onClick={() => onSelectPedido(p)}>
+                      <span style={{ fontSize:20 }}>{CATEGORIA_ICON[p.categoria]||"📦"}</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:600, fontSize:14, color:"#1a2340" }}>{p.nombre}</div>
+                        <div style={{ fontSize:12, color:"#a09080" }}>👤 {p.cliente} {p.telefono && `· 📞 ${p.telefono}`}</div>
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+                        <span style={{ background:ec.bg, color:ec.text, padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{p.estado}</span>
+                        {p.fechaEntrega && <span style={{ fontSize:11, color:"#a09080" }}>{p.fechaEntrega}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            {clientesFiltrados.length > 0 && (
+              <>
+                <div style={{ padding:"8px 20px 4px", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", background:"#fffaf7" }}>
+                  👥 Clientes ({clientesFiltrados.length})
+                </div>
+                {clientesFiltrados.map(c => (
+                  <div key={c.fireId} className="busq-global-result" onClick={() => { onSelectCliente(c); }}>
+                    <span style={{ fontSize:20 }}>👤</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:600, fontSize:14, color:"#1a2340" }}>{c.nombre} {c.apellido}</div>
+                      <div style={{ fontSize:12, color:"#a09080" }}>
+                        {c.empresa && `🏢 ${c.empresa} · `}
+                        {c.telefono && `📞 ${c.telefono}`}
+                      </div>
+                    </div>
+                    {parseFloat(c.saldoCuenta||0) > 0 && (
+                      <span style={{ background:"#ffebee", color:"#c62828", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700 }}>
+                        Debe ${parseFloat(c.saldoCuenta).toLocaleString("es-AR")}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+        <div style={{ padding:"8px 20px", background:"#fffaf7", borderTop:"1px solid #f0d5c0", fontSize:11, color:"#a09080", display:"flex", justifyContent:"space-between" }}>
+          <span>↵ para abrir · Esc para cerrar</span>
+          {total > 0 && <span>{total} resultado{total!==1?"s":""}</span>}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Helper para imprimir con config lista ────────────────────────────────
+function imprimirConConfig(fn, empresa, configCargada) {
+  if (!configCargada) {
+    alert("Cargando datos del local, intentá en un momento...");
+    return;
+  }
+  fn(empresa);
+}
+
 export default function App() {
   const [pedidos, setPedidos]             = useState([]);
   const [loading, setLoading]             = useState(true);
@@ -2615,6 +2736,7 @@ export default function App() {
   const [copied, setCopied]               = useState(false);
   const [empresa, setEmpresa]             = useState(EMPTY_EMPRESA);
   const [empresaSaved, setEmpresaSaved]   = useState(false);
+  const [configCargada, setConfigCargada] = useState(false);
   const [vistaLista, setVistaLista]       = useState("categorias");
   const [showStats, setShowStats]         = useState(true);
   const [clientes, setClientes]           = useState([]);
@@ -2624,6 +2746,9 @@ export default function App() {
   const [editingClienteId, setEditingClienteId]   = useState(null);
   const [editingInsumoId, setEditingInsumoId]     = useState(null);
   const [nuevoEventoModal, setNuevoEventoModal]   = useState(false);
+  const [menuAbierto, setMenuAbierto]             = useState(false);
+  const [busquedaGlobal, setBusquedaGlobal]       = useState("");
+  const [busqGlobalOpen, setBusqGlobalOpen]       = useState(false);
 
   // ── Firebase: verificar sesión ──
   useEffect(() => {
@@ -2657,7 +2782,8 @@ export default function App() {
   useEffect(() => {
     getDoc(doc(db, "config", "empresa")).then(snap => {
       if (snap.exists()) setEmpresa(snap.data());
-    });
+      setConfigCargada(true);
+    }).catch(() => setConfigCargada(true));
   }, []);
 
   const handleLogout = () => signOut(auth);
@@ -2800,6 +2926,7 @@ export default function App() {
         .nav-lnk:hover{background:rgba(255,255,255,.15);color:#fff}
         .nav-lnk.act{background:rgba(255,255,255,.2);color:#fff;font-weight:700}
         .row-h:hover{background:#f5f7fd!important;cursor:pointer}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
         .cat-tog:hover{background:#fff8f5}
         .est-sel{padding:4px 8px;border-radius:6px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;border:1.5px solid #f0d5c0;cursor:pointer;background:#fff}
         .modal-ov{position:fixed;inset:0;background:rgba(17,31,107,.45);z-index:600;display:flex;align-items:center;justify-content:center;animation:fIn .2s ease}
@@ -2812,115 +2939,158 @@ export default function App() {
         .btn-copy.copied{background:#2e7d32}
         @keyframes fIn{from{opacity:0}to{opacity:1}}
         @keyframes pIn{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+        /* ── Responsive ── */
+        .nav-desktop{display:flex;align-items:center;gap:4px}
+        .nav-mobile-btn{display:none;background:rgba(255,255,255,.15);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:20px}
+        .nav-mobile-menu{display:none;position:absolute;top:70px;left:0;right:0;background:linear-gradient(135deg,#bf360c,#e65100);z-index:500;padding:12px 16px;flex-direction:column;gap:6px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+        .nav-mobile-menu.open{display:flex}
+        .nav-mobile-item{padding:12px 16px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;color:rgba(255,255,255,.85);transition:all .18s}
+        .nav-mobile-item:hover,.nav-mobile-item.act{background:rgba(255,255,255,.2);color:#fff;font-weight:700}
+        .main-content{padding:20px 28px}
+        .grid-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+        .grid-2col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+        .grid-nueva-venta{display:grid;grid-template-columns:1fr 420px;gap:20px;align-items:start}
+        .grid-agenda{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start}
+        .busq-global-overlay{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.4)}
+        .busq-global-box{position:fixed;top:80px;left:50%;transform:translateX(-50%);width:min(600px,92vw);background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.2);z-index:401;overflow:hidden}
+        .busq-global-input{width:100%;padding:16px 20px;font-size:16px;border:none;outline:none;font-family:'DM Sans',sans-serif;color:#1a2340}
+        .busq-global-result{padding:11px 20px;cursor:pointer;border-top:1px solid #fef0e8;display:flex;align-items:center;gap:12px;transition:background .15s}
+        .busq-global-result:hover{background:#fff8f5}
+        @media(max-width:900px){
+          .nav-desktop{display:none}
+          .nav-mobile-btn{display:block}
+          .main-content{padding:16px}
+          .grid-stats{grid-template-columns:repeat(2,1fr)}
+          .grid-2col{grid-template-columns:1fr}
+          .grid-nueva-venta{grid-template-columns:1fr}
+          .grid-agenda{grid-template-columns:1fr}
+        }
+        @media(max-width:480px){
+          .grid-stats{grid-template-columns:1fr 1fr}
+          .main-content{padding:12px}
+        }
       `}</style>
 
       {/* HEADER */}
-      <div style={{ background:"linear-gradient(135deg,#bf360c 0%,#e65100 55%,#ff6d00 100%)", boxShadow:"0 4px 20px rgba(191,54,12,.35)" }}>
-        <div style={{ padding:"0 28px", display:"flex", alignItems:"center", justifyContent:"space-between", height:70 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer" }} onClick={() => setView("lista")}>
+      <div style={{ background:"linear-gradient(135deg,#bf360c 0%,#e65100 55%,#ff6d00 100%)", boxShadow:"0 4px 20px rgba(191,54,12,.35)", position:"relative" }}>
+        <div style={{ padding:"0 20px", display:"flex", alignItems:"center", justifyContent:"space-between", height:70 }}>
+          {/* Logo */}
+          <div style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer", flexShrink:0 }} onClick={() => setView("lista")}>
             {empresa.logo
-              ? <img src={empresa.logo} alt="Logo" style={{ height:46, maxWidth:160, objectFit:"contain", borderRadius:8 }}/>
+              ? <img src={empresa.logo} alt="Logo" style={{ height:46, maxWidth:140, objectFit:"contain", borderRadius:8 }}/>
               : <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                   <div style={{ width:42, height:42, background:"rgba(255,255,255,.13)", borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🖨️</div>
-                  <div>
-                    <div style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:21, fontWeight:700, color:"#fff", lineHeight:1.1 }}>{empresa.nombre||"Mafalda Gráfica"}</div>
-                    <div style={{ fontSize:11, color:"rgba(255,255,255,.55)", letterSpacing:"1px", textTransform:"uppercase" }}>Sistema de Pedidos</div>
+                  <div style={{ display:"flex", flexDirection:"column" }}>
+                    <div style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:19, fontWeight:700, color:"#fff", lineHeight:1.1 }}>{empresa.nombre||"Mafalda Gráfica"}</div>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.55)", letterSpacing:"1px", textTransform:"uppercase" }}>Sistema de Pedidos</div>
                   </div>
                 </div>
             }
           </div>
-          <nav style={{ display:"flex", alignItems:"center", gap:4 }}>
-            {/* Tabs principales */}
+
+          {/* Nav desktop */}
+          <nav className="nav-desktop">
             <div className={`nav-lnk ${(view==="lista"||view==="listos"||view==="formulario"||view==="detalle")?"act":""}`} onClick={() => setView("lista")}>📋 Pedidos</div>
             <div className={`nav-lnk ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}`} onClick={() => setView("clientes")}>👥 Clientes</div>
             <div className={`nav-lnk ${(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo")?"act":""}`} onClick={() => setView("insumos")}>📦 Insumos</div>
             <div className={`nav-lnk ${(view==="ventas"||view==="nuevaVenta")?"act":""}`} onClick={() => setView("ventas")}>💰 Ventas</div>
-            <div className={`nav-lnk ${(view==="agenda")?"act":""}`} onClick={() => setView("agenda")}>📅 Agenda</div>
+            <div className={`nav-lnk ${view==="agenda"?"act":""}`} onClick={() => setView("agenda")}>📅 Agenda</div>
             <div className={`nav-lnk ${(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}`} onClick={() => setView("proveedores")}>🏭 Proveedores</div>
-            <div className={`nav-lnk ${view==="config"?"act":""}`} onClick={() => setView("config")}>⚙️ Configuración</div>
+            <div className={`nav-lnk ${view==="config"?"act":""}`} onClick={() => setView("config")}>⚙️ Config</div>
+            <div style={{ width:1, height:24, background:"rgba(255,255,255,.2)", margin:"0 4px" }}></div>
 
-            {/* Separador */}
-            <div style={{ width:1, height:24, background:"rgba(255,255,255,.2)", margin:"0 6px" }}></div>
-
-            {/* Botones contextuales — solo visibles en sección Pedidos */}
-            {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && (
-              <>
-                <div className={`nav-lnk ${view==="listos"?"act":""}`} onClick={() => setView("listos")} style={{ position:"relative", fontSize:13 }}>
-                  ✅ Listos
-                  {pedidos.filter(p=>p.estado==="Listo").length > 0 && (
-                    <span style={{ position:"absolute", top:2, right:2, background:"#f57f17", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:10, fontWeight:700, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
-                      {pedidos.filter(p=>p.estado==="Listo").length}
-                    </span>
-                  )}
-                </div>
-                <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", transition:"all .18s" }}
-                  onClick={() => { setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); }}
-                  onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                  onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                  + Nuevo Pedido
-                </div>
-              </>
-            )}
-
-            {/* Botón Nuevo Cliente — solo visible en sección Clientes */}
+            {/* Contextuales pedidos */}
+            {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && (<>
+              <div className={`nav-lnk ${view==="listos"?"act":""}`} onClick={() => setView("listos")} style={{ position:"relative", fontSize:13 }}>
+                ✅ Listos
+                {pedidos.filter(p=>p.estado==="Listo").length > 0 && (
+                  <span style={{ position:"absolute", top:2, right:2, background:"#f57f17", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:10, fontWeight:700, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
+                    {pedidos.filter(p=>p.estado==="Listo").length}
+                  </span>
+                )}
+              </div>
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                onClick={() => { setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); }}>
+                + Nuevo Pedido
+              </div>
+            </>)}
             {(view==="clientes"||view==="nuevoCliente"||view==="editarCliente") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", transition:"all .18s" }}
-                onClick={() => setView("nuevoCliente")}
-                onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                ➕ Nuevo Cliente
-              </div>
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setView("nuevoCliente")}>➕ Cliente</div>
             )}
-
-            {/* Botones Insumos */}
             {(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo") && (
-              <>
-                <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                  onClick={() => setView("nuevoInsumo")}
-                  onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                  onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                  ➕ Nuevo Insumo
-                </div>
-              </>
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setView("nuevoInsumo")}>➕ Insumo</div>
             )}
-
-            {/* Botones Ventas */}
             {(view==="ventas"||view==="nuevaVenta") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                onClick={() => setView("nuevaVenta")}
-                onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                ➕ Nueva Venta
-              </div>
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setView("nuevaVenta")}>➕ Venta</div>
             )}
-
-            {/* Botones Agenda */}
             {view==="agenda" && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                onClick={() => setNuevoEventoModal(true)}
-                onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                ➕ Nuevo Evento
-              </div>
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setNuevoEventoModal(true)}>➕ Evento</div>
             )}
-
-            {/* Botones Proveedores */}
             {(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                onClick={() => setView("nuevoProveedor")}
-                onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                ➕ Nuevo Proveedor
-              </div>
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setView("nuevoProveedor")}>➕ Proveedor</div>
             )}
 
-            {/* Salir */}
-            <div className="nav-lnk" onClick={handleLogout} style={{ marginLeft:4, background:"rgba(255,255,255,.15)", color:"#fff", fontSize:13 }}>🔒 Salir</div>
+            {/* Buscador global */}
+            <button onClick={() => setBusqGlobalOpen(true)}
+              style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", padding:"7px 12px", borderRadius:8, cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", gap:6 }}
+              title="Búsqueda global">
+              🔍
+            </button>
+
+            {!configCargada && (
+              <div style={{ fontSize:11, color:"rgba(255,255,255,.6)", display:"flex", alignItems:"center", gap:4 }}>
+                <span style={{ width:8, height:8, borderRadius:"50%", background:"#ffb74d", display:"inline-block", animation:"pulse 1s infinite" }}></span>
+              </div>
+            )}
+            <div className="nav-lnk" onClick={handleLogout} style={{ marginLeft:2, background:"rgba(255,255,255,.15)", color:"#fff", fontSize:13 }}>🔒 Salir</div>
           </nav>
+
+          {/* Nav mobile: solo iconos + hamburguesa */}
+          <div style={{ display:"flex", alignItems:"center", gap:8 }} className="nav-mobile-only" style={{ display:"none" }}>
+            <button onClick={() => setBusqGlobalOpen(true)} style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", padding:"8px 10px", borderRadius:8, cursor:"pointer", fontSize:18 }}>🔍</button>
+            <button className="nav-mobile-btn" onClick={() => setMenuAbierto(m=>!m)}>☰</button>
+          </div>
+        </div>
+
+        {/* Menú mobile desplegable */}
+        <div className={`nav-mobile-menu${menuAbierto?" open":""}`}>
+          {[
+            {v:"lista",      label:"📋 Pedidos",       active:["lista","listos","formulario","detalle"]},
+            {v:"clientes",   label:"👥 Clientes",       active:["clientes","nuevoCliente","editarCliente"]},
+            {v:"insumos",    label:"📦 Insumos",        active:["insumos","nuevoInsumo","editarInsumo"]},
+            {v:"ventas",     label:"💰 Ventas",         active:["ventas","nuevaVenta"]},
+            {v:"agenda",     label:"📅 Agenda",         active:["agenda"]},
+            {v:"proveedores",label:"🏭 Proveedores",    active:["proveedores","nuevoProveedor","editarProveedor"]},
+            {v:"config",     label:"⚙️ Configuración",  active:["config"]},
+          ].map(item => (
+            <div key={item.v} className={`nav-mobile-item${item.active.includes(view)?" act":""}`}
+              onClick={() => { setView(item.v); setMenuAbierto(false); }}>
+              {item.label}
+            </div>
+          ))}
+          <div style={{ borderTop:"1px solid rgba(255,255,255,.2)", marginTop:4, paddingTop:8 }}>
+            <div className="nav-mobile-item" onClick={handleLogout}>🔒 Cerrar sesión</div>
+          </div>
         </div>
       </div>
 
-      <div style={{ padding:"26px 32px" }}>
+      {/* ── Buscador Global ── */}
+      {busqGlobalOpen && (
+        <BuscadorGlobal
+          pedidos={pedidos}
+          clientes={clientes}
+          busqueda={busquedaGlobal}
+          setBusqueda={setBusquedaGlobal}
+          onClose={() => { setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+          onSelectPedido={(p) => { setSelectedPedido(p); setView("detalle"); setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+          onSelectCliente={() => { setView("clientes"); setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+          ESTADO_COLOR={ESTADO_COLOR}
+          CATEGORIA_COLOR={CATEGORIA_COLOR}
+          CATEGORIA_ICON={CATEGORIA_ICON}
+        />
+      )}
+
+      <div className="main-content" onClick={() => setMenuAbierto(false)}>
 
         {/* STATS — solo en pestaña Pedidos */}
         {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && (
@@ -2934,7 +3104,7 @@ export default function App() {
               </button>
             </div>
             {showStats && (
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14 }}>
+              <div className="grid-stats">
                 {[
                   { label:"Activos",            value:stats.total,      icon:"📁", color:"#e65100" },
                   { label:"Pendientes",         value:stats.pendiente,  icon:"⏳", color:"#616161" },
@@ -3408,10 +3578,10 @@ export default function App() {
 
         {/* ── VENTAS ── */}
         {view==="ventas" && (
-          <VentasView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} />
+          <VentasView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} configCargada={configCargada} />
         )}
         {view==="nuevaVenta" && (
-          <NuevaVentaView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} />
+          <NuevaVentaView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} configCargada={configCargada} />
         )}
 
         {/* ── AGENDA ── */}
@@ -3505,7 +3675,7 @@ export default function App() {
             <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
               <button className="btn-g" style={{ padding:"10px 24px" }} onClick={() => setPrintModal(null)}>Ahora no</button>
               <button className="btn-imp" style={{ padding:"11px 24px", fontSize:15, borderRadius:9 }}
-                onClick={() => { imprimirOrden(printModal.pedido, empresa); setPrintModal(null); }}>
+                onClick={() => { if(!configCargada){alert("Cargando datos del local...");return;} imprimirOrden(printModal.pedido, empresa); setPrintModal(null); }}>
                 🖨️ Imprimir orden
               </button>
             </div>
