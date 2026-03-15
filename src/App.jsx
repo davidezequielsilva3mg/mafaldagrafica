@@ -2841,9 +2841,13 @@ export default function App() {
 
   const handleSubmit = async () => {
     if (!validate()) return;
+    // Limpiar campos undefined que Firebase no acepta
+    const limpiar = (obj) => Object.fromEntries(
+      Object.entries(obj).filter(([_, v]) => v !== undefined)
+    );
     if (editingId !== null) {
       const prev    = pedidos.find(p => p.id === editingId);
-      const updated = { ...formData, id: editingId, clienteId: selectedClienteId||prev.clienteId||null };
+      const updated = limpiar({ ...formData, id: editingId, clienteId: selectedClienteId||prev.clienteId||null });
       const fireId  = prev.fireId;
       await updateDoc(doc(db, "pedidos", fireId), updated);
       showToast("Pedido actualizado correctamente");
@@ -2851,7 +2855,7 @@ export default function App() {
       triggerMsgIfNeeded(prev, updated);
     } else {
       const newId = Math.max(...pedidos.map(p => p.id), 0) + 1;
-      const nuevo = { ...formData, id: newId, clienteId: selectedClienteId||null };
+      const nuevo = limpiar({ ...formData, id: newId, clienteId: selectedClienteId||null });
       await addDoc(collection(db, "pedidos"), nuevo);
       showToast("Pedido cargado exitosamente 🎉");
       triggerPrintIfNeeded(null, nuevo);
