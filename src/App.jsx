@@ -836,6 +836,690 @@ function imprimirComprobante(venta, empresa) {
   win.document.close();
 }
 
+// ── Tipos de evento agenda ────────────────────────────────────────────────
+const TIPO_EVENTO = {
+  recordatorio: { label:"Recordatorio", color:"#1565c0", bg:"#e3f2fd", icon:"🔔" },
+  pago:         { label:"Pago",         color:"#2e7d32", bg:"#e8f5e9", icon:"💵" },
+  vencimiento:  { label:"Vencimiento",  color:"#c62828", bg:"#ffebee", icon:"⏰" },
+  cliente:      { label:"Visita cliente",color:"#6a1b9a",bg:"#f3e5f5", icon:"🤝" },
+  libre:        { label:"Libre",        color:"#e65100", bg:"#fff3e0", icon:"📌" },
+};
+
+// ── Componente: Agenda ────────────────────────────────────────────────────
+function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
+  const [eventos, setEventos]       = useState([]);
+  const [fechaBase, setFechaBase]   = useState(new Date());
+  const [modoVista, setModoVista]   = useState("mes");
+  const [editEvento, setEditEvento] = useState(null);
+  const [verEvento, setVerEvento]   = useState(null);
+  const DIAS = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "eventos"), snap => {
+      setEventos(snap.docs.map(d=>({...d.data(), fireId:d.id})));
+    });
+    return () => unsub();
+  }, []);
+
+  // Solicitar permiso notificaciones
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Chequear eventos próximos cada minuto
+  useEffect(() => {
+    const check = () => {
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      const ahora = new Date();
+      eventos.forEach(ev => {
+        if (!ev.notificar) return;
+        const evDate = new Date(`${ev.fecha}T${ev.hora||"00:00"}`);
+        const diff   = (evDate - ahora) / 60000; // minutos
+        if (diff > 0 && diff <= 30 && !ev._notificado) {
+          new Notification(`${TIPO_EVENTO[ev.tipo]?.icon||"📌"} ${ev.titulo}`, {
+            body: `En ${Math.round(diff)} minutos · ${ev.hora||""}`,
+          });
+          // Marcar como notificado en memoria
+          ev._notificado = true;
+        }
+      });
+    };
+    check();
+    const interval = setInterval(check, 60000);
+    return () => clearInterval(interval);
+  }, [eventos]);
+
+  const fmtFecha = d => d.toISOString().split("T")[0];
+  const hoy      = fmtFecha(new Date());
+
+  const diasMes = () => {
+    const año  = fechaBase.getFullYear();
+    const mes  = fechaBase.getMonth();
+    const first = new Date(año, mes, 1);
+    const last  = new Date(año, mes+1, 0);
+    const start = new Date(first); start.setDate(start.getDate()-((start.getDay()+6)%7));
+    const end   = new Date(last);  end.setDate(end.getDate()+(6-(end.getDay()+6)%7));
+    const dias  = [];
+    const cur   = new Date(start);
+    while (cur <= end) { dias.push(new Date(cur)); cur.setDate(cur.getDate()+1); }
+    return dias;
+  };
+
+  const diasSemana = () => {
+    const lunes = new Date(fechaBase);
+    lunes.setDate(lunes.getDate()-((lunes.getDay()+6)%7));
+    return Array.from({length:7},(_,i)=>{ const d=new Date(lunes); d.setDate(d.getDate()+i); return d; });
+  };
+
+  const dias = modoVista==="mes" ? diasMes() : modoVista==="semana" ? diasSemana() : [new Date(fechaBase)];
+
+  const eventosDia = (fecha) => eventos
+    .filter(ev => ev.fecha === fmtFecha(fecha))
+    .sort((a,b) => (a.hora||"00:00").localeCompare(b.hora||"00:00"));
+
+  const moverFecha = dir => {
+    const d = new Date(fechaBase);
+    if (modoVista==="dia")    d.setDate(d.getDate()+dir);
+    if (modoVista==="semana") d.setDate(d.getDate()+dir*7);
+    if (modoVista==="mes")    d.setMonth(d.getMonth()+dir);
+    setFechaBase(d);
+  };
+
+  const titulo = () => {
+    if (modoVista==="dia")    return fechaBase.toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+    if (modoVista==="semana") {
+      const ds = diasSemana();
+      return `${ds[0].getDate()} ${ds[0].toLocaleDateString("es-AR",{month:"short"})} — ${ds[6].getDate()} ${ds[6].toLocaleDateString("es-AR",{month:"short",year:"numeric"})}`;
+    }
+    return fechaBase.toLocaleDateString("es-AR",{month:"long",year:"numeric"});
+  };
+
+  const handleDelete = async (ev) => {
+    if (!window.confirm("¿Eliminar este evento?")) return;
+    await deleteDoc(doc(db, "eventos", ev.fireId));
+    setVerEvento(null);
+    showToast("Evento eliminado","error");
+  };
+
+  // Próximos eventos (hoy en adelante)
+  const proximos = eventos
+    .filter(ev => ev.fecha >= hoy)
+    .sort((a,b) => a.fecha.localeCompare(b.fecha)||(a.hora||"").localeCompare(b.hora||""))
+    .slice(0,5);
+
+  return (
+    <div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:20, alignItems:"start" }}>
+
+        {/* ── Calendario ── */}
+        <div>
+          {/* Controles */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+            <div style={{ display:"flex", gap:6 }}>
+              {["dia","semana","mes"].map(m=>(
+                <button key={m} onClick={()=>setModoVista(m)}
+                  style={{ padding:"7px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+                    background:modoVista===m?"#e65100":"#fff", color:modoVista===m?"#fff":"#4a5568",
+                    boxShadow:modoVista===m?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+                  {m==="dia"?"Día":m==="semana"?"Semana":"Mes"}
+                </button>
+              ))}
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <button onClick={()=>moverFecha(-1)} style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>‹</button>
+              <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:240, textAlign:"center", textTransform:"capitalize" }}>{titulo()}</span>
+              <button onClick={()=>moverFecha(1)}  style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>›</button>
+              <button onClick={()=>setFechaBase(new Date())} style={{ padding:"7px 14px", borderRadius:8, fontSize:12, fontWeight:600, border:"1.5px solid #e65100", color:"#e65100", background:"#fff", cursor:"pointer" }}>Hoy</button>
+              <button onClick={()=>setNuevoEventoModal(true)} style={{ padding:"7px 16px", borderRadius:8, fontSize:13, fontWeight:700, background:"#e65100", color:"#fff", border:"none", cursor:"pointer" }}>+ Evento</button>
+            </div>
+          </div>
+
+          {/* Grilla */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+            {modoVista!=="dia" && (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", borderBottom:"2px solid #f5e8e0" }}>
+                {DIAS.map(d=>(
+                  <div key={d} style={{ padding:"10px 8px", textAlign:"center", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px" }}>{d}</div>
+                ))}
+              </div>
+            )}
+
+            {modoVista==="dia" ? (
+              <div style={{ padding:"24px 28px" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:fmtFecha(fechaBase)===hoy?"#e65100":"#1a2340", textTransform:"capitalize" }}>
+                    {fechaBase.toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"})}
+                  </div>
+                  {fmtFecha(fechaBase)===hoy && <span style={{ background:"#e65100", color:"#fff", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700 }}>Hoy</span>}
+                </div>
+                {eventosDia(fechaBase).length===0 ? (
+                  <div style={{ textAlign:"center", padding:"40px 0", color:"#d4bfb0" }}>Sin eventos — <span style={{ color:"#e65100", cursor:"pointer", fontWeight:600 }} onClick={()=>setNuevoEventoModal(true)}>+ Agregar</span></div>
+                ) : eventosDia(fechaBase).map(ev=>{
+                  const t = TIPO_EVENTO[ev.tipo]||TIPO_EVENTO.libre;
+                  return (
+                    <div key={ev.fireId} onClick={()=>setVerEvento(ev)}
+                      style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 18px", borderRadius:10, border:`1.5px solid ${t.color}22`, background:t.bg, marginBottom:10, cursor:"pointer" }}>
+                      <span style={{ fontSize:24 }}>{t.icon}</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:700, color:"#1a2340", fontSize:14 }}>{ev.titulo}</div>
+                        {ev.descripcion && <div style={{ fontSize:12, color:"#6b7a9a", marginTop:2 }}>{ev.descripcion}</div>}
+                      </div>
+                      <div style={{ textAlign:"right" }}>
+                        <span style={{ background:t.bg, color:t.color, padding:"3px 8px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${t.color}33` }}>{t.label}</span>
+                        {ev.hora && <div style={{ fontSize:12, color:"#a09080", marginTop:4 }}>🕐 {ev.hora}</div>}
+                        {ev.notificar && <div style={{ fontSize:10, color:"#2e7d32", marginTop:2 }}>🔔 con alerta</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)" }}>
+                {dias.map((d,i)=>{
+                  const fecha   = fmtFecha(d);
+                  const evs     = eventosDia(d);
+                  const esHoy   = fecha===hoy;
+                  const esMes   = modoVista==="semana" || d.getMonth()===fechaBase.getMonth();
+                  const domingo = d.getDay()===0;
+                  return (
+                    <div key={i} onClick={()=>{setFechaBase(d);setModoVista("dia");}}
+                      style={{ minHeight:modoVista==="mes"?110:160, padding:"8px", borderRight:i%7!==6?"1px solid #f5e8e0":"none", borderBottom:"1px solid #f5e8e0",
+                        background:esHoy?"#fff8f5":!esMes?"#fafafa":"#fff", opacity:!esMes?.6:1, cursor:"pointer" }}
+                      onMouseOver={e=>e.currentTarget.style.background=esHoy?"#fff3e0":"#fffaf7"}
+                      onMouseOut={e=>e.currentTarget.style.background=esHoy?"#fff8f5":!esMes?"#fafafa":"#fff"}>
+                      <div style={{ marginBottom:4, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <span style={{ fontSize:12, fontWeight:700, width:24, height:24, display:"inline-flex", alignItems:"center", justifyContent:"center", borderRadius:"50%",
+                          background:esHoy?"#e65100":"transparent", color:esHoy?"#fff":domingo?"#c62828":"#4a5568" }}>
+                          {d.getDate()}
+                        </span>
+                        {evs.length>0 && <span style={{ fontSize:10, fontWeight:700, color:"#e65100", background:"#fff3e0", borderRadius:10, padding:"1px 5px" }}>{evs.length}</span>}
+                      </div>
+                      {(modoVista==="mes"?evs.slice(0,2):evs).map(ev=>{
+                        const t = TIPO_EVENTO[ev.tipo]||TIPO_EVENTO.libre;
+                        return (
+                          <div key={ev.fireId} onClick={e=>{e.stopPropagation();setVerEvento(ev);}}
+                            style={{ background:t.bg, borderLeft:`2px solid ${t.color}`, borderRadius:4, padding:"2px 5px", marginBottom:2, fontSize:10, fontWeight:600, color:t.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {t.icon} {ev.titulo}
+                          </div>
+                        );
+                      })}
+                      {modoVista==="mes" && evs.length>2 && <div style={{ fontSize:10, color:"#a09080", paddingLeft:4 }}>+{evs.length-2} más</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Panel lateral: próximos eventos ── */}
+        <div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px" }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:"#1a2340", marginBottom:14 }}>📋 Próximos eventos</div>
+            {proximos.length===0 ? (
+              <div style={{ textAlign:"center", padding:"20px 0", color:"#d4bfb0", fontSize:13 }}>Sin eventos próximos</div>
+            ) : proximos.map(ev=>{
+              const t = TIPO_EVENTO[ev.tipo]||TIPO_EVENTO.libre;
+              return (
+                <div key={ev.fireId} onClick={()=>setVerEvento(ev)}
+                  style={{ display:"flex", gap:10, padding:"10px 0", borderBottom:"1px solid #fef0e8", cursor:"pointer" }}
+                  onMouseOver={e=>e.currentTarget.style.background="#fffaf7"}
+                  onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>{t.icon}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{ev.titulo}</div>
+                    <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>
+                      {ev.fecha===hoy?"Hoy":ev.fecha} {ev.hora&&`· ${ev.hora}`}
+                    </div>
+                  </div>
+                  <span style={{ background:t.bg, color:t.color, padding:"2px 7px", borderRadius:10, fontSize:10, fontWeight:700, alignSelf:"flex-start" }}>{t.label}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Leyenda tipos */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"16px 20px", marginTop:16 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:10 }}>Tipos de evento</div>
+            {Object.entries(TIPO_EVENTO).map(([key,t])=>(
+              <div key={key} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <span style={{ fontSize:16 }}>{t.icon}</span>
+                <span style={{ background:t.bg, color:t.color, padding:"2px 8px", borderRadius:10, fontSize:12, fontWeight:600 }}>{t.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Modal nuevo/editar evento ── */}
+      {(nuevoEventoModal||editEvento) && (
+        <ModalEvento
+          evento={editEvento}
+          onClose={()=>{ setNuevoEventoModal(false); setEditEvento(null); }}
+          showToast={showToast}
+          fechaInicial={fmtFecha(fechaBase)}
+        />
+      )}
+
+      {/* ── Modal ver evento ── */}
+      {verEvento && (()=>{
+        const t = TIPO_EVENTO[verEvento.tipo]||TIPO_EVENTO.libre;
+        return (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200 }} onClick={()=>setVerEvento(null)}>
+            <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:400, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
+                <span style={{ fontSize:32 }}>{t.icon}</span>
+                <div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>{verEvento.titulo}</div>
+                  <span style={{ background:t.bg, color:t.color, padding:"2px 8px", borderRadius:10, fontSize:12, fontWeight:600 }}>{t.label}</span>
+                </div>
+              </div>
+              {verEvento.descripcion && <div style={{ fontSize:14, color:"#4a5568", marginBottom:12, lineHeight:1.5 }}>{verEvento.descripcion}</div>}
+              <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>
+                📅 {verEvento.fecha} {verEvento.hora&&`· 🕐 ${verEvento.hora}`}
+                {verEvento.notificar && <span style={{ marginLeft:8, color:"#2e7d32" }}>🔔 Con alerta</span>}
+              </div>
+              <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+                <button onClick={()=>handleDelete(verEvento)} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"8px 14px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>🗑 Eliminar</button>
+                <button onClick={()=>{ setEditEvento(verEvento); setVerEvento(null); }} style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"8px 14px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>✏️ Editar</button>
+                <button onClick={()=>setVerEvento(null)} style={{ background:"#e65100", color:"#fff", border:"none", padding:"8px 14px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cerrar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ── Modal Nuevo/Editar Evento ─────────────────────────────────────────────
+function ModalEvento({ evento, onClose, showToast, fechaInicial }) {
+  const [form, setForm] = useState(evento || { titulo:"", tipo:"recordatorio", fecha:fechaInicial||"", hora:"", descripcion:"", notificar:true });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!form.titulo.trim() || !form.fecha) { showToast("Completá título y fecha","error"); return; }
+    setSaving(true);
+    if (evento?.fireId) {
+      await updateDoc(doc(db,"eventos",evento.fireId), form);
+      showToast("Evento actualizado ✅");
+    } else {
+      await addDoc(collection(db,"eventos"), form);
+      showToast("Evento creado ✅");
+    }
+    setSaving(false);
+    onClose();
+  };
+
+  const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", color:"#1a2340", outline:"none", boxSizing:"border-box" };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{evento?"✏️ Editar Evento":"➕ Nuevo Evento"}</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Título *</label>
+            <input value={form.titulo} onChange={e=>setForm(f=>({...f,titulo:e.target.value}))} placeholder="Ej: Pagar factura proveedor" style={inp}/>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div>
+              <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Tipo</label>
+              <select value={form.tipo} onChange={e=>setForm(f=>({...f,tipo:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+                {Object.entries(TIPO_EVENTO).map(([k,t])=><option key={k} value={k}>{t.icon} {t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha *</label>
+              <input type="date" value={form.fecha} onChange={e=>setForm(f=>({...f,fecha:e.target.value}))} style={inp}/>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div>
+              <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Hora</label>
+              <input type="time" value={form.hora} onChange={e=>setForm(f=>({...f,hora:e.target.value}))} style={inp}/>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:10, paddingTop:24 }}>
+              <input type="checkbox" id="notif" checked={form.notificar} onChange={e=>setForm(f=>({...f,notificar:e.target.checked}))} style={{ width:18, height:18, cursor:"pointer" }}/>
+              <label htmlFor="notif" style={{ fontSize:13, fontWeight:600, color:"#4a5568", cursor:"pointer" }}>🔔 Notificarme</label>
+            </div>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Descripción / Notas</label>
+            <textarea value={form.descripcion} onChange={e=>setForm(f=>({...f,descripcion:e.target.value}))} placeholder="Detalles opcionales..." rows={3}
+              style={{ ...inp, resize:"vertical" }}/>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:20 }}>
+          <button onClick={onClose} style={{ padding:"10px 20px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving} style={{ padding:"10px 24px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+            {saving?"Guardando...":"✅ Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Componente: Proveedores ───────────────────────────────────────────────
+function ProveedoresView({ view, setView, showToast }) {
+  const [proveedores, setProveedores] = useState([]);
+  const [selected, setSelected]       = useState(null);
+  const [busq, setBusq]               = useState("");
+  const [editingId, setEditingId]     = useState(null);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db,"proveedores"), snap => {
+      setProveedores(snap.docs.map(d=>({...d.data(),fireId:d.id})));
+    });
+    return () => unsub();
+  }, []);
+
+  const filtrados = proveedores.filter(p => {
+    const q = busq.toLowerCase();
+    return !busq || `${p.empresa||""} ${p.titular||""} ${p.telefono||""}`.toLowerCase().includes(q);
+  });
+
+  const handleDelete = async (p) => {
+    if (!window.confirm(`¿Eliminar proveedor "${p.empresa||p.titular}"?`)) return;
+    await deleteDoc(doc(db,"proveedores",p.fireId));
+    setSelected(null);
+    showToast("Proveedor eliminado","error");
+  };
+
+  // ── Vista detalle proveedor ──
+  if (selected && view==="proveedores") {
+    const prov = proveedores.find(p=>p.fireId===selected);
+    if (!prov) { setSelected(null); return null; }
+    return <ProveedorDetalle prov={prov} setSelected={setSelected} setEditingId={setEditingId} setView={setView} handleDelete={handleDelete} showToast={showToast}/>;
+  }
+
+  // ── Formulario nuevo/editar ──
+  if (view==="nuevoProveedor"||view==="editarProveedor") {
+    const provExistente = editingId ? proveedores.find(p=>p.fireId===editingId) : null;
+    return <FormularioProveedor prov={provExistente} setView={setView} setSelected={setSelected} showToast={showToast}/>;
+  }
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div>
+          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>🏭 Proveedores</h2>
+          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{proveedores.length} proveedor{proveedores.length!==1?"es":""}</p>
+        </div>
+        <button onClick={()=>{ setEditingId(null); setView("nuevoProveedor"); }}
+          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+          ➕ Nuevo Proveedor
+        </button>
+      </div>
+
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
+        <div style={{ position:"relative" }}>
+          <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
+          <input placeholder="Buscar proveedor..." value={busq} onChange={e=>setBusq(e.target.value)}
+            style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+        </div>
+      </div>
+
+      {filtrados.length===0 ? (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center" }}>
+          <div style={{ fontSize:40, marginBottom:14 }}>🏭</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay proveedores"}</div>
+          <div style={{ color:"#a09080" }}>Agregá tu primer proveedor</div>
+        </div>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+          {filtrados.map(p=>(
+            <div key={p.fireId} onClick={()=>setSelected(p.fireId)}
+              style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px", cursor:"pointer", borderTop:"3px solid #e65100", transition:"all .15s" }}
+              onMouseOver={e=>e.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
+              onMouseOut={e=>e.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{p.empresa||"Sin nombre"}</div>
+              {p.titular && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {p.titular}</div>}
+              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100" }}>📞 {p.telefono}</div>}
+                {p.mail     && <div style={{ fontSize:12, color:"#4a5568" }}>✉️ {p.mail}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Detalle Proveedor ─────────────────────────────────────────────────────
+function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDelete, showToast }) {
+  const [pedidoModal, setPedidoModal]   = useState(false);
+  const [pedidosList, setPedidosList]   = useState([]);
+  const [facturas, setFacturas]         = useState([]);
+  const [tabActiva, setTabActiva]       = useState("pedidos");
+  const [nuevoPedItem, setNuevoPedItem] = useState("");
+
+  useEffect(() => {
+    const u1 = onSnapshot(collection(db,"pedidosProveedor"), snap => {
+      setPedidosList(snap.docs.map(d=>({...d.data(),fireId:d.id})).filter(p=>p.proveedorId===prov.fireId));
+    });
+    const u2 = onSnapshot(collection(db,"facturasProveedor"), snap => {
+      setFacturas(snap.docs.map(d=>({...d.data(),fireId:d.id})).filter(f=>f.proveedorId===prov.fireId).sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0));
+    });
+    return () => { u1(); u2(); };
+  }, [prov.fireId]);
+
+  const pendientes  = pedidosList.filter(p=>!p.conseguido);
+  const conseguidos = pedidosList.filter(p=>p.conseguido);
+
+  const agregarItem = async () => {
+    if (!nuevoPedItem.trim()) return;
+    await addDoc(collection(db,"pedidosProveedor"), { proveedorId:prov.fireId, item:nuevoPedItem.trim(), conseguido:false, fecha:new Date().toISOString().split("T")[0] });
+    setNuevoPedItem("");
+  };
+
+  const marcarConseguido = async (p) => {
+    await updateDoc(doc(db,"pedidosProveedor",p.fireId), { conseguido:true, fechaConseguido:new Date().toISOString().split("T")[0] });
+    showToast(`"${p.item}" marcado como conseguido ✅`);
+  };
+
+  const eliminarItem = async (p) => {
+    await deleteDoc(doc(db,"pedidosProveedor",p.fireId));
+  };
+
+  const subirFactura = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      await addDoc(collection(db,"facturasProveedor"), {
+        proveedorId: prov.fireId,
+        fecha:       new Date().toISOString().split("T")[0],
+        nombre:      file.name,
+        imagen:      ev.target.result,
+      });
+      showToast("Factura guardada ✅");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ maxWidth:900, margin:"0 auto" }}>
+      <button onClick={()=>setSelected(null)} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver a proveedores</button>
+
+      {/* Ficha */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+        <div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov.empresa||"Sin nombre"}</div>
+          {prov.titular   && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {prov.titular}</div>}
+          <div style={{ display:"flex", flexWrap:"wrap", gap:16 }}>
+            {prov.cuit      && <span style={{ fontSize:13 }}>🪪 {prov.cuit}</span>}
+            {prov.telefono  && <span style={{ fontSize:13, fontWeight:700, color:"#e65100" }}>📞 {prov.telefono}</span>}
+            {prov.mail      && <span style={{ fontSize:13 }}>✉️ {prov.mail}</span>}
+            {prov.direccion && <span style={{ fontSize:13 }}>📍 {prov.direccion}</span>}
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={()=>{ setEditingId(prov.fireId); setView("editarProveedor"); }}
+            style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>✏️ Editar</button>
+          <button onClick={()=>handleDelete(prov)}
+            style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>🗑</button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {[["pedidos","📋 Lista de pedidos"],["facturas","🧾 Facturas"],["historial","📦 Historial"]].map(([tab,lbl])=>(
+          <button key={tab} onClick={()=>setTabActiva(tab)}
+            style={{ padding:"8px 18px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:tabActiva===tab?"#e65100":"#fff", color:tabActiva===tab?"#fff":"#4a5568",
+              boxShadow:tabActiva===tab?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+            {lbl} {tab==="pedidos"&&pendientes.length>0&&<span style={{ background:tabActiva===tab?"rgba(255,255,255,.3)":"#fff3e0", color:tabActiva===tab?"#fff":"#e65100", borderRadius:10, padding:"0 6px", fontSize:11, fontWeight:700 }}>{pendientes.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab: Lista de pedidos */}
+      {tabActiva==="pedidos" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+          <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>📋 Cosas para pedir</div>
+          <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+            <input value={nuevoPedItem} onChange={e=>setNuevoPedItem(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&agregarItem()}
+              placeholder="Ej: Papel A4 120g, Vinilo blanco 1.52m..."
+              style={{ flex:1, padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
+            <button onClick={agregarItem} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>+ Agregar</button>
+          </div>
+          {pendientes.length===0 ? (
+            <div style={{ textAlign:"center", padding:"24px 0", color:"#d4bfb0", fontSize:13 }}>Sin pendientes — todo en orden 🎉</div>
+          ) : pendientes.map(p=>(
+            <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:"1px solid #fef0e8" }}>
+              <button onClick={()=>marcarConseguido(p)} style={{ width:22, height:22, borderRadius:5, border:"2px solid #e65100", background:"#fff", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>✓</button>
+              <span style={{ flex:1, fontSize:14, color:"#1a2340", fontWeight:500 }}>{p.item}</span>
+              <span style={{ fontSize:11, color:"#a09080" }}>{p.fecha}</span>
+              <button onClick={()=>eliminarItem(p)} style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:14 }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tab: Facturas */}
+      {tabActiva==="facturas" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>🧾 Facturas ({facturas.length})</div>
+            <label style={{ background:"#e65100", color:"#fff", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+              📷 Subir factura
+              <input type="file" accept="image/*,application/pdf" onChange={subirFactura} style={{ display:"none" }}/>
+            </label>
+          </div>
+          {facturas.length===0 ? (
+            <div style={{ textAlign:"center", padding:"24px 0", color:"#d4bfb0", fontSize:13 }}>Sin facturas cargadas</div>
+          ) : (
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))", gap:12 }}>
+              {facturas.map(f=>(
+                <div key={f.fireId} style={{ borderRadius:10, border:"1.5px solid #f0d5c0", overflow:"hidden", cursor:"pointer" }}
+                  onClick={()=>window.open(f.imagen,"_blank")}>
+                  <img src={f.imagen} alt={f.nombre} style={{ width:"100%", height:120, objectFit:"cover" }}/>
+                  <div style={{ padding:"8px 10px", background:"#fffaf7" }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:"#1a2340", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.nombre}</div>
+                    <div style={{ fontSize:10, color:"#a09080", marginTop:2 }}>{f.fecha}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Historial */}
+      {tabActiva==="historial" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+          <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>📦 Historial de pedidos conseguidos ({conseguidos.length})</div>
+          {conseguidos.length===0 ? (
+            <div style={{ textAlign:"center", padding:"24px 0", color:"#d4bfb0", fontSize:13 }}>Sin historial aún</div>
+          ) : conseguidos.sort((a,b)=>b.fechaConseguido?.localeCompare(a.fechaConseguido||"")||0).map(p=>(
+            <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:"1px solid #fef0e8" }}>
+              <span style={{ fontSize:16 }}>✅</span>
+              <span style={{ flex:1, fontSize:14, color:"#4a5568", textDecoration:"line-through" }}>{p.item}</span>
+              <div style={{ textAlign:"right", fontSize:11, color:"#a09080" }}>
+                <div>Pedido: {p.fecha}</div>
+                <div>Conseguido: {p.fechaConseguido||"—"}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Formulario Proveedor ──────────────────────────────────────────────────
+function FormularioProveedor({ prov, setView, setSelected, showToast }) {
+  const [form, setForm]     = useState(prov || { empresa:"", titular:"", cuit:"", direccion:"", telefono:"", mail:"" });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!form.empresa?.trim() && !form.titular?.trim()) { showToast("Ingresá al menos empresa o titular","error"); return; }
+    setSaving(true);
+    if (prov?.fireId) {
+      await updateDoc(doc(db,"proveedores",prov.fireId), form);
+      showToast("Proveedor actualizado ✅");
+      setSelected(prov.fireId);
+    } else {
+      const ref = await addDoc(collection(db,"proveedores"), form);
+      showToast("Proveedor creado ✅");
+      setSelected(ref.id);
+    }
+    setSaving(false);
+    setView("proveedores");
+  };
+
+  const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", color:"#1a2340", outline:"none", boxSizing:"border-box" };
+
+  return (
+    <div style={{ maxWidth:680, margin:"0 auto" }}>
+      <button onClick={()=>setView("proveedores")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
+        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov?"✏️ Editar Proveedor":"➕ Nuevo Proveedor"}</h2>
+        <p style={{ fontSize:14, color:"#a09080", marginBottom:24 }}>Datos del proveedor.</p>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Empresa / Nombre comercial *</label>
+            <input value={form.empresa} onChange={e=>setForm(f=>({...f,empresa:e.target.value}))} placeholder="Ej: Distribuidora Sur" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Titular / Contacto</label>
+            <input value={form.titular} onChange={e=>setForm(f=>({...f,titular:e.target.value}))} placeholder="Nombre y apellido" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>CUIT</label>
+            <input value={form.cuit} onChange={e=>setForm(f=>({...f,cuit:e.target.value}))} placeholder="XX-XXXXXXXX-X" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Teléfono</label>
+            <input value={form.telefono} onChange={e=>setForm(f=>({...f,telefono:e.target.value}))} placeholder="11-xxxx-xxxx" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Mail</label>
+            <input value={form.mail} onChange={e=>setForm(f=>({...f,mail:e.target.value}))} placeholder="proveedor@mail.com" style={inp}/>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Dirección</label>
+            <input value={form.direccion} onChange={e=>setForm(f=>({...f,direccion:e.target.value}))} placeholder="Calle, número, ciudad" style={inp}/>
+          </div>
+        </div>
+        <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:28 }}>
+          <button onClick={()=>setView("proveedores")} style={{ padding:"10px 22px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding:"10px 28px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer", opacity:saving?.7:1 }}>
+            {saving?"Guardando...":prov?"💾 Guardar Cambios":"✅ Crear Proveedor"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente: Historial de Ventas ───────────────────────────────────────
 function VentasView({ setView, showToast, clientes, empresa }) {
   const [ventas, setVentas]     = useState([]);
@@ -1939,6 +2623,7 @@ export default function App() {
   const [selectedClienteId, setSelectedClienteId] = useState(null);
   const [editingClienteId, setEditingClienteId]   = useState(null);
   const [editingInsumoId, setEditingInsumoId]     = useState(null);
+  const [nuevoEventoModal, setNuevoEventoModal]   = useState(false);
 
   // ── Firebase: verificar sesión ──
   useEffect(() => {
@@ -2150,6 +2835,8 @@ export default function App() {
             <div className={`nav-lnk ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}`} onClick={() => setView("clientes")}>👥 Clientes</div>
             <div className={`nav-lnk ${(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo")?"act":""}`} onClick={() => setView("insumos")}>📦 Insumos</div>
             <div className={`nav-lnk ${(view==="ventas"||view==="nuevaVenta")?"act":""}`} onClick={() => setView("ventas")}>💰 Ventas</div>
+            <div className={`nav-lnk ${(view==="agenda")?"act":""}`} onClick={() => setView("agenda")}>📅 Agenda</div>
+            <div className={`nav-lnk ${(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}`} onClick={() => setView("proveedores")}>🏭 Proveedores</div>
             <div className={`nav-lnk ${view==="config"?"act":""}`} onClick={() => setView("config")}>⚙️ Configuración</div>
 
             {/* Separador */}
@@ -2204,6 +2891,26 @@ export default function App() {
                 onMouseOver={e=>e.currentTarget.style.background="#fff"}
                 onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
                 ➕ Nueva Venta
+              </div>
+            )}
+
+            {/* Botones Agenda */}
+            {view==="agenda" && (
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                onClick={() => setNuevoEventoModal(true)}
+                onMouseOver={e=>e.currentTarget.style.background="#fff"}
+                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
+                ➕ Nuevo Evento
+              </div>
+            )}
+
+            {/* Botones Proveedores */}
+            {(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor") && (
+              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                onClick={() => setView("nuevoProveedor")}
+                onMouseOver={e=>e.currentTarget.style.background="#fff"}
+                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
+                ➕ Nuevo Proveedor
               </div>
             )}
 
@@ -2705,6 +3412,24 @@ export default function App() {
         )}
         {view==="nuevaVenta" && (
           <NuevaVentaView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} />
+        )}
+
+        {/* ── AGENDA ── */}
+        {view==="agenda" && (
+          <AgendaView
+            nuevoEventoModal={nuevoEventoModal}
+            setNuevoEventoModal={setNuevoEventoModal}
+            showToast={showToast}
+          />
+        )}
+
+        {/* ── PROVEEDORES ── */}
+        {(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor") && (
+          <ProveedoresView
+            view={view}
+            setView={setView}
+            showToast={showToast}
+          />
         )}
 
         {/* ── CONFIGURACIÓN ── */}
