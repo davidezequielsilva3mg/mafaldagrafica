@@ -3337,6 +3337,47 @@ function CambiarPin({ showToast }) {
   );
 }
 
+// ── Componente: Modal Mensaje WhatsApp ───────────────────────────────────
+function MsgModal({ pedido, copied, setCopied, onClose }) {
+  const p   = pedido;
+  const tot = parseFloat(p.precio||0).toLocaleString("es-AR");
+  const sal = (parseFloat(p.precio||0) - parseFloat(p.seña||0)).toLocaleString("es-AR");
+  const msg = `¡Hola ${p.cliente}! 👋\nTu pedido *${p.nombre}* ya está listo 🎉\nEl monto total es $${tot} y resta abonar $${sal}.\nPodés transferir al alias *mafaldagrafica*.\n¡Muchas gracias por tu compra!`;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(msg).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  return (
+    <div className="modal-ov" onClick={onClose}>
+      <div className="msg-bx" onClick={e => e.stopPropagation()}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
+          <div style={{ fontSize:36 }}>💬</div>
+          <div>
+            <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>Mensaje para el cliente</h3>
+            <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>Copiá el mensaje y enviáselo por WhatsApp</p>
+          </div>
+        </div>
+        <div style={{ background:"#e8f5e9", borderRadius:8, padding:"8px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8, fontSize:13 }}>
+          <span>🏢</span>
+          <span style={{ fontWeight:600, color:"#1b5e20" }}>{p.cliente}</span>
+          {p.telefono && <span style={{ color:"#4a5568" }}>· {p.telefono}</span>}
+        </div>
+        <textarea className="msg-textarea" rows={6} defaultValue={msg} id="msg-cliente-textarea"/>
+        <div style={{ display:"flex", gap:10, marginTop:16, justifyContent:"flex-end" }}>
+          <button className="btn-g" style={{ padding:"10px 20px" }} onClick={onClose}>Cerrar</button>
+          <button className={`btn-copy${copied?" copied":""}`} onClick={handleCopy}>
+            {copied ? "✅ ¡Copiado!" : "📋 Copiar mensaje"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Helper para imprimir con config lista ────────────────────────────────
 function imprimirConConfig(fn, empresa, configCargada) {
   if (!configCargada) {
@@ -4321,54 +4362,14 @@ export default function App() {
         )}
       </div>
 
-      {/* ── MODAL MENSAJE AL CLIENTE ── */}
-      {msgModal && (() => {
-        const p   = msgModal.pedido;
-        const tot = parseFloat(p.precio||0).toLocaleString("es-AR");
-        const sal = (parseFloat(p.precio||0) - parseFloat(p.seña||0)).toLocaleString("es-AR");
-        const msg = `¡Hola ${p.cliente}! 👋\nTu pedido *${p.nombre}* ya está listo 🎉\nEl monto total es $${tot} y resta abonar $${sal}.\nPodés transferir al alias *mafaldagrafica*.\n¡Muchas gracias por tu compra!`;
-        const handleCopy = () => {
-          navigator.clipboard.writeText(msg).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2500);
-          });
-        };
-        return (
-          <div className="modal-ov" onClick={() => setMsgModal(null)}>
-            <div className="msg-bx" onClick={e => e.stopPropagation()}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
-                <div style={{ fontSize:36 }}>💬</div>
-                <div>
-                  <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>Mensaje para el cliente</h3>
-                  <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>Copiá el mensaje y enviáselo por WhatsApp</p>
-                </div>
-              </div>
-
-              {/* Badge cliente */}
-              <div style={{ background:"#e8f5e9", borderRadius:8, padding:"8px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8, fontSize:13 }}>
-                <span>🏢</span>
-                <span style={{ fontWeight:600, color:"#1b5e20" }}>{p.cliente}</span>
-                {p.telefono && <span style={{ color:"#4a5568" }}>· {p.telefono}</span>}
-              </div>
-
-              {/* Mensaje editable */}
-              <textarea
-                className="msg-textarea"
-                rows={6}
-                defaultValue={msg}
-                id="msg-cliente-textarea"
-              />
-
-              <div style={{ display:"flex", gap:10, marginTop:16, justifyContent:"flex-end" }}>
-                <button className="btn-g" style={{ padding:"10px 20px" }} onClick={() => setMsgModal(null)}>Cerrar</button>
-                <button className={`btn-copy${copied?" copied":""}`} onClick={handleCopy}>
-                  {copied ? "✅ ¡Copiado!" : "📋 Copiar mensaje"}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {msgModal && (
+        <MsgModal
+          pedido={msgModal.pedido}
+          copied={copied}
+          setCopied={setCopied}
+          onClose={() => setMsgModal(null)}
+        />
+      )}
 
       {/* ── MODAL IMPRESIÓN AUTOMÁTICA ── */}
       {printModal && (
@@ -4391,7 +4392,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Toast */}
       {toast && (
         <div style={{ position:"fixed", bottom:26, right:26, padding:"13px 20px",
           background:toast.type==="error"?"#ef5350":"#1b5e20",
@@ -4400,9 +4400,8 @@ export default function App() {
           {toast.type==="error"?"🗑 ":"✅ "}{toast.msg}
         </div>
       )}
-          </div>{/* end main-content */}
-        </div>{/* end main-area */}
-      </div>{/* end app-shell */}
+      </div>
+      </div>
     </div>
   );
 }
