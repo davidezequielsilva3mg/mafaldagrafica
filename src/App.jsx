@@ -608,7 +608,7 @@ function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
   );
 
   return (
-    <div style={{ maxWidth:760, margin:"0 auto" }}>
+    <div>
       <div style={{ marginBottom:26 }}>
         <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>⚙️ Configuración del Local</h2>
         <p style={{ fontSize:14, color:"#a09080" }}>Estos datos aparecerán en todas las órdenes de trabajo que imprimas.</p>
@@ -1209,6 +1209,7 @@ function ProveedoresView({ view, setView, showToast }) {
   const [selected, setSelected]       = useState(null);
   const [busq, setBusq]               = useState("");
   const [editingId, setEditingId]     = useState(null);
+  const [tabProv, setTabProv]         = useState("proveedores"); // proveedores | compras
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db,"proveedores"), snap => {
@@ -1244,48 +1245,299 @@ function ProveedoresView({ view, setView, showToast }) {
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-        <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>🏭 Proveedores</h2>
-          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{proveedores.length} proveedor{proveedores.length!==1?"es":""}</p>
+      {/* Tabs principales */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div style={{ display:"flex", gap:8 }}>
+          {[["proveedores","🏭 Proveedores"],["compras","🛒 Lista de Compras"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTabProv(t)}
+              style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+                background:tabProv===t?"#e65100":"#fff", color:tabProv===t?"#fff":"#4a5568",
+                boxShadow:tabProv===t?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+              {l}
+            </button>
+          ))}
         </div>
-        <button onClick={()=>{ setEditingId(null); setView("nuevoProveedor"); }}
-          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
-          ➕ Nuevo Proveedor
+        {tabProv==="proveedores" && (
+          <button onClick={()=>{ setEditingId(null); setView("nuevoProveedor"); }}
+            style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+            ➕ Nuevo Proveedor
+          </button>
+        )}
+      </div>
+
+      {/* ── TAB: PROVEEDORES ── */}
+      {tabProv==="proveedores" && (
+        <div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
+              <input placeholder="Buscar proveedor..." value={busq} onChange={e=>setBusq(e.target.value)}
+                style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+            </div>
+          </div>
+
+          {filtrados.length===0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center" }}>
+              <div style={{ fontSize:40, marginBottom:14 }}>🏭</div>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay proveedores"}</div>
+              <div style={{ color:"#a09080" }}>Agregá tu primer proveedor</div>
+            </div>
+          ) : (
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+              {filtrados.map(p=>(
+                <div key={p.fireId} onClick={()=>setSelected(p.fireId)}
+                  style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px", cursor:"pointer", borderTop:"3px solid #e65100", transition:"all .15s" }}
+                  onMouseOver={e=>e.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
+                  onMouseOut={e=>e.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{p.empresa||"Sin nombre"}</div>
+                  {p.titular && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {p.titular}</div>}
+                  <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                    {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100" }}>📞 {p.telefono}</div>}
+                    {p.mail     && <div style={{ fontSize:12, color:"#4a5568" }}>✉️ {p.mail}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: LISTA DE COMPRAS ── */}
+      {tabProv==="compras" && (
+        <ListaComprasView proveedores={proveedores} showToast={showToast}/>
+      )}
+    </div>
+  );
+}
+
+// ── Lista de Compras Global ───────────────────────────────────────────────
+function ListaComprasView({ proveedores, showToast }) {
+  const [items, setItems]         = useState([]);
+  const [modalItem, setModalItem] = useState(null); // null | {} | item existente
+  const [filtroProv, setFiltroProv] = useState("todos");
+  const [filtroEstado, setFiltroEst] = useState("pendiente");
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db,"listaCompras"), snap => {
+      setItems(snap.docs.map(d=>({...d.data(),fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0));
+    });
+    return () => unsub();
+  }, []);
+
+  const filtrados = items.filter(i => {
+    const matchProv  = filtroProv==="todos" || i.proveedorId===filtroProv;
+    const matchEst   = filtroEstado==="todos" || i.estado===filtroEstado;
+    return matchProv && matchEst;
+  });
+
+  const totalPendiente = filtrados.filter(i=>i.estado==="pendiente")
+    .reduce((s,i)=>s+(parseFloat(i.precioInd||0)*parseInt(i.cantidad||1)),0);
+
+  const marcarConseguido = async (item) => {
+    await updateDoc(doc(db,"listaCompras",item.fireId),{estado:"conseguido",fechaConseguido:new Date().toISOString().split("T")[0]});
+    showToast(`"${item.detalle}" marcado como conseguido ✅`);
+  };
+
+  const eliminar = async (item) => {
+    await deleteDoc(doc(db,"listaCompras",item.fireId));
+    showToast("Item eliminado","error");
+  };
+
+  const inp = {padding:"9px 12px",borderRadius:8,border:"1.5px solid #f0d5c0",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box",width:"100%"};
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div>
+          <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>🛒 Lista de Compras</h3>
+          <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>
+            {filtrados.filter(i=>i.estado==="pendiente").length} pendiente{filtrados.filter(i=>i.estado==="pendiente").length!==1?"s":""} · Total: <strong style={{color:"#e65100"}}>${totalPendiente.toLocaleString("es-AR")}</strong>
+          </p>
+        </div>
+        <button onClick={()=>setModalItem({})}
+          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          ➕ Agregar Item
         </button>
       </div>
 
-      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
-        <div style={{ position:"relative" }}>
-          <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
-          <input placeholder="Buscar proveedor..." value={busq} onChange={e=>setBusq(e.target.value)}
-            style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+      {/* Filtros */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
+        <select value={filtroProv} onChange={e=>setFiltroProv(e.target.value)}
+          style={{ ...inp, width:"auto", minWidth:180, cursor:"pointer" }}>
+          <option value="todos">Todos los proveedores</option>
+          {proveedores.map(p=><option key={p.fireId} value={p.fireId}>{p.empresa||p.titular}</option>)}
+        </select>
+        <div style={{ display:"flex", gap:6 }}>
+          {[["pendiente","⏳ Pendientes"],["conseguido","✅ Conseguidos"],["todos","Todos"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setFiltroEst(v)}
+              style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer", border:"none",
+                background:filtroEstado===v?"#e65100":"#fff8f5", color:filtroEstado===v?"#fff":"#a09080" }}>
+              {l}
+            </button>
+          ))}
         </div>
       </div>
 
+      {/* Tabla */}
       {filtrados.length===0 ? (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center" }}>
-          <div style={{ fontSize:40, marginBottom:14 }}>🏭</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay proveedores"}</div>
-          <div style={{ color:"#a09080" }}>Agregá tu primer proveedor</div>
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center", color:"#a09080" }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>🛒</div>
+          <div style={{ fontWeight:700, fontSize:16, fontFamily:"'Playfair Display',serif" }}>Sin items en la lista</div>
+          <div style={{ fontSize:13, marginTop:6 }}>Agregá lo que necesitás comprar</div>
         </div>
       ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
-          {filtrados.map(p=>(
-            <div key={p.fireId} onClick={()=>setSelected(p.fireId)}
-              style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px", cursor:"pointer", borderTop:"3px solid #e65100", transition:"all .15s" }}
-              onMouseOver={e=>e.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
-              onMouseOut={e=>e.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{p.empresa||"Sin nombre"}</div>
-              {p.titular && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {p.titular}</div>}
-              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-                {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100" }}>📞 {p.telefono}</div>}
-                {p.mail     && <div style={{ fontSize:12, color:"#4a5568" }}>✉️ {p.mail}</div>}
-              </div>
-            </div>
-          ))}
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+            <thead>
+              <tr style={{ background:"#fffaf7" }}>
+                {["Cant.","Detalle","Proveedor","P. Individual","P. Total","Estado",""].map(h=>(
+                  <th key={h} style={{ padding:"11px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0", whiteSpace:"nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map(item => {
+                const prov = proveedores.find(p=>p.fireId===item.proveedorId);
+                const cant = parseInt(item.cantidad||1);
+                const pInd = parseFloat(item.precioInd||0);
+                const pTot = cant * pInd;
+                const conseguido = item.estado==="conseguido";
+                return (
+                  <tr key={item.fireId} style={{ borderBottom:"1px solid #fef0e8", opacity:conseguido?.6:1, background:conseguido?"#fffaf7":"#fff" }}>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#e65100", fontSize:15 }}>{cant}</td>
+                    <td style={{ padding:"12px 14px", color:"#1a2340", fontWeight:600 }}>
+                      <div style={{ textDecoration:conseguido?"line-through":"none" }}>{item.detalle}</div>
+                      {item.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>{item.notas}</div>}
+                    </td>
+                    <td style={{ padding:"12px 14px" }}>
+                      {prov
+                        ? <span style={{ background:"#fff3e0", color:"#e65100", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{prov.empresa||prov.titular}</span>
+                        : <span style={{ color:"#a09080", fontSize:12 }}>Sin asignar</span>
+                      }
+                    </td>
+                    <td style={{ padding:"12px 14px", color:"#4a5568" }}>{pInd>0?`$${pInd.toLocaleString("es-AR")}`:"—"}</td>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:pTot>0?"#1a2340":"#a09080" }}>{pTot>0?`$${pTot.toLocaleString("es-AR")}`:"—"}</td>
+                    <td style={{ padding:"12px 14px" }}>
+                      {conseguido
+                        ? <span style={{ background:"#e8f5e9", color:"#2e7d32", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>✅ Conseguido</span>
+                        : <span style={{ background:"#fff3e0", color:"#e65100", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>⏳ Pendiente</span>
+                      }
+                    </td>
+                    <td style={{ padding:"12px 12px" }}>
+                      <div style={{ display:"flex", gap:5 }}>
+                        {!conseguido && (
+                          <button onClick={()=>marcarConseguido(item)}
+                            style={{ background:"#e8f5e9", border:"none", color:"#2e7d32", padding:"5px 9px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:700 }} title="Marcar conseguido">
+                            ✓
+                          </button>
+                        )}
+                        <button onClick={()=>setModalItem(item)}
+                          style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>✏️</button>
+                        <button onClick={()=>eliminar(item)}
+                          style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {totalPendiente > 0 && (
+              <tfoot>
+                <tr style={{ background:"#fff8f5", borderTop:"2px solid #f0d5c0" }}>
+                  <td colSpan={4} style={{ padding:"12px 14px", fontWeight:700, color:"#a09080", fontSize:13 }}>TOTAL PENDIENTE</td>
+                  <td style={{ padding:"12px 14px", fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#e65100" }}>${totalPendiente.toLocaleString("es-AR")}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       )}
+
+      {/* Modal agregar/editar item */}
+      {modalItem && (
+        <ModalItemCompra
+          item={modalItem.fireId ? modalItem : null}
+          proveedores={proveedores}
+          onClose={()=>setModalItem(null)}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modal Item de Compra ──────────────────────────────────────────────────
+function ModalItemCompra({ item, proveedores, onClose, showToast }) {
+  const [form, setForm] = useState(item || { cantidad:1, detalle:"", proveedorId:"", precioInd:"", notas:"", estado:"pendiente" });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!form.detalle.trim()) { showToast("El detalle es obligatorio","error"); return; }
+    setSaving(true);
+    const data = { ...form, cantidad:parseInt(form.cantidad)||1, precioInd:parseFloat(form.precioInd)||0, fecha:form.fecha||new Date().toISOString().split("T")[0] };
+    if (item?.fireId) {
+      await updateDoc(doc(db,"listaCompras",item.fireId), data);
+      showToast("Item actualizado ✅");
+    } else {
+      await addDoc(collection(db,"listaCompras"), data);
+      showToast("Item agregado a la lista ✅");
+    }
+    setSaving(false);
+    onClose();
+  };
+
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:500, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>
+          {item?.fireId?"✏️ Editar Item":"➕ Nuevo Item de Compra"}
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Detalle *</label>
+            <input value={form.detalle} onChange={e=>setForm(f=>({...f,detalle:e.target.value}))} placeholder="Ej: Vinilo base blanca 1.52m" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Cantidad</label>
+            <input type="number" min="1" value={form.cantidad} onChange={e=>setForm(f=>({...f,cantidad:e.target.value}))} style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio Individual ($)</label>
+            <input type="number" value={form.precioInd} onChange={e=>setForm(f=>({...f,precioInd:e.target.value}))} placeholder="0" style={inp}/>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Proveedor</label>
+            <select value={form.proveedorId||""} onChange={e=>setForm(f=>({...f,proveedorId:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+              <option value="">Sin asignar</option>
+              {proveedores.map(p=><option key={p.fireId} value={p.fireId}>{p.empresa||p.titular}</option>)}
+            </select>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Notas (opcional)</label>
+            <input value={form.notas||""} onChange={e=>setForm(f=>({...f,notas:e.target.value}))} placeholder="Medida, color, especificaciones..." style={inp}/>
+          </div>
+          {form.precioInd > 0 && form.cantidad > 0 && (
+            <div style={{ gridColumn:"1 / -1", background:"#fff8f5", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ fontSize:13, color:"#a09080", fontWeight:600 }}>Total estimado:</span>
+              <span style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#e65100" }}>
+                ${(parseFloat(form.precioInd||0)*parseInt(form.cantidad||1)).toLocaleString("es-AR")}
+              </span>
+            </div>
+          )}
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:20 }}>
+          <button onClick={onClose} style={{ padding:"9px 18px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding:"9px 22px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            {saving?"Guardando...":"✅ Guardar"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1343,7 +1595,7 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
   };
 
   return (
-    <div style={{ maxWidth:900, margin:"0 auto" }}>
+    <div>
       <button onClick={()=>setSelected(null)} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver a proveedores</button>
 
       {/* Ficha */}
@@ -1477,7 +1729,7 @@ function FormularioProveedor({ prov, setView, setSelected, showToast }) {
   const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", color:"#1a2340", outline:"none", boxSizing:"border-box" };
 
   return (
-    <div style={{ maxWidth:680, margin:"0 auto" }}>
+    <div>
       <button onClick={()=>setView("proveedores")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
         <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov?"✏️ Editar Proveedor":"➕ Nuevo Proveedor"}</h2>
@@ -2217,7 +2469,7 @@ function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
   });
 
   return (
-    <div style={{ maxWidth:680, margin:"0 auto" }}>
+    <div>
       <button onClick={() => setView("insumos")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
         <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>➕ Nuevo Insumo</h2>
@@ -2313,7 +2565,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
     const historial = pedidosCliente(cl).sort((a,b) => b.fechaPedido?.localeCompare(a.fechaPedido||"")||0);
     const saldo = parseFloat(cl.saldoCuenta)||0;
     return (
-      <div style={{ maxWidth:900, margin:"0 auto" }}>
+      <div>
         <button onClick={() => setSelected(null)} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver a clientes</button>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:20 }}>
           {/* Ficha */}
@@ -2543,7 +2795,7 @@ function FormularioCliente({ view, editingClienteId, clientes, setView, setSelec
   });
 
   return (
-    <div style={{ maxWidth:700, margin:"0 auto" }}>
+    <div>
       <button onClick={() => setView(esEdicion?"clientes":"clientes")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
         <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
@@ -3071,7 +3323,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
 
       {/* ── TAB: CONFIG PIN ── */}
       {tabActiva==="config" && (
-        <div style={{ maxWidth:480 }}>
+        <div>
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"28px 32px" }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:6 }}>🔐 Cambiar PIN de Finanzas</div>
             <p style={{ fontSize:14, color:"#a09080", marginBottom:20 }}>El PIN actual es de 4 dígitos. Solo vos debés conocerlo.</p>
@@ -3583,7 +3835,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#1a2340" }}>
+    <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#1a2340", width:"100vw", overflowX:"hidden" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
@@ -3617,7 +3869,7 @@ export default function App() {
         @keyframes pIn{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
         /* ── Responsive ── */
         /* ── Sidebar layout ── */
-        .app-shell{display:flex;min-height:100vh}
+        .app-shell{display:flex;min-height:100vh;width:100vw}
         .sidebar{width:220px;min-height:100vh;background:linear-gradient(180deg,#bf360c 0%,#e65100 100%);display:flex;flex-direction:column;transition:width .25s cubic-bezier(.4,0,.2,1);flex-shrink:0;position:relative;z-index:100;box-shadow:4px 0 20px rgba(191,54,12,.25)}
         .sidebar.collapsed{width:64px}
         .sidebar-logo{display:flex;align-items:center;gap:10px;padding:18px 14px 14px;border-bottom:1px solid rgba(255,255,255,.15);min-height:70px;overflow:hidden}
@@ -3638,7 +3890,7 @@ export default function App() {
         .collapsed .sidebar-label{max-width:0;opacity:0}
         .sidebar-bottom{padding:10px 8px;border-top:1px solid rgba(255,255,255,.15)}
         .sidebar-badge{background:#f57f17;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-left:auto;flex-shrink:0}
-        .main-area{flex:1;display:flex;flex-direction:column;min-width:0;background:#fff8f5}
+        .main-area{flex:1;display:flex;flex-direction:column;min-width:0;background:#fff8f5;overflow-x:hidden}
         .topbar{height:58px;background:#fff;border-bottom:1px solid #f0d5c0;display:flex;align-items:center;padding:0 24px;gap:12px;box-shadow:0 1px 8px rgba(230,81,0,.06);flex-shrink:0}
         .topbar-title{font-family:"Playfair Display",serif;font-size:18px;font-weight:700;color:#1a2340;flex:1}
         .main-content{padding:24px 28px;flex:1}
@@ -4033,7 +4285,7 @@ export default function App() {
 
         {/* ── FORMULARIO ── */}
         {view==="formulario" && (
-          <div className="card" style={{ padding:"32px 36px", maxWidth:840, margin:"0 auto" }}>
+          <div className="card" style={{ padding:"32px 36px" }}>
             <div style={{ marginBottom:26 }}>
               <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
                 {editingId?"✏️ Editar Pedido":"📥 Nuevo Pedido"}
