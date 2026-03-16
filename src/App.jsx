@@ -77,7 +77,7 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
 <title>Orden ${num} — ${nombre}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');
-  *{box-sizing:border-box;margin:0;padding:0}
+  *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
   body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340}
   .page{width:210mm;min-height:148mm;margin:0 auto;padding:20mm 20mm 16mm}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:13px;border-bottom:3px solid #e65100;margin-bottom:16px}
@@ -768,7 +768,7 @@ function buildComprobanteHTML(venta, empresa) {
 <title>${num}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');
-  *{box-sizing:border-box;margin:0;padding:0}
+  *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
   body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340;padding:20mm}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:3px solid #e65100;margin-bottom:18px}
   .brand{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#e65100}
@@ -3835,10 +3835,11 @@ export default function App() {
   );
 
   return (
-    <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#1a2340", width:"100vw", overflowX:"hidden" }}>
+    <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#1a2340", minHeight:"100vh", width:"100%" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0}
+        *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
+        html,body,#root{margin:0;padding:0;width:100%;min-height:100vh;overflow-x:hidden}body{background:#fff8f5}
         input:focus,select:focus,textarea:focus{border-color:#e65100!important;box-shadow:0 0 0 3px rgba(230,81,0,.1)}
         ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#c5cce0;border-radius:3px}
         .btn-p{background:#e65100;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .18s}
@@ -3869,7 +3870,7 @@ export default function App() {
         @keyframes pIn{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
         /* ── Responsive ── */
         /* ── Sidebar layout ── */
-        .app-shell{display:flex;min-height:100vh;width:100vw}
+        .app-shell{display:flex;min-height:100vh;width:100%;position:relative}
         .sidebar{width:220px;min-height:100vh;background:linear-gradient(180deg,#bf360c 0%,#e65100 100%);display:flex;flex-direction:column;transition:width .25s cubic-bezier(.4,0,.2,1);flex-shrink:0;position:relative;z-index:100;box-shadow:4px 0 20px rgba(191,54,12,.25)}
         .sidebar.collapsed{width:64px}
         .sidebar-logo{display:flex;align-items:center;gap:10px;padding:18px 14px 14px;border-bottom:1px solid rgba(255,255,255,.15);min-height:70px;overflow:hidden}
