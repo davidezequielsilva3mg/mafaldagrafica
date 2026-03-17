@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   collection, onSnapshot, addDoc, updateDoc,
-  deleteDoc, doc, setDoc, getDoc
+  deleteDoc, doc, setDoc, getDoc, getDocs
 } from "firebase/firestore";
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
@@ -440,16 +440,198 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
 
 
 function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp }) {
-  const [busqL, setBusqL] = useState("");
+  const [busqL, setBusqL]       = useState("");
+  const [busqH, setBusqH]       = useState("");
+  const [tabActiva, setTabActiva] = useState("listos");
+
   const listos = pedidos
     .filter(p => p.estado === "Listo")
     .sort((a,b) => (!a.fechaEntrega?1:!b.fechaEntrega?-1:a.fechaEntrega.localeCompare(b.fechaEntrega)));
+
   const filtrados = listos.filter(p => {
     const q = busqL.toLowerCase();
     return !busqL || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q);
   });
+
   const totalCobrar = listos.reduce((s,p) => s + saldo(p), 0);
-  const entregados  = pedidos.filter(p=>p.estado==="Entregado").sort((a,b)=>b.fechaEntrega?.localeCompare(a.fechaEntrega||"")||0);
+
+  const entregados = pedidos
+    .filter(p => p.estado === "Entregado")
+    .sort((a,b) => b.fechaEntrega?.localeCompare(a.fechaEntrega||"")||0);
+
+  const entregadosFiltrados = entregados.filter(p => {
+    const q = busqH.toLowerCase();
+    return !busqH || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q) || p.telefono?.includes(busqH);
+  });
+
+  return (
+    <div>
+      {/* Tabs */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+        <button onClick={()=>setTabActiva("listos")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="listos"?"#e65100":"#fff", color:tabActiva==="listos"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="listos"?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          ✅ Listos para entregar
+          {listos.length > 0 && <span style={{ marginLeft:7, background:tabActiva==="listos"?"rgba(255,255,255,.3)":"#fff3e0", color:tabActiva==="listos"?"#fff":"#e65100", borderRadius:20, padding:"0 7px", fontSize:12, fontWeight:700 }}>{listos.length}</span>}
+        </button>
+        <button onClick={()=>setTabActiva("historial")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="historial"?"#1a2340":"#fff", color:tabActiva==="historial"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="historial"?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          📦 Historial de Entregados
+          {entregados.length > 0 && <span style={{ marginLeft:7, background:tabActiva==="historial"?"rgba(255,255,255,.2)":"#f0f3f9", color:tabActiva==="historial"?"#fff":"#4a5568", borderRadius:20, padding:"0 7px", fontSize:12, fontWeight:700 }}>{entregados.length}</span>}
+        </button>
+      </div>
+
+      {/* ── TAB: LISTOS ── */}
+      {tabActiva === "listos" && (
+        <div>
+          {/* Stats */}
+          <div style={{ display:"flex", gap:12, marginBottom:18, flexWrap:"wrap" }}>
+            <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
+              <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Pedidos listos</div>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#f57f17" }}>{listos.length}</div>
+            </div>
+            <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
+              <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Por cobrar</div>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#c62828" }}>${totalCobrar.toLocaleString("es-AR")}</div>
+            </div>
+          </div>
+
+          {/* Buscador */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
+              <input placeholder="Buscar por pedido o cliente..." value={busqL} onChange={e=>setBusqL(e.target.value)}
+                style={{ ...inp(), paddingLeft:34, width:"100%" }}/>
+            </div>
+          </div>
+
+          {filtrados.length === 0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+              <div style={{ fontSize:40, marginBottom:14 }}>🎉</div>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>
+                {listos.length === 0 ? "No hay pedidos listos aún" : "Sin resultados"}
+              </div>
+              <div style={{ color:"#a09080", fontSize:14 }}>
+                {listos.length === 0 ? "Cuando un pedido pase a 'Listo' aparecerá aquí" : "Probá con otro término"}
+              </div>
+            </div>
+          ) : (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+                <thead>
+                  <tr style={{ background:"#fffaf7" }}>
+                    {["Pedido","Categoría","Cliente","Fecha Entrega","Total","Saldo","Acciones"].map(h=>(
+                      <th key={h} style={{ padding:"11px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #f5e8e0" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtrados.map(p => {
+                    const cc = CATEGORIA_COLOR[p.categoria];
+                    const hf = isHoy(p);
+                    return (
+                      <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid #fef0e8", background:hf?"#fffdf0":"#fff" }}>
+                        <td style={{ padding:"13px 16px" }}>
+                          <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nombre}</div>
+                          {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
+                        </td>
+                        <td style={{ padding:"13px 16px" }}>
+                          <span style={{ background:cc.bg, color:cc.text, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
+                        </td>
+                        <td style={{ padding:"13px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>
+                          <div style={{ fontWeight:600 }}>{p.cliente}</div>
+                          {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100", marginTop:2 }}>📞 {p.telefono}</div>}
+                        </td>
+                        <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
+                          <span style={{ fontWeight:600, color:hf?"#f57f17":"#1a2340" }}>{hf&&"📍 "}{p.fechaEntrega||"—"}</span>
+                          {hf && <div style={{ fontSize:11, color:"#f57f17" }}>Hoy</div>}
+                        </td>
+                        <td style={{ padding:"13px 16px", fontWeight:600, color:"#1a2340", whiteSpace:"nowrap" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
+                        <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
+                          <span style={{ fontWeight:700, color:saldo(p)>0?"#c62828":"#2e7d32", fontSize:14 }}>{p.precio?`$${saldo(p).toLocaleString("es-AR")}`:"—"}</span>
+                        </td>
+                        <td style={{ padding:"13px 16px" }}>
+                          <div style={{ display:"flex", gap:6 }}>
+                            <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setMsgModal({ pedido: p })}>💬</button>
+                            <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }} onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
+                            <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 12px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }} onClick={() => handleDelete(p.id)}>🗑</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: HISTORIAL ── */}
+      {tabActiva === "historial" && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+            <p style={{ fontSize:14, color:"#a09080" }}>{entregados.length} pedido{entregados.length!==1?"s":""} entregado{entregados.length!==1?"s":""}</p>
+          </div>
+
+          {/* Buscador propio */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
+              <input placeholder="Buscar en historial..." value={busqH} onChange={e=>setBusqH(e.target.value)}
+                style={{ ...inp(), paddingLeft:34, width:"100%" }}/>
+            </div>
+          </div>
+
+          {entregadosFiltrados.length === 0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+              <div style={{ fontSize:40, marginBottom:14 }}>📦</div>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>
+                {entregados.length === 0 ? "Sin pedidos entregados aún" : "Sin resultados"}
+              </div>
+            </div>
+          ) : (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+                <thead>
+                  <tr style={{ background:"#fffaf7" }}>
+                    {["Pedido","Categoría","Cliente","Teléfono","Fecha Entrega","Total",""].map(h=>(
+                      <th key={h} style={{ padding:"10px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #f5e8e0" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {entregadosFiltrados.map(p => {
+                    const cc = CATEGORIA_COLOR[p.categoria] || {bg:"#f5f5f5",text:"#424242"};
+                    return (
+                      <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid #fef0e8", opacity:.9 }}>
+                        <td style={{ padding:"11px 16px", fontWeight:600, color:"#4a5568" }}>{p.nombre}</td>
+                        <td style={{ padding:"11px 16px" }}>
+                          <span style={{ background:cc.bg, color:cc.text, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:600 }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
+                        </td>
+                        <td style={{ padding:"11px 16px", fontWeight:600, color:"#1a2340" }}>{p.cliente}</td>
+                        <td style={{ padding:"11px 16px", fontWeight:700, color:"#e65100", fontSize:12 }}>{p.telefono?`📞 ${p.telefono}`:"—"}</td>
+                        <td style={{ padding:"11px 16px", color:"#4a5568" }}>{p.fechaEntrega||"—"}</td>
+                        <td style={{ padding:"11px 16px", fontWeight:700, color:"#1a2340" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
+                        <td style={{ padding:"11px 16px" }}>
+                          <span style={{ background:"#e8f5e9", color:"#1b5e20", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>✅ Entregado</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
   return (
     <div>
@@ -537,47 +719,6 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
           </table>
         </div>
       )}
-
-      {entregados.length > 0 && (
-        <div style={{ marginTop:32 }}>
-          <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#4a5568", marginBottom:14 }}>
-            📦 Historial de Entregados ({entregados.length})
-          </h3>
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
-            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
-              <thead>
-                <tr style={{ background:"#fffaf7" }}>
-                  {["Pedido","Categoría","Cliente","Fecha Entrega","Total","Estado"].map(h => (
-                    <th key={h} style={{ padding:"10px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #edf0f7" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {entregados.map(p => {
-                  const cc = CATEGORIA_COLOR[p.categoria];
-                  return (
-                    <tr key={p.id} style={{ borderBottom:"1px solid #f2f4f9", opacity:.85 }}>
-                      <td style={{ padding:"11px 16px", fontWeight:600, color:"#4a5568" }}>{p.nombre}</td>
-                      <td style={{ padding:"11px 16px" }}>
-                        <span style={{ background:cc.bg, color:cc.text, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:600, whiteSpace:"nowrap" }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
-                      </td>
-                      <td style={{ padding:"11px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>{p.cliente}</td>
-                      <td style={{ padding:"11px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>{p.fechaEntrega||"—"}</td>
-                      <td style={{ padding:"11px 16px", fontWeight:600, color:"#4a5568", whiteSpace:"nowrap" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
-                      <td style={{ padding:"11px 16px" }}>
-                        <span style={{ background:"#e8f5e9", color:"#1b5e20", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>✅ Entregado</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Componente: Configuración ─────────────────────────────────────────────
 function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
@@ -2864,6 +3005,7 @@ function BuscadorGlobal({ pedidos, clientes, busqueda, setBusqueda, onClose, onS
   };
 
   const pedidosFiltrados = busqueda.length >= 2 ? pedidos.filter(p =>
+    p.estado !== "Entregado" &&
     matchTexto(`${p.nombre} ${p.cliente} ${p.telefono||""} ${p.categoria} ${p.estado}`)
   ).slice(0, 6) : [];
 
@@ -3275,7 +3417,12 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
                   <td style={{ padding:"10px 16px", fontWeight:600, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</td>
                   <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.items?.map(i=>`${i.cantidad}x ${i.nombre}`).join(", ").slice(0,50)||"—"}</td>
                   <td style={{ padding:"10px 16px" }}><span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.metodoPago}</span></td>
-                  <td style={{ padding:"10px 16px", fontFamily:"'Playfair Display',serif", fontWeight:700, color:"#e65100", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</td>
+                  <td style={{ padding:"10px 16px" }}>
+                    <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, color:"#e65100", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</span>
+                      {v.origen==="pedido" && <span style={{ background:"#e8eaf6", color:"#3949ab", padding:"2px 7px", borderRadius:10, fontSize:10, fontWeight:700 }}>PEDIDO</span>}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -3589,6 +3736,70 @@ function CambiarPin({ showToast }) {
   );
 }
 
+// ── Modal Confirmar Entrega ───────────────────────────────────────────────
+function EntregaModal({ pedido, onConfirmar, onClose }) {
+  const [metodoPago, setMetodoPago] = useState("Efectivo");
+  const saldo = parseFloat(pedido.precio||0) - parseFloat(pedido.seña||0);
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:600 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"32px 36px", width:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ textAlign:"center", marginBottom:20 }}>
+          <div style={{ fontSize:48, marginBottom:10 }}>📦</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>Confirmar Entrega</div>
+          <div style={{ fontSize:14, color:"#4a5568", fontWeight:600 }}>{pedido.nombre}</div>
+          <div style={{ fontSize:13, color:"#a09080", marginTop:4 }}>Cliente: {pedido.cliente}</div>
+        </div>
+
+        {/* Resumen de cobro */}
+        <div style={{ background:"#fff8f5", borderRadius:10, padding:"14px 18px", marginBottom:20 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6, fontSize:13 }}>
+            <span style={{ color:"#a09080" }}>Total del pedido:</span>
+            <span style={{ fontWeight:700 }}>${parseFloat(pedido.precio||0).toLocaleString("es-AR")}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6, fontSize:13 }}>
+            <span style={{ color:"#a09080" }}>Seña cobrada:</span>
+            <span style={{ fontWeight:700, color:"#2e7d32" }}>${parseFloat(pedido.seña||0).toLocaleString("es-AR")}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", borderTop:"1.5px solid #f0d5c0", paddingTop:8, marginTop:4 }}>
+            <span style={{ fontWeight:700, color:"#1a2340" }}>Saldo a cobrar:</span>
+            <span style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:saldo>0?"#c62828":"#2e7d32" }}>
+              ${saldo.toLocaleString("es-AR")}
+            </span>
+          </div>
+        </div>
+
+        {/* Método de pago */}
+        <div style={{ marginBottom:22 }}>
+          <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:10 }}>Método de pago del saldo:</label>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {["Efectivo","Transferencia","Tarjeta de Crédito","Cuenta Corriente"].map(m=>(
+              <button key={m} onClick={()=>setMetodoPago(m)}
+                style={{ padding:"10px 8px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer",
+                  border:`2px solid ${metodoPago===m?"#e65100":"#f0d5c0"}`,
+                  background:metodoPago===m?"#e65100":"#fff",
+                  color:metodoPago===m?"#fff":"#4a5568", transition:"all .15s" }}>
+                {m==="Efectivo"?"💵 Efectivo":m==="Transferencia"?"📲 Transferencia":m==="Tarjeta de Crédito"?"💳 Tarjeta":"📒 Cta. Corriente"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onClose}
+            style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>
+            Cancelar
+          </button>
+          <button onClick={()=>onConfirmar(pedido, metodoPago)}
+            style={{ flex:2, padding:"11px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+            ✅ Confirmar Entrega
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente: Modal Mensaje WhatsApp ───────────────────────────────────
 function MsgModal({ pedido, copied, setCopied, onClose }) {
   const p   = pedido;
@@ -3671,6 +3882,7 @@ export default function App() {
   const [nuevoEventoModal, setNuevoEventoModal]   = useState(false);
   const [menuAbierto, setMenuAbierto]             = useState(true);
   const [finanzasDesbloqueado, setFinanzasDesbloqueado] = useState(false);
+  const [entregaModal, setEntregaModal]               = useState(null); // { pedido }
   const [busquedaGlobal, setBusquedaGlobal]       = useState("");
   const [busqGlobalOpen, setBusqGlobalOpen]       = useState(false);
 
@@ -3718,7 +3930,8 @@ export default function App() {
   };
 
   const filtered = useMemo(() => pedidos.filter(p => {
-    if (p.estado === "Listo") return false; // van a la página de Listos
+    if (p.estado === "Listo") return false;     // van a Pedidos Listos
+    if (p.estado === "Entregado") return false; // van al Historial
     const q = busqueda.toLowerCase();
     return (!busqueda || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q) || p.telefono?.includes(busqueda))
       && (filtroEstado    === "Todos"  || p.estado    === filtroEstado)
@@ -3789,11 +4002,46 @@ export default function App() {
   };
 
   const handleEstadoChange = async (id, nuevoEstado) => {
-    const prev    = pedidos.find(p => p.id === id);
+    const prev = pedidos.find(p => p.id === id);
+    if (nuevoEstado === "Entregado" && prev.estado !== "Entregado") {
+      // Mostrar modal para elegir método de pago antes de marcar entregado
+      setEntregaModal({ pedido: prev });
+      return;
+    }
     const updated = { ...prev, estado: nuevoEstado };
     await updateDoc(doc(db, "pedidos", prev.fireId), { estado: nuevoEstado });
     triggerPrintIfNeeded(prev, updated);
     triggerMsgIfNeeded(prev, updated);
+  };
+
+  const confirmarEntrega = async (pedido, metodoPago) => {
+    // 1. Marcar pedido como entregado
+    await updateDoc(doc(db, "pedidos", pedido.fireId), { estado: "Entregado" });
+    // 2. Registrar en ventas de finanzas
+    const ventasSnap = await getDocs(collection(db, "ventas"));
+    const numero = ventasSnap.size + 1;
+    await addDoc(collection(db, "ventas"), {
+      numero,
+      fecha:         new Date().toISOString().split("T")[0],
+      clienteId:     pedido.clienteId || null,
+      clienteNombre: pedido.cliente || "Sin cliente",
+      metodoPago,
+      origen:        "pedido",
+      pedidoId:      pedido.fireId,
+      items:         [{ nombre: pedido.nombre, cantidad: 1, precio: parseFloat(pedido.precio||0) }],
+      total:         parseFloat(pedido.precio||0),
+      creadoEn:      new Date().toISOString(),
+    });
+    // 3. Si es cuenta corriente, sumar al saldo del cliente
+    if (metodoPago === "Cuenta Corriente" && pedido.clienteId) {
+      const clSnap = await getDoc(doc(db, "clientes", pedido.clienteId));
+      if (clSnap.exists()) {
+        const nuevoSaldo = (parseFloat(clSnap.data().saldoCuenta)||0) + parseFloat(pedido.precio||0);
+        await updateDoc(doc(db, "clientes", pedido.clienteId), { saldoCuenta: nuevoSaldo });
+      }
+    }
+    setEntregaModal(null);
+    showToast(`Pedido entregado · $${parseFloat(pedido.precio||0).toLocaleString("es-AR")} registrado en Finanzas ✅`);
   };
 
   const handleEdit   = (p) => { setFormData({...p}); setEditingId(p.id); setErrors({}); setView("formulario"); };
@@ -4621,6 +4869,14 @@ export default function App() {
           copied={copied}
           setCopied={setCopied}
           onClose={() => setMsgModal(null)}
+        />
+      )}
+
+      {entregaModal && (
+        <EntregaModal
+          pedido={entregaModal.pedido}
+          onConfirmar={confirmarEntrega}
+          onClose={() => setEntregaModal(null)}
         />
       )}
 
