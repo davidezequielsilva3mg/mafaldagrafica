@@ -76,21 +76,21 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
 <meta charset="UTF-8"/>
 <title>Orden ${num} — ${nombre}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
   body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340}
   .page{width:210mm;min-height:148mm;margin:0 auto;padding:20mm 20mm 16mm}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:13px;border-bottom:3px solid #e65100;margin-bottom:16px}
   .hdr-left{display:flex;align-items:center;gap:14px}
   .logo-img{width:60px;height:60px;object-fit:contain;border-radius:8px}
-  .brand{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#e65100}
+  .brand{font-family:'DM Sans',sans-serif;font-size:24px;font-weight:800;color:#e65100}
   .brand-data{font-size:11px;color:#8a7060;margin-top:3px;line-height:1.6}
-  .onum{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#e65100;text-align:right}
+  .onum{font-family:'DM Sans',sans-serif;font-size:20px;font-weight:800;color:#e65100;text-align:right}
   .ofecha{font-size:11px;color:#a09080;text-align:right;margin-top:3px}
   .banner{background:#fff3e0;color:#bf360c;text-align:center;padding:7px 0;border-radius:6px;font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:16px}
   .ped{background:#fff8f5;border-radius:8px;padding:12px 15px;margin-bottom:14px}
   .ped-lbl{font-size:10px;font-weight:600;color:#a09080;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
-  .ped-nom{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:#1a2340}
+  .ped-nom{font-family:'DM Sans',sans-serif;font-size:18px;font-weight:700;color:#1a2340}
   .ped-cat{display:inline-block;margin-top:5px;font-size:12px;font-weight:600;color:#e65100;background:#dde6ff;padding:3px 10px;border-radius:20px}
   .igrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:13px}
   .ibox{background:#fffaf7;border-radius:7px;padding:9px 12px;border-left:3px solid #e65100}
@@ -102,7 +102,7 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
   .fgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:16px}
   .fbox{text-align:center;background:#fffaf7;border-radius:7px;padding:9px 7px}
   .flbl{font-size:10px;font-weight:600;color:#a09080;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
-  .fval{font-family:'Playfair Display',serif;font-size:17px;font-weight:700}
+  .fval{font-family:'DM Sans',sans-serif;font-size:17px;font-weight:700}
   .foot{border-top:1.5px solid #edf0f7;padding-top:11px;display:flex;justify-content:space-between;align-items:flex-end}
   .firma{text-align:center}
   .flin{width:160px;border-bottom:1.5px solid #8a93a8;margin-bottom:4px;height:26px}
@@ -330,7 +330,7 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => moverFecha(-1)} style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>‹</button>
-          <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:220, textAlign:"center", textTransform:"capitalize" }}>{tituloNavegacion()}</span>
+          <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:220, textAlign:"center", textTransform:"capitalize" }}>{tituloNavegacion()}</span>
           <button onClick={() => moverFecha(1)}  style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>›</button>
           <button onClick={() => setFechaBase(new Date())} style={{ padding:"7px 14px", borderRadius:8, fontSize:12, fontWeight:600, border:"1.5px solid #e65100", color:"#e65100", background:"#fff", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>Hoy</button>
         </div>
@@ -355,7 +355,7 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
           return (
             <div style={{ padding:"24px 28px" }}>
               <div style={{ marginBottom:16, display:"flex", alignItems:"center", gap:10 }}>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:esHoy?"#e65100":"#1a2340" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:esHoy?"#e65100":"#1a2340" }}>
                   {diasAMostrar[0].toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"})}
                 </div>
                 {esHoy && <span style={{ background:"#e65100", color:"#fff", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700 }}>Hoy</span>}
@@ -491,11 +491,11 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
           <div style={{ display:"flex", gap:12, marginBottom:18, flexWrap:"wrap" }}>
             <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
               <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Pedidos listos</div>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#f57f17" }}>{listos.length}</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#f57f17" }}>{listos.length}</div>
             </div>
             <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
               <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Por cobrar</div>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#c62828" }}>${totalCobrar.toLocaleString("es-AR")}</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#c62828" }}>${totalCobrar.toLocaleString("es-AR")}</div>
             </div>
           </div>
 
@@ -511,7 +511,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
           {filtrados.length === 0 ? (
             <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
               <div style={{ fontSize:40, marginBottom:14 }}>🎉</div>
-              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>
                 {listos.length === 0 ? "No hay pedidos listos aún" : "Sin resultados"}
               </div>
               <div style={{ color:"#a09080", fontSize:14 }}>
@@ -589,7 +589,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
           {entregadosFiltrados.length === 0 ? (
             <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
               <div style={{ fontSize:40, marginBottom:14 }}>📦</div>
-              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>
                 {entregados.length === 0 ? "Sin pedidos entregados aún" : "Sin resultados"}
               </div>
             </div>
@@ -664,7 +664,7 @@ function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
   return (
     <div>
       <div style={{ marginBottom:26 }}>
-        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>⚙️ Configuración del Local</h2>
+        <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>⚙️ Configuración del Local</h2>
         <p style={{ fontSize:14, color:"#a09080" }}>Estos datos aparecerán en todas las órdenes de trabajo que imprimas.</p>
       </div>
 
@@ -707,7 +707,7 @@ function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               {preview && <img src={preview} alt="Logo" style={{ width:50, height:50, objectFit:"contain", borderRadius:7 }}/>}
               <div>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#e65100" }}>{form.nombre||"Nombre del local"}</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#e65100" }}>{form.nombre||"Nombre del local"}</div>
                 <div style={{ fontSize:11, color:"#8a7060", marginTop:3, lineHeight:1.7 }}>
                   {form.titular   && <div>Titular: {form.titular}</div>}
                   {form.cuit      && <div>CUIT: {form.cuit}</div>}
@@ -717,7 +717,7 @@ function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
               </div>
             </div>
             <div style={{ textAlign:"right" }}>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#e65100" }}>OT-0001</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#e65100" }}>OT-0001</div>
               <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>Emitida: hoy</div>
             </div>
           </div>
@@ -754,11 +754,11 @@ function LoginScreen() {
 
   return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(135deg, #e65100 0%, #bf360c 100%)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif", padding:20 }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
       <div style={{ background:"#fff", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:"0 24px 60px rgba(0,0,0,.25)" }}>
         {/* Logo / título */}
         <div style={{ textAlign:"center", marginBottom:36 }}>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:32, fontWeight:700, color:"#e65100", marginBottom:6 }}>Mafalda Gráfica</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:32, fontWeight:700, color:"#e65100", marginBottom:6 }}>Mafalda Gráfica</div>
           <div style={{ fontSize:14, color:"#a09080" }}>Sistema de gestión de pedidos</div>
         </div>
 
@@ -821,13 +821,13 @@ function buildComprobanteHTML(venta, empresa) {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
 <title>${num}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
   body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340;padding:20mm}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:3px solid #e65100;margin-bottom:18px}
-  .brand{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#e65100}
+  .brand{font-family:'DM Sans',sans-serif;font-size:24px;font-weight:800;color:#e65100}
   .brand-sub{font-size:11px;color:#a09080;margin-top:3px;line-height:1.6}
-  .comp-num{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#e65100;text-align:right}
+  .comp-num{font-family:'DM Sans',sans-serif;font-size:20px;font-weight:800;color:#e65100;text-align:right}
   .comp-tipo{font-size:11px;color:#a09080;text-align:right;margin-top:3px}
   .badge-x{display:inline-block;background:#fff3e0;color:#e65100;border:2px solid #e65100;border-radius:6px;padding:3px 10px;font-size:13px;font-weight:700;margin-top:4px}
   .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
@@ -840,7 +840,7 @@ function buildComprobanteHTML(venta, empresa) {
   th:last-child,th:nth-last-child(2){text-align:right}
   .total-box{background:#fff3e0;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
   .total-lbl{font-size:13px;font-weight:600;color:#bf360c;text-transform:uppercase;letter-spacing:.7px}
-  .total-val{font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:#e65100}
+  .total-val{font-family:'DM Sans',sans-serif;font-size:26px;font-weight:800;color:#e65100}
   .metodo{font-size:12px;color:#a09080;margin-bottom:16px}
   .foot{border-top:1.5px solid #f0e8e0;padding-top:12px;display:flex;justify-content:space-between;font-size:10px;color:#c0b0a0}
   .no-valido{text-align:center;font-size:11px;color:#c0b0a0;margin-bottom:10px;letter-spacing:.5px}
@@ -1023,7 +1023,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <button onClick={()=>moverFecha(-1)} style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>‹</button>
-              <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:240, textAlign:"center", textTransform:"capitalize" }}>{titulo()}</span>
+              <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:240, textAlign:"center", textTransform:"capitalize" }}>{titulo()}</span>
               <button onClick={()=>moverFecha(1)}  style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>›</button>
               <button onClick={()=>setFechaBase(new Date())} style={{ padding:"7px 14px", borderRadius:8, fontSize:12, fontWeight:600, border:"1.5px solid #e65100", color:"#e65100", background:"#fff", cursor:"pointer" }}>Hoy</button>
               <button onClick={()=>setNuevoEventoModal(true)} style={{ padding:"7px 16px", borderRadius:8, fontSize:13, fontWeight:700, background:"#e65100", color:"#fff", border:"none", cursor:"pointer" }}>+ Evento</button>
@@ -1043,7 +1043,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
             {modoVista==="dia" ? (
               <div style={{ padding:"24px 28px" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
-                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:fmtFecha(fechaBase)===hoy?"#e65100":"#1a2340", textTransform:"capitalize" }}>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:fmtFecha(fechaBase)===hoy?"#e65100":"#1a2340", textTransform:"capitalize" }}>
                     {fechaBase.toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"})}
                   </div>
                   {fmtFecha(fechaBase)===hoy && <span style={{ background:"#e65100", color:"#fff", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700 }}>Hoy</span>}
@@ -1111,7 +1111,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
         {/* ── Panel lateral: próximos eventos ── */}
         <div>
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:"#1a2340", marginBottom:14 }}>📋 Próximos eventos</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:"#1a2340", marginBottom:14 }}>📋 Próximos eventos</div>
             {proximos.length===0 ? (
               <div style={{ textAlign:"center", padding:"20px 0", color:"#d4bfb0", fontSize:13 }}>Sin eventos próximos</div>
             ) : proximos.map(ev=>{
@@ -1166,7 +1166,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
               <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
                 <span style={{ fontSize:32 }}>{t.icon}</span>
                 <div>
-                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>{verEvento.titulo}</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>{verEvento.titulo}</div>
                   <span style={{ background:t.bg, color:t.color, padding:"2px 8px", borderRadius:10, fontSize:12, fontWeight:600 }}>{t.label}</span>
                 </div>
               </div>
@@ -1212,7 +1212,7 @@ function ModalEvento({ evento, onClose, showToast, fechaInicial }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
       <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{evento?"✏️ Editar Evento":"➕ Nuevo Evento"}</div>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{evento?"✏️ Editar Evento":"➕ Nuevo Evento"}</div>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           <div>
             <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Título *</label>
@@ -1333,7 +1333,7 @@ function ProveedoresView({ view, setView, showToast }) {
           {filtrados.length===0 ? (
             <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center" }}>
               <div style={{ fontSize:40, marginBottom:14 }}>🏭</div>
-              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay proveedores"}</div>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay proveedores"}</div>
               <div style={{ color:"#a09080" }}>Agregá tu primer proveedor</div>
             </div>
           ) : (
@@ -1343,7 +1343,7 @@ function ProveedoresView({ view, setView, showToast }) {
                   style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px", cursor:"pointer", borderTop:"3px solid #e65100", transition:"all .15s" }}
                   onMouseOver={e=>e.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
                   onMouseOut={e=>e.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
-                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{p.empresa||"Sin nombre"}</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{p.empresa||"Sin nombre"}</div>
                   {p.titular && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {p.titular}</div>}
                   <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
                     {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100" }}>📞 {p.telefono}</div>}
@@ -1405,7 +1405,7 @@ function ListaComprasView({ proveedores, showToast }) {
       {/* Header */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
         <div>
-          <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>🛒 Lista de Compras</h3>
+          <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>🛒 Lista de Compras</h3>
           <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>
             {filtrados.filter(i=>i.estado==="pendiente").length} pendiente{filtrados.filter(i=>i.estado==="pendiente").length!==1?"s":""} · Total: <strong style={{color:"#e65100"}}>${totalPendiente.toLocaleString("es-AR")}</strong>
           </p>
@@ -1438,7 +1438,7 @@ function ListaComprasView({ proveedores, showToast }) {
       {filtrados.length===0 ? (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center", color:"#a09080" }}>
           <div style={{ fontSize:36, marginBottom:12 }}>🛒</div>
-          <div style={{ fontWeight:700, fontSize:16, fontFamily:"'Playfair Display',serif" }}>Sin items en la lista</div>
+          <div style={{ fontWeight:700, fontSize:16, fontFamily:"'DM Sans',sans-serif" }}>Sin items en la lista</div>
           <div style={{ fontSize:13, marginTop:6 }}>Agregá lo que necesitás comprar</div>
         </div>
       ) : (
@@ -1501,7 +1501,7 @@ function ListaComprasView({ proveedores, showToast }) {
               <tfoot>
                 <tr style={{ background:"#fff8f5", borderTop:"2px solid #f0d5c0" }}>
                   <td colSpan={4} style={{ padding:"12px 14px", fontWeight:700, color:"#a09080", fontSize:13 }}>TOTAL PENDIENTE</td>
-                  <td style={{ padding:"12px 14px", fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#e65100" }}>${totalPendiente.toLocaleString("es-AR")}</td>
+                  <td style={{ padding:"12px 14px", fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#e65100" }}>${totalPendiente.toLocaleString("es-AR")}</td>
                   <td colSpan={2}></td>
                 </tr>
               </tfoot>
@@ -1548,7 +1548,7 @@ function ModalItemCompra({ item, proveedores, onClose, showToast }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
       <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:500, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>
           {item?.fireId?"✏️ Editar Item":"➕ Nuevo Item de Compra"}
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
@@ -1578,7 +1578,7 @@ function ModalItemCompra({ item, proveedores, onClose, showToast }) {
           {form.precioInd > 0 && form.cantidad > 0 && (
             <div style={{ gridColumn:"1 / -1", background:"#fff8f5", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <span style={{ fontSize:13, color:"#a09080", fontWeight:600 }}>Total estimado:</span>
-              <span style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#e65100" }}>
+              <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#e65100" }}>
                 ${(parseFloat(form.precioInd||0)*parseInt(form.cantidad||1)).toLocaleString("es-AR")}
               </span>
             </div>
@@ -1655,7 +1655,7 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
       {/* Ficha */}
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
         <div>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov.empresa||"Sin nombre"}</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov.empresa||"Sin nombre"}</div>
           {prov.titular   && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {prov.titular}</div>}
           <div style={{ display:"flex", flexWrap:"wrap", gap:16 }}>
             {prov.cuit      && <span style={{ fontSize:13 }}>🪪 {prov.cuit}</span>}
@@ -1786,7 +1786,7 @@ function FormularioProveedor({ prov, setView, setSelected, showToast }) {
     <div>
       <button onClick={()=>setView("proveedores")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
-        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov?"✏️ Editar Proveedor":"➕ Nuevo Proveedor"}</h2>
+        <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov?"✏️ Editar Proveedor":"➕ Nuevo Proveedor"}</h2>
         <p style={{ fontSize:14, color:"#a09080", marginBottom:24 }}>Datos del proveedor.</p>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
           <div style={{ gridColumn:"1 / -1" }}>
@@ -1873,7 +1873,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
         <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>💰 Ventas</h2>
+          <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>💰 Ventas</h2>
           <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{filtradas.length} venta{filtradas.length!==1?"s":""} · Total: <strong style={{color:"#e65100"}}>${totalFiltrado.toLocaleString("es-AR")}</strong></p>
         </div>
         <button onClick={() => setView("nuevaVenta")}
@@ -1892,7 +1892,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
         ].map((s,i) => (
           <div key={i} style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px" }}>
             <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>{s.label}</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:s.color }}>{s.value}</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:s.color }}>{s.value}</div>
           </div>
         ))}
       </div>
@@ -1919,7 +1919,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
       ) : filtradas.length === 0 ? (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
           <div style={{ fontSize:40, marginBottom:14 }}>💰</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>Sin ventas {filtroFecha==="hoy"?"hoy":filtroFecha==="semana"?"esta semana":filtroFecha==="mes"?"este mes":""}</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Sin ventas {filtroFecha==="hoy"?"hoy":filtroFecha==="semana"?"esta semana":filtroFecha==="mes"?"este mes":""}</div>
           <div style={{ color:"#a09080", fontSize:14 }}>Registrá una nueva venta con el botón de arriba</div>
         </div>
       ) : (
@@ -1945,7 +1945,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
                     <td style={{ padding:"12px 16px" }}>
                       <span style={{ background:mpBg, color:mpColor, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{v.metodoPago||"—"}</span>
                     </td>
-                    <td style={{ padding:"12px 16px", fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:"#e65100" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</td>
+                    <td style={{ padding:"12px 16px", fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:"#e65100" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</td>
                     <td style={{ padding:"12px 14px" }}>
                       <div style={{ display:"flex", gap:6 }}>
                         <button onClick={() => imprimirComprobante(v, empresa)}
@@ -2201,7 +2201,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
             <div style={{ borderTop:"2px solid #f5e8e0", paddingTop:14 }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <span style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>TOTAL</span>
-                <span style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#e65100" }}>${total.toLocaleString("es-AR")}</span>
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#e65100" }}>${total.toLocaleString("es-AR")}</span>
               </div>
             </div>
           </div>
@@ -2352,7 +2352,7 @@ function InsumosView({ setView, showToast }) {
       {/* Header */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
         <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>📦 Insumos</h2>
+          <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>📦 Insumos</h2>
           <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{insumos.length} insumos · {filtrados.length} mostrados</p>
         </div>
         <div style={{ display:"flex", gap:10 }}>
@@ -2405,7 +2405,7 @@ function InsumosView({ setView, showToast }) {
       ) : filtrados.length === 0 ? (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
           <div style={{ fontSize:40, marginBottom:14 }}>📦</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq||filtroCat!=="Todas"?"Sin resultados":"No hay insumos aún"}</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq||filtroCat!=="Todas"?"Sin resultados":"No hay insumos aún"}</div>
           <div style={{ color:"#a09080", fontSize:14 }}>Importá tu lista desde Excel o agregá insumos uno a uno</div>
         </div>
       ) : (
@@ -2461,7 +2461,7 @@ function InsumosView({ setView, showToast }) {
       {importModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={() => setImportModal(false)}>
           <div style={{ background:"#fff", borderRadius:16, padding:"32px 36px", width:"100%", maxWidth:680, maxHeight:"80vh", overflow:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>📥 Vista previa de importación</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>📥 Vista previa de importación</div>
             <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>{importData.length} productos encontrados en la pestaña "Precios final"</div>
 
             {/* Selector modo importación */}
@@ -2528,7 +2528,7 @@ function InsumosView({ setView, showToast }) {
       {editModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={() => setEditModal(null)}>
           <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:"100%", maxWidth:500, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>✏️ Editar Insumo</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>✏️ Editar Insumo</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
               {[["Nombre","nombre","1 / -1"],["Código","codigo"],["Categoría","categoria"],["Precio Compra","precioCompra"],["Precio Venta","precioVenta"],["Precio Gremio","precioGremio"],["Stock Mínimo","stockMinimo"]].map(([label,key,col]) => (
                 <div key={key} style={{ gridColumn:col||"auto" }}>
@@ -2593,7 +2593,7 @@ function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
     <div>
       <button onClick={() => setView("insumos")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
-        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>➕ Nuevo Insumo</h2>
+        <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>➕ Nuevo Insumo</h2>
         <p style={{ fontSize:14, color:"#a09080", marginBottom:24 }}>Completá los datos del insumo.</p>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
           <div style={{ gridColumn:"1 / -1" }}>
@@ -2693,7 +2693,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
               <div>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{cl.nombre} {cl.apellido}</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{cl.nombre} {cl.apellido}</div>
                 {cl.empresa && <div style={{ fontSize:13, color:"#a09080", marginTop:2 }}>🏢 {cl.empresa}</div>}
               </div>
               <button onClick={() => { setEditingClienteId(cl.fireId); setView("editarCliente"); }}
@@ -2711,7 +2711,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
           {/* Cuenta corriente */}
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px" }}>
             <div style={{ fontSize:12, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:8 }}>Cuenta Corriente</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:700, color:saldo>0?"#c62828":"#2e7d32", marginBottom:16 }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:36, fontWeight:700, color:saldo>0?"#c62828":"#2e7d32", marginBottom:16 }}>
               ${Math.abs(saldo).toLocaleString("es-AR")}
             </div>
             <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>{saldo>0?"Saldo deudor":"Sin deuda pendiente"}</div>
@@ -2727,7 +2727,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
         {/* Historial pedidos */}
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
           <div style={{ padding:"16px 20px", borderBottom:"1px solid #f5e8e0" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1a2340" }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#1a2340" }}>
               📋 Historial de Pedidos ({historial.length})
             </div>
           </div>
@@ -2771,7 +2771,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
         {pagoModal && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200 }} onClick={() => setPagoModal(null)}>
             <div style={{ background:"#fff", borderRadius:16, padding:"32px 36px", width:360, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:6 }}>💵 Registrar Pago</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:6 }}>💵 Registrar Pago</div>
               <div style={{ fontSize:13, color:"#a09080", marginBottom:20 }}>Saldo actual: <strong style={{color:"#c62828"}}>${(parseFloat(pagoModal.cliente.saldoCuenta)||0).toLocaleString("es-AR")}</strong></div>
               <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Monto del pago</label>
               <input type="number" value={montoPago} onChange={e=>setMontoPago(e.target.value)}
@@ -2792,7 +2792,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
         <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>👥 Clientes</h2>
+          <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>👥 Clientes</h2>
           <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{clientes.length} cliente{clientes.length!==1?"s":""} registrado{clientes.length!==1?"s":""}</p>
         </div>
         <button onClick={() => setView("nuevoCliente")}
@@ -2812,7 +2812,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
       {filtrados.length === 0 ? (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
           <div style={{ fontSize:40, marginBottom:14 }}>👥</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay clientes aún"}</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay clientes aún"}</div>
           <div style={{ color:"#a09080", fontSize:14 }}>Agregá tu primer cliente con el botón de arriba</div>
         </div>
       ) : (
@@ -2919,7 +2919,7 @@ function FormularioCliente({ view, editingClienteId, clientes, setView, setSelec
     <div>
       <button onClick={() => setView(esEdicion?"clientes":"clientes")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
-        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
+        <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
           {esEdicion ? "✏️ Editar Cliente" : "➕ Nuevo Cliente"}
         </h2>
         <p style={{ fontSize:14, color:"#a09080", marginBottom:24 }}>Completá los datos del cliente.</p>
@@ -3155,7 +3155,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
       <div style={{ minHeight:"60vh", display:"flex", alignItems:"center", justifyContent:"center" }}>
         <div style={{ background:"#fff", borderRadius:20, padding:"48px 44px", width:340, boxShadow:"0 8px 32px rgba(230,81,0,.12)", textAlign:"center" }}>
           <div style={{ fontSize:48, marginBottom:12 }}>💼</div>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>Finanzas</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>Finanzas</div>
           <div style={{ fontSize:14, color:"#a09080", marginBottom:28 }}>Ingresá tu PIN para continuar</div>
           <div style={{ display:"flex", gap:12, justifyContent:"center", marginBottom:24 }}>
             {[0,1,2,3].map(i=>(
@@ -3201,7 +3201,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
       {/* Header Finanzas */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
         <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>💼 Finanzas</h2>
+          <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>💼 Finanzas</h2>
           <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>Panel financiero privado</p>
         </div>
         <button onClick={()=>setDesbloqueado(false)}
@@ -3246,7 +3246,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
               <div key={i} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
                 <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:8 }}>{k.label}</div>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:k.color }}>{k.value}</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:k.color }}>{k.value}</div>
                   <span style={{ fontSize:24 }}>{k.icon}</span>
                 </div>
               </div>
@@ -3303,7 +3303,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
                     <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</div>
                     <div style={{ fontSize:11, color:"#a09080" }}>{v.fecha} · {v.items?.length||0} producto{v.items?.length!==1?"s":""} · {v.metodoPago}</div>
                   </div>
-                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:"#e65100" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:"#e65100" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</div>
                 </div>
               ))
             }
@@ -3317,7 +3317,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
             <div>
               <div style={{ fontSize:12, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>Saldo en caja</div>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:700, color:saldoCaja>=0?"#2e7d32":"#c62828" }}>${saldoCaja.toLocaleString("es-AR")}</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:36, fontWeight:700, color:saldoCaja>=0?"#2e7d32":"#c62828" }}>${saldoCaja.toLocaleString("es-AR")}</div>
               <div style={{ fontSize:12, color:"#a09080", marginTop:4 }}>Incluye ventas en efectivo + movimientos manuales</div>
             </div>
             <div style={{ display:"flex", gap:10 }}>
@@ -3349,7 +3349,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
       {tabActiva==="gastos" && (
         <div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>
               💸 Gastos — <span style={{ color:"#c62828" }}>${totalGastos.toLocaleString("es-AR")}</span>
             </div>
             <button onClick={()=>setModalGasto(true)} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Cargar Gasto</button>
@@ -3399,7 +3399,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
                   <td style={{ padding:"10px 16px" }}><span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.metodoPago}</span></td>
                   <td style={{ padding:"10px 16px" }}>
                     <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                      <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, color:"#e65100", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</span>
+                      <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, color:"#e65100", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</span>
                       {v.origen==="pedido" && <span style={{ background:"#e8eaf6", color:"#3949ab", padding:"2px 7px", borderRadius:10, fontSize:10, fontWeight:700 }}>PEDIDO</span>}
                     </div>
                   </td>
@@ -3416,7 +3416,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
           {!selectedEmp ? (
             <div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>👷 Empleados ({empleados.length})</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>👷 Empleados ({empleados.length})</div>
                 <button onClick={()=>setModalEmpleado({})} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Nuevo Empleado</button>
               </div>
               {empleados.length===0 ? (
@@ -3428,7 +3428,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
                       style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px", cursor:"pointer", borderTop:"3px solid #e65100" }}
                       onMouseOver={ev=>ev.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
                       onMouseOut={ev=>ev.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
-                      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{e.nombre}</div>
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{e.nombre}</div>
                       <div style={{ fontSize:13, color:"#a09080", marginBottom:10 }}>{e.cargo||"Sin cargo"}</div>
                       <div style={{ fontSize:13, color:"#e65100", fontWeight:700 }}>Sueldo: ${parseFloat(e.sueldo||0).toLocaleString("es-AR")}</div>
                       {e.ingreso && <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>Desde: {e.ingreso}</div>}
@@ -3452,7 +3452,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
       {tabActiva==="config" && (
         <div>
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"28px 32px" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:6 }}>🔐 Cambiar PIN de Finanzas</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:6 }}>🔐 Cambiar PIN de Finanzas</div>
             <p style={{ fontSize:14, color:"#a09080", marginBottom:20 }}>El PIN actual es de 4 dígitos. Solo vos debés conocerlo.</p>
             <CambiarPin showToast={showToast} />
           </div>
@@ -3508,22 +3508,22 @@ function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
       <button onClick={()=>setSelectedEmp(null)} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 26px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:16 }}>
         <div>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{emp.nombre}</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{emp.nombre}</div>
           <div style={{ fontSize:13, color:"#a09080", marginTop:2 }}>{emp.cargo||"Sin cargo"} · Desde {emp.ingreso||"—"}</div>
           {emp.telefono && <div style={{ fontSize:13, color:"#e65100", fontWeight:700, marginTop:6 }}>📞 {emp.telefono}</div>}
         </div>
         <div style={{ display:"flex", gap:12 }}>
           <div style={{ background:"#fff8f5", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
             <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Sueldo</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#e65100" }}>${parseFloat(emp.sueldo||0).toLocaleString("es-AR")}</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#e65100" }}>${parseFloat(emp.sueldo||0).toLocaleString("es-AR")}</div>
           </div>
           <div style={{ background:"#f1f8e9", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
             <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Días vac.</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#2e7d32" }}>{diasDisp}</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#2e7d32" }}>{diasDisp}</div>
           </div>
           <div style={{ background:"#e3f2fd", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
             <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Total pagado</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1565c0" }}>${totalPagado.toLocaleString("es-AR")}</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#1565c0" }}>${totalPagado.toLocaleString("es-AR")}</div>
           </div>
         </div>
       </div>
@@ -3638,7 +3638,7 @@ function ModalSimple({ titulo, campos, onClose, onSave }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
       <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{titulo}</div>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{titulo}</div>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           {campos.map(c=>(
             <div key={c.key}>
@@ -3726,7 +3726,7 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
       <div style={{ background:"#fff", borderRadius:16, padding:"32px 36px", width:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
         <div style={{ textAlign:"center", marginBottom:20 }}>
           <div style={{ fontSize:48, marginBottom:10 }}>📦</div>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>Confirmar Entrega</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>Confirmar Entrega</div>
           <div style={{ fontSize:14, color:"#4a5568", fontWeight:600 }}>{pedido.nombre}</div>
           <div style={{ fontSize:13, color:"#a09080", marginTop:4 }}>Cliente: {pedido.cliente}</div>
         </div>
@@ -3743,7 +3743,7 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", borderTop:"1.5px solid #f0d5c0", paddingTop:8, marginTop:4 }}>
             <span style={{ fontWeight:700, color:"#1a2340" }}>Saldo a cobrar:</span>
-            <span style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:saldo>0?"#c62828":"#2e7d32" }}>
+            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:saldo>0?"#c62828":"#2e7d32" }}>
               ${saldo.toLocaleString("es-AR")}
             </span>
           </div>
@@ -3800,7 +3800,7 @@ function MsgModal({ pedido, copied, setCopied, onClose }) {
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
           <div style={{ fontSize:36 }}>💬</div>
           <div>
-            <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>Mensaje para el cliente</h3>
+            <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>Mensaje para el cliente</h3>
             <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>Copiá el mensaje y enviáselo por WhatsApp</p>
           </div>
         </div>
@@ -4048,7 +4048,7 @@ export default function App() {
 
   if (!authChecked) return (
     <div style={{ minHeight:"100vh", background:"#fff8f5", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
-      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:"#e65100", marginBottom:12 }}>Mafalda Gráfica</div>
+      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:28, fontWeight:700, color:"#e65100", marginBottom:12 }}>Mafalda Gráfica</div>
       <div style={{ fontSize:14, color:"#a09080" }}>Iniciando...</div>
     </div>
   );
@@ -4057,7 +4057,7 @@ export default function App() {
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:"#fff8f5", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
-      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:"#e65100", marginBottom:12 }}>Mafalda Gráfica</div>
+      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:28, fontWeight:700, color:"#e65100", marginBottom:12 }}>Mafalda Gráfica</div>
       <div style={{ fontSize:14, color:"#a09080" }}>Cargando pedidos...</div>
     </div>
   );
@@ -4065,7 +4065,7 @@ export default function App() {
   return (
     <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#1a2340", minHeight:"100vh", width:"100%" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
         html,body,#root{margin:0;padding:0;width:100%;min-height:100vh;overflow-x:hidden}body{background:#fff8f5}
         input:focus,select:focus,textarea:focus{border-color:#e65100!important;box-shadow:0 0 0 3px rgba(230,81,0,.1)}
@@ -4104,7 +4104,7 @@ export default function App() {
         .sidebar-logo{display:flex;align-items:center;gap:10px;padding:18px 14px 14px;border-bottom:1px solid rgba(255,255,255,.15);min-height:70px;overflow:hidden}
         .sidebar-logo img{height:38px;object-fit:contain;border-radius:6px;flex-shrink:0}
         .sidebar-logo-txt{overflow:hidden;white-space:nowrap}
-        .sidebar-logo-name{font-family:"Playfair Display",serif;font-size:16px;font-weight:700;color:#fff;line-height:1.2}
+        .sidebar-logo-name{font-family:"DM Sans",sans-serif;font-size:16px;font-weight:800;color:#fff;line-height:1.2}
         .sidebar-logo-sub{font-size:9px;color:rgba(255,255,255,.55);letter-spacing:1px;text-transform:uppercase}
         .sidebar-toggle{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:14px;flex-shrink:0;transition:background .18s;margin-left:auto}
         .sidebar-toggle:hover{background:rgba(255,255,255,.25)}
@@ -4121,7 +4121,7 @@ export default function App() {
         .sidebar-badge{background:#f57f17;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-left:auto;flex-shrink:0}
         .main-area{flex:1;display:flex;flex-direction:column;min-width:0;background:#fff8f5;overflow-x:hidden}
         .topbar{height:58px;background:#fff;border-bottom:1px solid #f0d5c0;display:flex;align-items:center;padding:0 24px;gap:12px;box-shadow:0 1px 8px rgba(230,81,0,.06);flex-shrink:0}
-        .topbar-title{font-family:"Playfair Display",serif;font-size:18px;font-weight:700;color:#1a2340;flex:1}
+        .topbar-title{font-family:"DM Sans",sans-serif;font-size:18px;font-weight:700;color:#1a2340;flex:1}
         .main-content{padding:24px 28px;flex:1}
         .grid-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
         .grid-2col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
@@ -4333,7 +4333,7 @@ export default function App() {
                   <div key={i} className="card" style={{ padding:"16px 18px" }}>
                     <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:7 }}>{s.label}</div>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:s.color, lineHeight:1 }}>{s.value}</div>
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:28, fontWeight:700, color:s.color, lineHeight:1 }}>{s.value}</div>
                       <div style={{ fontSize:22, opacity:.75 }}>{s.icon}</div>
                     </div>
                   </div>
@@ -4391,7 +4391,7 @@ export default function App() {
               !Object.keys(grouped).length ? (
                 <div className="card" style={{ padding:"52px 24px", textAlign:"center" }}>
                   <div style={{ fontSize:40, marginBottom:14 }}>📭</div>
-                  <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>Sin pedidos</div>
+                  <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Sin pedidos</div>
                   <div style={{ color:"#a09080", fontSize:14 }}>Cargá un nuevo pedido con el botón de arriba</div>
                 </div>
               ) : Object.entries(grouped).map(([cat, items]) => {
@@ -4516,7 +4516,7 @@ export default function App() {
         {view==="formulario" && (
           <div className="card" style={{ padding:"32px 36px" }}>
             <div style={{ marginBottom:26 }}>
-              <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
+              <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
                 {editingId?"✏️ Editar Pedido":"📥 Nuevo Pedido"}
               </h2>
               <p style={{ fontSize:14, color:"#a09080" }}>{editingId?"Modificá los datos del pedido.":"Completá el formulario para registrar el pedido."}</p>
@@ -4684,7 +4684,7 @@ export default function App() {
               <button className="btn-g" style={{ marginBottom:22, fontSize:13 }} onClick={() => setView("lista")}>← Volver</button>
               <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:22 }}>
                 <div>
-                  <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:8 }}>{p.nombre}</h2>
+                  <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:8 }}>{p.nombre}</h2>
                   <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                     <span style={{ background:cc.bg, color:cc.text, padding:"5px 12px", borderRadius:20, fontSize:13, fontWeight:700 }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
                     <span style={{ background:ec.bg, color:ec.text, padding:"5px 12px", borderRadius:20, fontSize:13, fontWeight:600 }}>{p.estado}</span>
@@ -4721,7 +4721,7 @@ export default function App() {
                 ].map(f => (
                   <div key={f.label} style={{ textAlign:"center" }}>
                     <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:5 }}>{f.label}</div>
-                    <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:f.color }}>{f.value}</div>
+                    <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:f.color }}>{f.value}</div>
                   </div>
                 ))}
               </div>
@@ -4865,7 +4865,7 @@ export default function App() {
         <div className="modal-ov" onClick={() => setPrintModal(null)}>
           <div className="modal-bx" onClick={e => e.stopPropagation()}>
             <div style={{ fontSize:52, marginBottom:14 }}>🖨️</div>
-            <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:8 }}>
+            <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:8 }}>
               ¡Pedido en Producción!
             </h3>
             <p style={{ fontSize:15, color:"#1a2340", fontWeight:600, marginBottom:4 }}>{printModal.pedido.nombre}</p>
