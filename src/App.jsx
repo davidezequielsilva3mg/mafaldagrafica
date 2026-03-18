@@ -2225,6 +2225,7 @@ function InsumosView({ setView, showToast }) {
   const [importModal, setImportModal] = useState(false);
   const [importData, setImportData]   = useState([]);
   const [importing, setImporting]     = useState(false);
+  const [modoImport, setModoImport]   = useState("reemplazar"); // reemplazar | agregar
   const [loadingInsumos, setLoadingInsumos] = useState(true);
   const [editingId, setEditingId]     = useState(null);
   const [editModal, setEditModal]     = useState(null);
@@ -2276,13 +2277,45 @@ function InsumosView({ setView, showToast }) {
 
   const handleImportar = async () => {
     setImporting(true);
-    const batch = importData.slice(0, 500); // Firebase limit safety
-    for (const ins of batch) {
-      await addDoc(collection(db, "insumos"), ins);
+    try {
+      // Si es reemplazar: borrar todos los insumos existentes primero
+      if (modoImport === "reemplazar") {
+        const snap = await getDocs(collection(db, "insumos"));
+        // Borrar en lotes para no sobrecargar Firebase
+        const borrar = snap.docs.map(d => deleteDoc(doc(db, "insumos", d.id)));
+        await Promise.all(borrar);
+      }
+      // Agregar los nuevos — respetar stock existente si es modo agregar
+      const snapActual = modoImport === "agregar" ? await getDocs(collection(db, "insumos")) : null;
+      const mapaActual = {};
+      if (snapActual) {
+        snapActual.docs.forEach(d => {
+          const data = d.data();
+          if (data.codigo) mapaActual[data.codigo] = { fireId: d.id, ...data };
+        });
+      }
+      const batch = importData.slice(0, 500);
+      for (const ins of batch) {
+        if (modoImport === "agregar" && ins.codigo && mapaActual[ins.codigo]) {
+          // Actualizar precios pero conservar stock
+          await updateDoc(doc(db, "insumos", mapaActual[ins.codigo].fireId), {
+            nombre:       ins.nombre,
+            precioCompra: ins.precioCompra,
+            precioVenta:  ins.precioVenta,
+            precioGremio: ins.precioGremio,
+            categoria:    ins.categoria,
+          });
+        } else {
+          await addDoc(collection(db, "insumos"), ins);
+        }
+      }
+      setImportModal(false);
+      showToast(`✅ ${batch.length} insumos ${modoImport === "reemplazar" ? "reemplazados" : "actualizados"} correctamente`);
+    } catch(e) {
+      showToast("Error al importar", "error");
+      console.error(e);
     }
-    setImportModal(false);
     setImporting(false);
-    showToast(`✅ ${batch.length} insumos importados correctamente`);
   };
 
   const handleDelete = async (ins) => {
@@ -2421,8 +2454,29 @@ function InsumosView({ setView, showToast }) {
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={() => setImportModal(false)}>
           <div style={{ background:"#fff", borderRadius:16, padding:"32px 36px", width:"100%", maxWidth:680, maxHeight:"80vh", overflow:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>📥 Vista previa de importación</div>
-            <div style={{ fontSize:13, color:"#a09080", marginBottom:20 }}>{importData.length} productos encontrados en la pestaña "Precios final"</div>
-            <div style={{ maxHeight:320, overflowY:"auto", borderRadius:8, border:"1px solid #f0d5c0", marginBottom:20 }}>
+            <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>{importData.length} productos encontrados en la pestaña "Precios final"</div>
+
+            {/* Selector modo importación */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+              <div onClick={()=>setModoImport("reemplazar")}
+                style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${modoImport==="reemplazar"?"#e65100":"#f0d5c0"}`, background:modoImport==="reemplazar"?"#fff8f5":"#fff", cursor:"pointer", transition:"all .15s" }}>
+                <div style={{ fontWeight:700, fontSize:14, color:modoImport==="reemplazar"?"#e65100":"#1a2340", marginBottom:4 }}>🔄 Reemplazar todo</div>
+                <div style={{ fontSize:12, color:"#a09080", lineHeight:1.4 }}>Borra los insumos actuales y carga los del Excel. <strong>Conserva el stock que ya tenías cargado.</strong></div>
+              </div>
+              <div onClick={()=>setModoImport("agregar")}
+                style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${modoImport==="agregar"?"#e65100":"#f0d5c0"}`, background:modoImport==="agregar"?"#fff8f5":"#fff", cursor:"pointer", transition:"all .15s" }}>
+                <div style={{ fontWeight:700, fontSize:14, color:modoImport==="agregar"?"#e65100":"#1a2340", marginBottom:4 }}>➕ Actualizar precios</div>
+                <div style={{ fontSize:12, color:"#a09080", lineHeight:1.4 }}>Actualiza precios de los existentes por código. Agrega los nuevos. Conserva todo el stock.</div>
+              </div>
+            </div>
+
+            {modoImport==="reemplazar" && (
+              <div style={{ background:"#fff3e0", border:"1.5px solid #ffb74d", borderRadius:8, padding:"10px 14px", marginBottom:16, fontSize:12, color:"#e65100", fontWeight:600 }}>
+                ⚠️ Se borrarán todos los insumos actuales y se cargarán los del Excel. El stock actual se perderá.
+              </div>
+            )}
+
+            <div style={{ maxHeight:280, overflowY:"auto", borderRadius:8, border:"1px solid #f0d5c0", marginBottom:20 }}>
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
                 <thead>
                   <tr style={{ background:"#fffaf7", position:"sticky", top:0 }}>
@@ -2450,7 +2504,12 @@ function InsumosView({ setView, showToast }) {
               <button onClick={() => setImportModal(false)} style={{ padding:"10px 20px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
               <button onClick={handleImportar} disabled={importing}
                 style={{ padding:"10px 28px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer", opacity:importing?.7:1 }}>
-                {importing ? "Importando..." : `✅ Importar ${importData.length} insumos`}
+                {importing
+                  ? "Procesando..."
+                  : modoImport==="reemplazar"
+                    ? `🔄 Reemplazar con ${importData.length} insumos`
+                    : `➕ Actualizar ${importData.length} insumos`
+                }
               </button>
             </div>
           </div>
