@@ -1977,6 +1977,8 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
   const [metodoPago, setMetodoPago]     = useState("Efectivo");
   const [saving, setSaving]             = useState(false);
   const [tipoPrecios, setTipoPrecios]   = useState("venta"); // venta | gremio
+  const [ordenVenta, setOrdenVenta]     = useState("popular"); // popular | nombre | precio_asc | precio_desc
+  const [ventasData, setVentasData]     = useState([]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "insumos"), snap => {
@@ -1985,12 +1987,45 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
     return () => unsub();
   }, []);
 
-  const prodFiltrados = insumos.filter(i => {
-    if (!busqProd) return true;
-    const palabras = busqProd.toLowerCase().split(/\s+/).filter(Boolean);
-    const texto = `${i.nombre||""} ${i.codigo||""} ${i.categoria||""}`.toLowerCase();
-    return palabras.every(p => texto.includes(p));
-  }).slice(0,80);
+  useEffect(() => {
+    // Cargar ventas para calcular popularidad
+    getDocs(collection(db, "ventas")).then(snap => {
+      setVentasData(snap.docs.map(d=>d.data()));
+    });
+  }, []);
+
+  // Calcular popularidad: cuántas veces se vendió cada insumo
+  const popularidad = useMemo(() => {
+    const map = {};
+    ventasData.forEach(v => {
+      (v.items||[]).forEach(it => {
+        if (it.insumoId) map[it.insumoId] = (map[it.insumoId]||0) + (it.cantidad||1);
+      });
+    });
+    return map;
+  }, [ventasData]);
+
+  const prodFiltrados = useMemo(() => {
+    const filtrados = insumos.filter(i => {
+      if (!busqProd) return true;
+      const palabras = busqProd.toLowerCase().split(/\s+/).filter(Boolean);
+      const texto = `${i.nombre||""} ${i.codigo||""} ${i.categoria||""}`.toLowerCase();
+      return palabras.every(p => texto.includes(p));
+    });
+
+    return filtrados.sort((a, b) => {
+      if (ordenVenta === "popular") {
+        const diff = (popularidad[b.fireId]||0) - (popularidad[a.fireId]||0);
+        return diff !== 0 ? diff : (a.nombre||"").localeCompare(b.nombre||"");
+      }
+      if (ordenVenta === "nombre") return (a.nombre||"").localeCompare(b.nombre||"");
+      const pa = parseFloat(a.precioVenta||0);
+      const pb = parseFloat(b.precioVenta||0);
+      if (ordenVenta === "precio_asc")  return pa - pb;
+      if (ordenVenta === "precio_desc") return pb - pa;
+      return 0;
+    }).slice(0, 80);
+  }, [insumos, busqProd, ordenVenta, popularidad]);
 
   const agregarItem = (ins) => {
     setItems(prev => {
@@ -2092,7 +2127,24 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
               </div>
             </div>
             <input placeholder="Buscar por nombre o código..." value={busqProd} onChange={e=>setBusqProd(e.target.value)}
-              style={{ width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", marginBottom:14 }}/>
+              style={{ width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", marginBottom:10 }}/>
+            {/* Ordenamiento */}
+            <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+              <span style={{ fontSize:11, color:"#a09080", fontWeight:600, alignSelf:"center", marginRight:2 }}>Ordenar:</span>
+              {[
+                ["popular","⭐ Más vendidos"],
+                ["nombre","🔤 A-Z"],
+                ["precio_asc","💲 Menor precio"],
+                ["precio_desc","💲 Mayor precio"],
+              ].map(([val,lbl])=>(
+                <button key={val} onClick={()=>setOrdenVenta(val)}
+                  style={{ padding:"4px 11px", borderRadius:20, fontSize:11, fontWeight:600, cursor:"pointer", border:"none",
+                    background:ordenVenta===val?"#1a2340":"#f0f3f9",
+                    color:ordenVenta===val?"#fff":"#4a5568", transition:"all .15s" }}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
             <div style={{ maxHeight:420, overflowY:"auto", display:"flex", flexDirection:"column", gap:6 }}>
               {prodFiltrados.length===0 ? (
                 <div style={{ textAlign:"center", padding:"24px 0", color:"#a09080", fontSize:13 }}>Sin productos{busqProd?" con ese criterio":""}</div>
