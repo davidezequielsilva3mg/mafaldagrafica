@@ -2356,6 +2356,14 @@ function InsumosView({ setView, showToast }) {
           <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{insumos.length} insumos · {filtrados.length} mostrados</p>
         </div>
         <div style={{ display:"flex", gap:10 }}>
+          <button onClick={async () => {
+            if (!window.confirm(`⚠️ ¿Seguro que querés borrar los ${insumos.length} insumos? Esta acción no se puede deshacer.`)) return;
+            const snap = await getDocs(collection(db, "insumos"));
+            await Promise.all(snap.docs.map(d => deleteDoc(doc(db, "insumos", d.id))));
+            showToast("Todos los insumos fueron eliminados", "error");
+          }} style={{ background:"transparent", border:"1.5px solid #ef5350", color:"#ef5350", padding:"9px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            🗑 Borrar todos
+          </button>
           <label style={{ background:"#fff", border:"1.5px solid #e65100", color:"#e65100", padding:"9px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             📥 Importar Excel
             <input type="file" accept=".xlsx,.xls" onChange={handleExcel} style={{ display:"none" }}/>
