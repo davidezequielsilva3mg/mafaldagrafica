@@ -632,269 +632,609 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
   );
 }
 
+// ── Calculadora de Costos — Multi-sección ────────────────────────────────
 
-// ── Calculadora de Costos PAI/Bases ──────────────────────────────────────
-const PLASTICOS = [
-  { id:"corrugado_1x70",  nombre:"Corrugado 2.3mm (1×0.70m)",  costo:3100,  ancho:1,    alto:0.70 },
-  { id:"corrugado_2x1",   nombre:"Corrugado 2.3mm (2×1m)",     costo:11000, ancho:2,    alto:1    },
-  { id:"bicapa",          nombre:"Bicapa 1.5mm (2×1m)",         costo:33900, ancho:2,    alto:1    },
-  { id:"pai_trans",       nombre:"PAI Transparente 1.5mm (2×1m)",costo:57780,ancho:2,    alto:1    },
-  { id:"pvc_espumado",    nombre:"PVC Espumado 3mm (2.44×1.22m)",costo:23000,ancho:2.44, alto:1.22 },
-];
+// Hook para cargar materias primas de Firebase
+function useMateriasPrimas() {
+  const [materias, setMaterias] = useState([]);
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db,"materiasPrimas"), snap =>
+      setMaterias(snap.docs.map(d=>({...d.data(),fireId:d.id})))
+    );
+    return () => unsub();
+  }, []);
+  return materias;
+}
 
-const COSTO_VINILO_IMPRESO_M2  = 4042;   // Costo impresión vinilo m²
-const COSTO_VINILO_TRANS_M2    = 3800;   // Costo vinilo transparente m²
-const COSTO_COLOCACION_M2      = 8387.5; // Costo colocación m²
-const GANANCIA_DEFAULT         = 2.5;    // x veces el costo
+// Panel resultado reutilizable
+function ResultadoPanel({ costos, ganancia, setGanancia, listo, onGuardar, titulo }) {
+  const total  = costos.reduce((s,c)=>s+c.valor,0);
+  const precio = total * ganancia;
+  const fmt    = n => Math.round(n).toLocaleString("es-AR");
+  return (
+    <div style={{ position:"sticky", top:20, display:"flex", flexDirection:"column", gap:14 }}>
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+        <div style={{ fontWeight:700, fontSize:13, color:"#1a2340", marginBottom:10 }}>Ganancia</div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {[1.5,2,2.5,3,3.5,4].map(g=>(
+            <button key={g} onClick={()=>setGanancia(g)}
+              style={{ padding:"7px 12px", borderRadius:20, fontSize:13, fontWeight:700, cursor:"pointer", border:"none",
+                background:ganancia===g?"#e65100":"#fff8f5", color:ganancia===g?"#fff":"#e65100" }}>
+              ×{g}
+            </button>
+          ))}
+          <input type="number" step="0.1" min="1" value={ganancia} onChange={e=>setGanancia(parseFloat(e.target.value)||1)}
+            style={{ width:52, padding:"6px 8px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:12, outline:"none", textAlign:"center" }}/>
+        </div>
+      </div>
 
+      <div style={{ background:listo?"linear-gradient(135deg,#bf360c,#e65100)":"#fff", borderRadius:14, boxShadow:"0 4px 20px rgba(230,81,0,.15)", padding:"22px 20px", transition:"all .3s" }}>
+        {!listo ? (
+          <div style={{ textAlign:"center", color:"#a09080", padding:"20px 0" }}>
+            <div style={{ fontSize:34, marginBottom:8 }}>🧮</div>
+            <div style={{ fontSize:13 }}>Completá los campos para calcular</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,255,255,.7)", textTransform:"uppercase", letterSpacing:".7px", marginBottom:14 }}>Desglose de costos</div>
+            {costos.filter(c=>c.valor>0).map((c,i)=>(
+              <div key={i} style={{ display:"flex", justifyContent:"space-between", marginBottom:7, fontSize:13 }}>
+                <span style={{ color:"rgba(255,255,255,.8)" }}>{c.label}</span>
+                <span style={{ fontWeight:600, color:"#fff" }}>${fmt(c.valor)}</span>
+              </div>
+            ))}
+            <div style={{ borderTop:"1px solid rgba(255,255,255,.25)", marginTop:10, paddingTop:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:5 }}>
+                <span style={{ color:"rgba(255,255,255,.8)" }}>Costo total</span>
+                <span style={{ fontWeight:700, color:"#fff" }}>${fmt(total)}</span>
+              </div>
+            </div>
+            <div style={{ background:"rgba(255,255,255,.15)", borderRadius:10, padding:"14px", marginTop:10, textAlign:"center" }}>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,.7)", fontWeight:700, textTransform:"uppercase", letterSpacing:".7px", marginBottom:4 }}>Precio de venta</div>
+              <div style={{ fontSize:34, fontWeight:800, color:"#fff" }}>${fmt(precio)}</div>
+            </div>
+            <button onClick={()=>onGuardar(titulo, total, precio)}
+              style={{ width:"100%", marginTop:12, padding:"10px", background:"rgba(255,255,255,.2)", color:"#fff", border:"1.5px solid rgba(255,255,255,.3)", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+              💾 Guardar en historial
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Campo con link a materia prima
+function CampoMateria({ label, valor, setValor, materias, categoriaFiltro, placeholder }) {
+  const sugerida = materias.find(m => categoriaFiltro && (m.categoria||"").toLowerCase().includes(categoriaFiltro.toLowerCase()));
+  return (
+    <div>
+      <label style={{ display:"flex", justifyContent:"space-between", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>
+        <span>{label}</span>
+        {sugerida && (
+          <span onClick={()=>setValor(sugerida.precioCosto)} style={{ fontSize:11, color:"#e65100", cursor:"pointer", fontWeight:600 }}>
+            📌 {sugerida.nombre}: ${parseFloat(sugerida.precioCosto||0).toLocaleString("es-AR")} →
+          </span>
+        )}
+      </label>
+      <input type="number" value={valor} onChange={e=>setValor(parseFloat(e.target.value)||0)}
+        placeholder={placeholder||"0"}
+        style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+    </div>
+  );
+}
+
+function CampoMedidas({ alto, setAlto, ancho, setAncho }) {
+  const m2 = (parseFloat(alto)||0) * (parseFloat(ancho)||0);
+  return (
+    <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+      <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>📐 Medidas</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        <div>
+          <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Alto (metros)</label>
+          <input type="number" step="0.01" value={alto} onChange={e=>setAlto(e.target.value)} placeholder="0.60"
+            style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+        </div>
+        <div>
+          <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Ancho (metros)</label>
+          <input type="number" step="0.01" value={ancho} onChange={e=>setAncho(e.target.value)} placeholder="0.90"
+            style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+        </div>
+      </div>
+      {m2>0 && (
+        <div style={{ marginTop:10, background:"#fff8f5", borderRadius:8, padding:"9px 14px", display:"flex", justifyContent:"space-between" }}>
+          <span style={{ fontSize:13, color:"#a09080" }}>Superficie:</span>
+          <span style={{ fontWeight:700, color:"#e65100" }}>{m2.toFixed(4)} m²</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OpcionCheck({ activo, onToggle, label, subLabel, costo }) {
+  return (
+    <div onClick={onToggle}
+      style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer", padding:"11px 14px", borderRadius:10,
+        border:`2px solid ${activo?"#e65100":"#f0d5c0"}`, background:activo?"#fff8f5":"#fff", transition:"all .15s" }}>
+      <div style={{ width:20, height:20, borderRadius:5, border:`2px solid ${activo?"#e65100":"#f0d5c0"}`, background:activo?"#e65100":"#fff",
+        display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all .15s" }}>
+        {activo && <span style={{ color:"#fff", fontSize:11, fontWeight:700 }}>✓</span>}
+      </div>
+      <div style={{ flex:1 }}>
+        <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{label}</div>
+        {subLabel && <div style={{ fontSize:11, color:"#a09080" }}>{subLabel}</div>}
+      </div>
+      {activo && costo>0 && <div style={{ fontWeight:700, color:"#e65100", fontSize:13 }}>${Math.round(costo).toLocaleString("es-AR")}</div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CALCULADORA PRINCIPAL
+// ─────────────────────────────────────────────────────────────────────────────
 function CalculadoraCostos() {
-  const [plasticoId, setPlasticoId]   = useState("corrugado_2x1");
-  const [alto, setAlto]               = useState("");
-  const [ancho, setAncho]             = useState("");
-  const [llevaVinilo, setLlevaVinilo] = useState(true);
-  const [llevaTrans, setLlevaTrans]   = useState(false);
-  const [dobleFaz, setDobleFaz]       = useState(false);
-  const [llevaColoc, setLlevaColoc]   = useState(false);
-  const [ganancia, setGanancia]       = useState(GANANCIA_DEFAULT);
-  const [historial, setHistorial]     = useState([]);
+  const [tabCalc, setTabCalc] = useState("bases");
+  const [historial, setHistorial] = useState([]);
+  const materias = useMateriasPrimas();
 
-  const plastico = PLASTICOS.find(p=>p.id===plasticoId);
-
-  // ── Cálculos ──
-  const h = parseFloat(alto)  || 0;
-  const w = parseFloat(ancho) || 0;
-  const m2Placa   = h * w;
-  const m2Placa2  = plastico ? (plastico.ancho * plastico.alto) : 1;
-  const costoM2Plastico = plastico ? (plastico.costo / m2Placa2) : 0;
-
-  const costoPlastico = costoM2Plastico * m2Placa;
-  const m2Vinilo      = llevaVinilo ? m2Placa * (dobleFaz ? 2 : 1) : 0;
-  const costoVinilo   = m2Vinilo * COSTO_VINILO_IMPRESO_M2;
-  const costoTrans    = llevaTrans ? m2Placa * COSTO_VINILO_TRANS_M2 : 0;
-  const costoColoc    = llevaColoc ? m2Placa * COSTO_COLOCACION_M2 : 0;
-  const costoTotal    = costoPlastico + costoVinilo + costoTrans + costoColoc;
-  const precioFinal   = costoTotal * ganancia;
-
-  const listo = h > 0 && w > 0 && costoTotal > 0;
-
-  const fmt = (n) => Math.round(n).toLocaleString("es-AR");
-
-  const guardarEnHistorial = () => {
-    if (!listo) return;
-    const entrada = {
-      id: Date.now(),
-      fecha: new Date().toLocaleDateString("es-AR"),
-      plastico: plastico.nombre,
-      medida: `${h}×${w}m`,
-      m2: m2Placa.toFixed(2),
-      vinilo: llevaVinilo, dobleFaz, trans: llevaTrans, coloc: llevaColoc,
-      costoTotal: Math.round(costoTotal),
-      ganancia,
-      precioFinal: Math.round(precioFinal),
-    };
-    setHistorial(prev => [entrada, ...prev].slice(0, 20));
+  const guardarHistorial = (tipo, costo, precio) => {
+    setHistorial(prev => [{
+      id: Date.now(), tipo, costo: Math.round(costo), precio: Math.round(precio),
+      fecha: new Date().toLocaleDateString("es-AR")
+    }, ...prev].slice(0,20));
   };
 
-  const inp = { padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", width:"100%", boxSizing:"border-box" };
-  const check = (activo) => ({
-    width:20, height:20, borderRadius:6, border:`2px solid ${activo?"#e65100":"#f0d5c0"}`,
-    background:activo?"#e65100":"#fff", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", transition:"all .15s"
-  });
+  const TABS = [
+    { id:"bases",    label:"🪟 Bases",         },
+    { id:"rotulado", label:"🏷️ Rotulados",      },
+    { id:"lona",     label:"🚩 Lona",           },
+    { id:"polyfan",  label:"🟡 Polyfan",        },
+    { id:"3d",       label:"📦 3D",             },
+  ];
 
   return (
     <div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 380px", gap:20, alignItems:"start" }}>
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:6, marginBottom:20, flexWrap:"wrap" }}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTabCalc(t.id)}
+            style={{ padding:"9px 18px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:tabCalc===t.id?"#e65100":"#fff", color:tabCalc===t.id?"#fff":"#4a5568",
+              boxShadow:tabCalc===t.id?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        {/* ── Panel izquierdo: inputs ── */}
-        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {tabCalc==="bases"    && <CalcBases    materias={materias} onGuardar={guardarHistorial}/>}
+      {tabCalc==="rotulado" && <CalcRotulado materias={materias} onGuardar={guardarHistorial}/>}
+      {tabCalc==="lona"     && <CalcLona     materias={materias} onGuardar={guardarHistorial}/>}
+      {tabCalc==="polyfan"  && <CalcPolyfan  materias={materias} onGuardar={guardarHistorial}/>}
+      {tabCalc==="3d"       && <Calc3D       materias={materias} onGuardar={guardarHistorial}/>}
 
-          {/* Material */}
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 24px" }}>
-            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>1️⃣ Material base</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {PLASTICOS.map(p=>(
-                <div key={p.id} onClick={()=>setPlasticoId(p.id)}
-                  style={{ padding:"12px 16px", borderRadius:10, border:`2px solid ${plasticoId===p.id?"#e65100":"#f0d5c0"}`,
-                    background:plasticoId===p.id?"#fff8f5":"#fff", cursor:"pointer", transition:"all .15s",
-                    display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div>
-                    <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{p.nombre}</div>
-                    <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>Costo m²: ${fmt(p.costo / (p.ancho * p.alto))}</div>
-                  </div>
-                  <div style={{ fontWeight:700, fontSize:13, color:"#e65100" }}>${fmt(p.costo)}</div>
+      {/* Historial global */}
+      {historial.length>0 && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px", marginTop:20 }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>📋 Historial de cálculos</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {historial.map(h=>(
+              <div key={h.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 12px", borderRadius:8, background:"#fff8f5", border:"1px solid #f0d5c0" }}>
+                <div>
+                  <span style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{h.tipo}</span>
+                  <span style={{ fontSize:11, color:"#a09080", marginLeft:8 }}>Costo: ${h.costo.toLocaleString("es-AR")}</span>
                 </div>
-              ))}
-            </div>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontWeight:800, fontSize:16, color:"#e65100" }}>${h.precio.toLocaleString("es-AR")}</span>
+                  <span style={{ fontSize:11, color:"#a09080" }}>{h.fecha}</span>
+                </div>
+              </div>
+            ))}
           </div>
+          <button onClick={()=>setHistorial([])} style={{ marginTop:8, background:"transparent", border:"none", color:"#a09080", fontSize:12, cursor:"pointer" }}>Limpiar</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {/* Medidas */}
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 24px" }}>
-            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>2️⃣ Medidas del trabajo</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-              <div>
-                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#a09080", marginBottom:6 }}>ALTO (metros)</label>
-                <input type="number" step="0.01" value={alto} onChange={e=>setAlto(e.target.value)} placeholder="Ej: 0.60" style={inp}/>
+// ── CALC: BASES ──────────────────────────────────────────────────────────────
+function CalcBases({ materias, onGuardar }) {
+  const [alto, setAlto]         = useState("");
+  const [ancho, setAncho]       = useState("");
+  const [plasticoId, setPlasticoId] = useState("corrugado_2x1");
+  const [costoPlastico, setCostoPlastico] = useState(0);
+  const [llevaVinilo, setLlevaVinilo] = useState(true);
+  const [costoViniloM2, setCostoViniloM2] = useState(4042);
+  const [dobleFaz, setDobleFaz] = useState(false);
+  const [llevaTrans, setLlevaTrans] = useState(false);
+  const [costoTransM2, setCostoTransM2] = useState(3800);
+  const [llevaColoc, setLlevaColoc] = useState(false);
+  const [costoColocM2, setCostoColocM2] = useState(8387);
+  const [ganancia, setGanancia] = useState(2.5);
+
+  const PLASTICOS_LOCAL = [
+    { id:"corrugado_1x70", nombre:"Corrugado 2.3mm (1×0.70m)", costo:3100, ancho:1, alto:0.70 },
+    { id:"corrugado_2x1",  nombre:"Corrugado 2.3mm (2×1m)",    costo:11000,ancho:2, alto:1    },
+    { id:"bicapa",         nombre:"Bicapa 1.5mm (2×1m)",        costo:33900,ancho:2, alto:1    },
+    { id:"pai_trans",      nombre:"PAI Transparente (2×1m)",    costo:57780,ancho:2, alto:1    },
+    { id:"pvc_espumado",   nombre:"PVC Espumado 3mm",           costo:23000,ancho:2.44,alto:1.22},
+  ];
+
+  // Auto-sugerir desde materias primas
+  useEffect(() => {
+    const m = materias.find(x=>(x.categoria||"").toLowerCase().includes("plástico")||(x.categoria||"").toLowerCase().includes("plastico")||(x.nombre||"").toLowerCase().includes("corrugado"));
+    if (m && m.precioCosto) {
+      const pl = PLASTICOS_LOCAL.find(p=>p.id===plasticoId);
+      if (pl) setCostoPlastico(m.precioCosto);
+    }
+    const v = materias.find(x=>(x.nombre||"").toLowerCase().includes("vinilo")&&(x.nombre||"").toLowerCase().includes("impres"));
+    if (v?.precioCosto) setCostoViniloM2(v.precioCosto);
+    const t = materias.find(x=>(x.nombre||"").toLowerCase().includes("transparente"));
+    if (t?.precioCosto) setCostoTransM2(t.precioCosto);
+    const c = materias.find(x=>(x.nombre||"").toLowerCase().includes("colocac"));
+    if (c?.precioCosto) setCostoColocM2(c.precioCosto);
+  }, [materias, plasticoId]);
+
+  const pl  = PLASTICOS_LOCAL.find(p=>p.id===plasticoId);
+  const h   = parseFloat(alto)||0;
+  const w   = parseFloat(ancho)||0;
+  const m2  = h*w;
+  const m2Placa = pl ? pl.ancho*pl.alto : 1;
+  const costoPlacaM2 = (costoPlastico||pl?.costo||0) / m2Placa;
+
+  const cPlastico = costoPlacaM2 * m2;
+  const cVinilo   = llevaVinilo ? costoViniloM2 * m2 * (dobleFaz?2:1) : 0;
+  const cTrans    = llevaTrans  ? costoTransM2  * m2 : 0;
+  const cColoc    = llevaColoc  ? costoColocM2  * m2 : 0;
+  const listo     = m2>0;
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 340px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <CampoMedidas alto={alto} setAlto={setAlto} ancho={ancho} setAncho={setAncho}/>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>🪟 Material base</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
+            {PLASTICOS_LOCAL.map(p=>(
+              <div key={p.id} onClick={()=>setPlasticoId(p.id)}
+                style={{ padding:"11px 14px", borderRadius:10, border:`2px solid ${plasticoId===p.id?"#e65100":"#f0d5c0"}`,
+                  background:plasticoId===p.id?"#fff8f5":"#fff", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{p.nombre}</span>
+                <span style={{ fontWeight:700, fontSize:13, color:"#e65100" }}>${(p.costo/(p.ancho*p.alto)).toLocaleString("es-AR")}/m²</span>
               </div>
-              <div>
-                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#a09080", marginBottom:6 }}>ANCHO (metros)</label>
-                <input type="number" step="0.01" value={ancho} onChange={e=>setAncho(e.target.value)} placeholder="Ej: 0.90" style={inp}/>
-              </div>
-            </div>
-            {m2Placa > 0 && (
-              <div style={{ marginTop:12, background:"#fff8f5", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between" }}>
-                <span style={{ fontSize:13, color:"#a09080" }}>Superficie total:</span>
-                <span style={{ fontWeight:700, color:"#e65100", fontSize:15 }}>{m2Placa.toFixed(4)} m²</span>
-              </div>
-            )}
+            ))}
           </div>
-
-          {/* Opciones */}
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 24px" }}>
-            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>3️⃣ Opciones</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-
-              {/* Vinilo impreso */}
-              <div onClick={()=>setLlevaVinilo(v=>!v)}
-                style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer", padding:"12px 16px", borderRadius:10, border:`2px solid ${llevaVinilo?"#e65100":"#f0d5c0"}`, background:llevaVinilo?"#fff8f5":"#fff", transition:"all .15s" }}>
-                <div style={check(llevaVinilo)}>{llevaVinilo&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}</div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>Vinilo impreso</div>
-                  <div style={{ fontSize:11, color:"#a09080" }}>${fmt(COSTO_VINILO_IMPRESO_M2)}/m²</div>
-                </div>
-                {llevaVinilo && m2Placa > 0 && <div style={{ fontWeight:700, color:"#e65100", fontSize:13 }}>${fmt(costoVinilo)}</div>}
-              </div>
-
-              {/* Doble faz — solo si lleva vinilo */}
-              {llevaVinilo && (
-                <div onClick={()=>setDobleFaz(v=>!v)}
-                  style={{ marginLeft:32, display:"flex", alignItems:"center", gap:12, cursor:"pointer", padding:"10px 14px", borderRadius:10, border:`2px solid ${dobleFaz?"#e65100":"#f0d5c0"}`, background:dobleFaz?"#fff8f5":"#fff", transition:"all .15s" }}>
-                  <div style={check(dobleFaz)}>{dobleFaz&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>Doble faz</div>
-                    <div style={{ fontSize:11, color:"#a09080" }}>Vinilo en ambas caras</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Vinilo transparente */}
-              <div onClick={()=>setLlevaTrans(v=>!v)}
-                style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer", padding:"12px 16px", borderRadius:10, border:`2px solid ${llevaTrans?"#e65100":"#f0d5c0"}`, background:llevaTrans?"#fff8f5":"#fff", transition:"all .15s" }}>
-                <div style={check(llevaTrans)}>{llevaTrans&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}</div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>Vinilo transparente (protector)</div>
-                  <div style={{ fontSize:11, color:"#a09080" }}>${fmt(COSTO_VINILO_TRANS_M2)}/m²</div>
-                </div>
-                {llevaTrans && m2Placa > 0 && <div style={{ fontWeight:700, color:"#e65100", fontSize:13 }}>${fmt(costoTrans)}</div>}
-              </div>
-
-              {/* Colocación */}
-              <div onClick={()=>setLlevaColoc(v=>!v)}
-                style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer", padding:"12px 16px", borderRadius:10, border:`2px solid ${llevaColoc?"#e65100":"#f0d5c0"}`, background:llevaColoc?"#fff8f5":"#fff", transition:"all .15s" }}>
-                <div style={check(llevaColoc)}>{llevaColoc&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}</div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>Colocación</div>
-                  <div style={{ fontSize:11, color:"#a09080" }}>${fmt(COSTO_COLOCACION_M2)}/m²</div>
-                </div>
-                {llevaColoc && m2Placa > 0 && <div style={{ fontWeight:700, color:"#e65100", fontSize:13 }}>${fmt(costoColoc)}</div>}
-              </div>
-            </div>
-          </div>
+          <CampoMateria label="Costo del plástico (por plancha $)" valor={costoPlastico||pl?.costo||0} setValor={setCostoPlastico} materias={materias} categoriaFiltro="corrugado"/>
         </div>
 
-        {/* ── Panel derecho: resultado ── */}
-        <div style={{ position:"sticky", top:20, display:"flex", flexDirection:"column", gap:16 }}>
-
-          {/* Ganancia */}
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
-            <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>4️⃣ Ganancia</div>
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              {[1.5, 2, 2.5, 3, 3.5, 4].map(g=>(
-                <button key={g} onClick={()=>setGanancia(g)}
-                  style={{ padding:"8px 14px", borderRadius:20, fontSize:13, fontWeight:700, cursor:"pointer", border:"none",
-                    background:ganancia===g?"#e65100":"#fff8f5", color:ganancia===g?"#fff":"#e65100", transition:"all .15s" }}>
-                  ×{g}
-                </button>
-              ))}
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginLeft:4 }}>
-                <span style={{ fontSize:12, color:"#a09080" }}>Custom:</span>
-                <input type="number" step="0.1" min="1" value={ganancia} onChange={e=>setGanancia(parseFloat(e.target.value)||1)}
-                  style={{ width:60, padding:"6px 8px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, outline:"none", textAlign:"center" }}/>
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>⚙️ Opciones</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <OpcionCheck activo={llevaVinilo} onToggle={()=>setLlevaVinilo(v=>!v)} label="Vinilo impreso" subLabel={`$${costoViniloM2.toLocaleString("es-AR")}/m²`} costo={cVinilo}/>
+            {llevaVinilo && (
+              <div style={{ marginLeft:32 }}>
+                <OpcionCheck activo={dobleFaz} onToggle={()=>setDobleFaz(v=>!v)} label="Doble faz" subLabel="Vinilo en ambas caras" costo={0}/>
+                <div style={{ marginTop:8 }}><CampoMateria label="Costo vinilo impreso ($/m²)" valor={costoViniloM2} setValor={setCostoViniloM2} materias={materias} categoriaFiltro="vinilo"/></div>
               </div>
-            </div>
+            )}
+            <OpcionCheck activo={llevaTrans} onToggle={()=>setLlevaTrans(v=>!v)} label="Vinilo transparente" subLabel={`$${costoTransM2.toLocaleString("es-AR")}/m²`} costo={cTrans}/>
+            {llevaTrans && <div style={{ marginLeft:32 }}><CampoMateria label="Costo transparente ($/m²)" valor={costoTransM2} setValor={setCostoTransM2} materias={materias} categoriaFiltro="transparente"/></div>}
+            <OpcionCheck activo={llevaColoc} onToggle={()=>setLlevaColoc(v=>!v)} label="Colocación" subLabel={`$${costoColocM2.toLocaleString("es-AR")}/m²`} costo={cColoc}/>
+            {llevaColoc && <div style={{ marginLeft:32 }}><CampoMateria label="Costo colocación ($/m²)" valor={costoColocM2} setValor={setCostoColocM2} materias={materias} categoriaFiltro="colocac"/></div>}
           </div>
+        </div>
+      </div>
+      <ResultadoPanel
+        costos={[{label:"🪟 Plástico",costo:cPlastico,valor:cPlastico},{label:"🖨️ Vinilo impreso"+(dobleFaz?" ×2":""),costo:cVinilo,valor:cVinilo},{label:"🔲 Transparente",costo:cTrans,valor:cTrans},{label:"🔧 Colocación",costo:cColoc,valor:cColoc}]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`Bases ${alto||"?"}×${ancho||"?"}m`}/>
+    </div>
+  );
+}
 
-          {/* Resultado */}
-          <div style={{ background: listo ? "linear-gradient(135deg,#bf360c,#e65100)" : "#fff", borderRadius:14, boxShadow:"0 4px 20px rgba(230,81,0,.2)", padding:"24px 22px", transition:"all .3s" }}>
-            {!listo ? (
-              <div style={{ textAlign:"center", color:"#a09080", fontSize:14, padding:"20px 0" }}>
-                <div style={{ fontSize:36, marginBottom:10 }}>🧮</div>
-                Completá las medidas para ver el resultado
+// ── CALC: ROTULADOS ──────────────────────────────────────────────────────────
+function CalcRotulado({ materias, onGuardar }) {
+  const [alto, setAlto]         = useState("");
+  const [ancho, setAncho]       = useState("");
+  const [tipoVinilo, setTipoVinilo] = useState("calado");
+  const [costoViniloML, setCostoViniloML] = useState(7200);
+  const [llevaCinta, setLlevaCinta] = useState(true);
+  const [costoCintaM2, setCostoCintaM2] = useState(2333);
+  const [ganancia, setGanancia] = useState(2.5);
+
+  useEffect(() => {
+    const v = materias.find(x=>(x.nombre||"").toLowerCase().includes("vinilo calado")||(x.nombre||"").toLowerCase().includes("vinilo color"));
+    if (v?.precioCosto) setCostoViniloML(v.precioCosto);
+    const c = materias.find(x=>(x.nombre||"").toLowerCase().includes("cinta posicionadora")||(x.nombre||"").toLowerCase().includes("cinta"));
+    if (c?.precioCosto) setCostoCintaM2(c.precioCosto);
+  }, [materias]);
+
+  const h   = parseFloat(alto)||0;
+  const w   = parseFloat(ancho)||0;
+  const m2  = h*w;
+  const ml  = h>0&&w>0 ? Math.max(h,w) : 0; // metro lineal = lado mayor
+
+  const cVinilo = costoViniloML * (tipoVinilo==="calado" ? ml : m2);
+  const cCinta  = llevaCinta ? costoCintaM2 * m2 : 0;
+  const listo   = m2>0;
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 340px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <CampoMedidas alto={alto} setAlto={setAlto} ancho={ancho} setAncho={setAncho}/>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>🏷️ Tipo de vinilo</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
+            {[["calado","Vinilo calado","Por metro lineal"],["impreso","Vinilo impreso","Por m²"]].map(([id,lbl,sub])=>(
+              <div key={id} onClick={()=>setTipoVinilo(id)}
+                style={{ padding:"12px", borderRadius:10, border:`2px solid ${tipoVinilo===id?"#e65100":"#f0d5c0"}`,
+                  background:tipoVinilo===id?"#fff8f5":"#fff", cursor:"pointer", textAlign:"center" }}>
+                <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{lbl}</div>
+                <div style={{ fontSize:11, color:"#a09080" }}>{sub}</div>
               </div>
-            ) : (
-              <div>
-                <div style={{ fontWeight:700, fontSize:12, color:"rgba(255,255,255,.7)", textTransform:"uppercase", letterSpacing:".7px", marginBottom:16 }}>Resumen de costos</div>
+            ))}
+          </div>
+          <CampoMateria label={tipoVinilo==="calado"?"Costo vinilo ($/metro lineal)":"Costo vinilo ($/m²)"} valor={costoViniloML} setValor={setCostoViniloML} materias={materias} categoriaFiltro="vinilo"/>
+        </div>
 
-                {[
-                  ["🪟 Plástico", costoPlastico],
-                  llevaVinilo && ["🖨️ Vinilo impreso"+(dobleFaz?" (×2)":""), costoVinilo],
-                  llevaTrans  && ["🔲 Transparente", costoTrans],
-                  llevaColoc  && ["🔧 Colocación", costoColoc],
-                ].filter(Boolean).map(([label, val])=>(
-                  <div key={label} style={{ display:"flex", justifyContent:"space-between", marginBottom:8, fontSize:13 }}>
-                    <span style={{ color:"rgba(255,255,255,.8)" }}>{label}</span>
-                    <span style={{ fontWeight:600, color:"#fff" }}>${fmt(val)}</span>
-                  </div>
-                ))}
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>⚙️ Opciones</div>
+          <OpcionCheck activo={llevaCinta} onToggle={()=>setLlevaCinta(v=>!v)} label="Cinta posicionadora" subLabel={`$${costoCintaM2.toLocaleString("es-AR")}/m²`} costo={cCinta}/>
+          {llevaCinta && <div style={{ marginTop:8 }}><CampoMateria label="Costo cinta ($/m²)" valor={costoCintaM2} setValor={setCostoCintaM2} materias={materias} categoriaFiltro="cinta"/></div>}
+        </div>
+      </div>
+      <ResultadoPanel
+        costos={[{label:"🏷️ Vinilo",valor:cVinilo},{label:"📏 Cinta posicionadora",valor:cCinta}]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`Rotulado ${alto||"?"}×${ancho||"?"}m`}/>
+    </div>
+  );
+}
 
-                <div style={{ borderTop:"1px solid rgba(255,255,255,.25)", marginTop:12, paddingTop:12 }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6, fontSize:13 }}>
-                    <span style={{ color:"rgba(255,255,255,.8)" }}>Costo total</span>
-                    <span style={{ fontWeight:700, color:"#fff" }}>${fmt(costoTotal)}</span>
-                  </div>
-                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6, fontSize:13 }}>
-                    <span style={{ color:"rgba(255,255,255,.8)" }}>Ganancia ×{ganancia}</span>
-                    <span style={{ fontWeight:700, color:"#fff" }}>${fmt(precioFinal - costoTotal)}</span>
-                  </div>
-                </div>
+// ── CALC: LONA ───────────────────────────────────────────────────────────────
+function CalcLona({ materias, onGuardar }) {
+  const [alto, setAlto]       = useState("");
+  const [ancho, setAncho]     = useState("");
+  const [tipoLona, setTipoLona] = useState("frontlight");
+  const [costoLonaM2, setCostoLonaM2] = useState(18900);
+  const [llevaEstructura, setLlevaEstructura] = useState(false);
+  const [costoEstructura, setCostoEstructura] = useState(39000);
+  const [llevaOjales, setLlevaOjales] = useState(true);
+  const [costoOjal, setCostoOjal]   = useState(200);
+  const [llevaColoc, setLlevaColoc] = useState(false);
+  const [costoColocM2, setCostoColocM2] = useState(5000);
+  const [doble, setDoble]       = useState(false);
+  const [ganancia, setGanancia] = useState(2.5);
 
-                <div style={{ background:"rgba(255,255,255,.15)", borderRadius:10, padding:"14px 16px", marginTop:12, textAlign:"center" }}>
-                  <div style={{ fontSize:11, color:"rgba(255,255,255,.7)", fontWeight:600, textTransform:"uppercase", letterSpacing:".7px", marginBottom:4 }}>Precio de venta</div>
-                  <div style={{ fontSize:36, fontWeight:800, color:"#fff" }}>${fmt(precioFinal)}</div>
-                  <div style={{ fontSize:11, color:"rgba(255,255,255,.6)", marginTop:4 }}>{m2Placa.toFixed(4)} m² · {h}×{w} m</div>
-                </div>
+  useEffect(() => {
+    const lf = materias.find(x=>(x.nombre||"").toLowerCase().includes("lona frontlight"));
+    const lb = materias.find(x=>(x.nombre||"").toLowerCase().includes("lona backlight"));
+    if (tipoLona==="frontlight" && lf?.precioCosto) setCostoLonaM2(lf.precioCosto);
+    if (tipoLona==="backlight"  && lb?.precioCosto) setCostoLonaM2(lb.precioCosto);
+    const pb = materias.find(x=>(x.nombre||"").toLowerCase().includes("portabanner")||(x.nombre||"").toLowerCase().includes("estructura"));
+    if (pb?.precioCosto) setCostoEstructura(pb.precioCosto);
+  }, [materias, tipoLona]);
 
-                <button onClick={guardarEnHistorial}
-                  style={{ width:"100%", marginTop:14, padding:"11px", background:"rgba(255,255,255,.2)", color:"#fff", border:"1.5px solid rgba(255,255,255,.3)", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", transition:"all .15s" }}
-                  onMouseOver={e=>e.currentTarget.style.background="rgba(255,255,255,.3)"}
-                  onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.2)"}>
-                  💾 Guardar en historial
-                </button>
+  const h   = parseFloat(alto)||0;
+  const w   = parseFloat(ancho)||0;
+  const m2  = h*w*(doble?2:1);
+  const ojales = h>0&&w>0 ? Math.ceil((h+w)*2/0.5) : 0;
+
+  const cLona      = costoLonaM2 * m2;
+  const cEstructura = llevaEstructura ? costoEstructura : 0;
+  const cOjales    = llevaOjales ? ojales * costoOjal : 0;
+  const cColoc     = llevaColoc ? costoColocM2 * m2 : 0;
+  const listo      = m2>0;
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 340px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <CampoMedidas alto={alto} setAlto={setAlto} ancho={ancho} setAncho={setAncho}/>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>🚩 Tipo de lona</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
+            {[["frontlight","Frontlight","Exterior estándar"],["backlight","Backlight","Con luz trasera"]].map(([id,lbl,sub])=>(
+              <div key={id} onClick={()=>setTipoLona(id)}
+                style={{ padding:"12px", borderRadius:10, border:`2px solid ${tipoLona===id?"#e65100":"#f0d5c0"}`,
+                  background:tipoLona===id?"#fff8f5":"#fff", cursor:"pointer", textAlign:"center" }}>
+                <div style={{ fontWeight:600, fontSize:13 }}>{lbl}</div>
+                <div style={{ fontSize:11, color:"#a09080" }}>{sub}</div>
+              </div>
+            ))}
+          </div>
+          <CampoMateria label="Costo lona ($/m²)" valor={costoLonaM2} setValor={setCostoLonaM2} materias={materias} categoriaFiltro="lona"/>
+        </div>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>⚙️ Opciones</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <OpcionCheck activo={doble} onToggle={()=>setDoble(v=>!v)} label="Doble (dos lonas)" subLabel="Se imprime por ambas caras" costo={0}/>
+            <OpcionCheck activo={llevaEstructura} onToggle={()=>setLlevaEstructura(v=>!v)} label="Estructura / Portabanner" subLabel={`$${costoEstructura.toLocaleString("es-AR")} por unidad`} costo={cEstructura}/>
+            {llevaEstructura && <div style={{ marginLeft:32 }}><CampoMateria label="Costo estructura ($)" valor={costoEstructura} setValor={setCostoEstructura} materias={materias} categoriaFiltro="portabanner"/></div>}
+            <OpcionCheck activo={llevaOjales} onToggle={()=>setLlevaOjales(v=>!v)} label="Ojales" subLabel={listo?`${ojales} ojales estimados × $${costoOjal}`:"—"} costo={cOjales}/>
+            {llevaOjales && (
+              <div style={{ marginLeft:32 }}>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Costo por ojal ($)</label>
+                <input type="number" value={costoOjal} onChange={e=>setCostoOjal(parseFloat(e.target.value)||0)}
+                  style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+              </div>
+            )}
+            <OpcionCheck activo={llevaColoc} onToggle={()=>setLlevaColoc(v=>!v)} label="Colocación" subLabel={`$${costoColocM2.toLocaleString("es-AR")}/m²`} costo={cColoc}/>
+            {llevaColoc && <div style={{ marginLeft:32 }}><CampoMateria label="Costo colocación ($/m²)" valor={costoColocM2} setValor={setCostoColocM2} materias={materias} categoriaFiltro="colocac"/></div>}
+          </div>
+        </div>
+      </div>
+      <ResultadoPanel
+        costos={[{label:"🚩 Lona",valor:cLona},{label:"🏗️ Estructura",valor:cEstructura},{label:"⭕ Ojales",valor:cOjales},{label:"🔧 Colocación",valor:cColoc}]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`Lona ${tipoLona} ${alto||"?"}×${ancho||"?"}m`}/>
+    </div>
+  );
+}
+
+// ── CALC: POLYFAN ────────────────────────────────────────────────────────────
+function CalcPolyfan({ materias, onGuardar }) {
+  const [alto, setAlto]       = useState("");
+  const [ancho, setAncho]     = useState("");
+  const [costoPolifanM2, setCostoPolifanM2] = useState(5500);
+  const [llevaMasillado, setLlevaMasillado] = useState(false);
+  const [costoMasilladoM2, setCostoMasilladoM2] = useState(3000);
+  const [llevaPintado, setLlevaPintado] = useState(false);
+  const [costoPintadoM2, setCostoPintadoM2] = useState(2500);
+  const [ganancia, setGanancia] = useState(2.5);
+
+  useEffect(() => {
+    const p = materias.find(x=>(x.nombre||"").toLowerCase().includes("polifan")||(x.nombre||"").toLowerCase().includes("foam")||(x.categoria||"").toLowerCase().includes("polifan"));
+    if (p?.precioCosto) setCostoPolifanM2(p.precioCosto);
+  }, [materias]);
+
+  const h   = parseFloat(alto)||0;
+  const w   = parseFloat(ancho)||0;
+  const m2  = h*w;
+
+  const cPolifan    = costoPolifanM2 * m2;
+  const cMasillado  = llevaMasillado ? costoMasilladoM2 * m2 : 0;
+  const cPintado    = llevaPintado   ? costoPintadoM2   * m2 : 0;
+  const listo       = m2>0;
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 340px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <CampoMedidas alto={alto} setAlto={setAlto} ancho={ancho} setAncho={setAncho}/>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>🟡 Material Polyfan/Foam</div>
+          <CampoMateria label="Costo placa Polyfan ($/m²)" valor={costoPolifanM2} setValor={setCostoPolifanM2} materias={materias} categoriaFiltro="polifan"/>
+        </div>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>⚙️ Terminaciones</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <OpcionCheck activo={llevaMasillado} onToggle={()=>setLlevaMasillado(v=>!v)} label="Masillado" subLabel={`$${costoMasilladoM2.toLocaleString("es-AR")}/m²`} costo={cMasillado}/>
+            {llevaMasillado && (
+              <div style={{ marginLeft:32 }}>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Costo masillado ($/m²)</label>
+                <input type="number" value={costoMasilladoM2} onChange={e=>setCostoMasilladoM2(parseFloat(e.target.value)||0)}
+                  style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+              </div>
+            )}
+            <OpcionCheck activo={llevaPintado} onToggle={()=>setLlevaPintado(v=>!v)} label="Pintado" subLabel={`$${costoPintadoM2.toLocaleString("es-AR")}/m²`} costo={cPintado}/>
+            {llevaPintado && (
+              <div style={{ marginLeft:32 }}>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Costo pintado ($/m²)</label>
+                <input type="number" value={costoPintadoM2} onChange={e=>setCostoPintadoM2(parseFloat(e.target.value)||0)}
+                  style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
               </div>
             )}
           </div>
+        </div>
+      </div>
+      <ResultadoPanel
+        costos={[{label:"🟡 Polyfan/Foam",valor:cPolifan},{label:"🖌️ Masillado",valor:cMasillado},{label:"🎨 Pintado",valor:cPintado}]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`Polyfan ${alto||"?"}×${ancho||"?"}m`}/>
+    </div>
+  );
+}
 
-          {/* Historial */}
-          {historial.length > 0 && (
-            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
-              <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>📋 Historial de cálculos</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:300, overflowY:"auto" }}>
-                {historial.map(h=>(
-                  <div key={h.id} style={{ padding:"10px 12px", borderRadius:8, background:"#fff8f5", border:"1px solid #f0d5c0" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <div style={{ fontWeight:600, fontSize:12, color:"#1a2340" }}>{h.medida} — {h.plastico.split("(")[0].trim()}</div>
-                      <div style={{ fontWeight:800, fontSize:14, color:"#e65100" }}>${h.precioFinal.toLocaleString("es-AR")}</div>
-                    </div>
-                    <div style={{ fontSize:11, color:"#a09080", marginTop:3 }}>
-                      {h.m2} m² · {[h.vinilo&&"Vinilo", h.dobleFaz&&"DF", h.trans&&"Trans", h.coloc&&"Coloc"].filter(Boolean).join(" · ")||"Solo base"} · ×{h.ganancia} · {h.fecha}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button onClick={()=>setHistorial([])} style={{ marginTop:10, background:"transparent", border:"none", color:"#a09080", fontSize:12, cursor:"pointer" }}>Limpiar historial</button>
+// ── CALC: 3D ─────────────────────────────────────────────────────────────────
+function Calc3D({ materias, onGuardar }) {
+  const [gramos, setGramos]     = useState("");
+  const [horas, setHoras]       = useState("");
+  const [costoPLAg, setCostoPLAg]   = useState(18);    // $/gramo
+  const [costoKWh, setCostoKWh]     = useState(120);   // $/kWh
+  const [consumoW, setConsumoW]     = useState(200);   // W de la impresora
+  const [llevaDiseño, setLlevaDiseño] = useState(false);
+  const [costoDiseño, setCostoDiseño] = useState(5000);
+  const [ganancia, setGanancia] = useState(3);
+
+  useEffect(() => {
+    const p = materias.find(x=>(x.nombre||"").toLowerCase().includes("pla")||(x.categoria||"").toLowerCase().includes("3d")||(x.categoria||"").toLowerCase().includes("filamento"));
+    if (p?.precioCosto) {
+      // Si el precio es por kg, convertir a gramo
+      const unidad = (p.unidad||"").toLowerCase();
+      if (unidad==="kg") setCostoPLAg(p.precioCosto/1000);
+      else if (unidad==="g") setCostoPLAg(p.precioCosto);
+      else setCostoPLAg(p.precioCosto/1000); // asumir kg
+    }
+  }, [materias]);
+
+  const g   = parseFloat(gramos)||0;
+  const h   = parseFloat(horas)||0;
+
+  const cFilamento = costoPLAg * g;
+  const cEnergia   = (consumoW/1000) * h * costoKWh;
+  const cDiseño    = llevaDiseño ? costoDiseño : 0;
+  const listo      = g>0 || h>0;
+
+  const fmt = n => Math.round(n).toLocaleString("es-AR");
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 340px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>🧵 Filamento</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Peso estimado (gramos)</label>
+              <input type="number" value={gramos} onChange={e=>setGramos(e.target.value)} placeholder="50"
+                style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+            </div>
+            <div>
+              <CampoMateria label="Costo PLA ($/gramo)" valor={costoPLAg} setValor={setCostoPLAg} materias={materias} categoriaFiltro="pla"/>
+            </div>
+          </div>
+          {g>0 && <div style={{ marginTop:10, background:"#fff8f5", borderRadius:8, padding:"9px 14px", display:"flex", justifyContent:"space-between" }}>
+            <span style={{ fontSize:13, color:"#a09080" }}>Costo filamento:</span>
+            <span style={{ fontWeight:700, color:"#e65100" }}>${fmt(cFilamento)}</span>
+          </div>}
+        </div>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>⚡ Energía eléctrica</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+            <div>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Tiempo (horas)</label>
+              <input type="number" step="0.5" value={horas} onChange={e=>setHoras(e.target.value)} placeholder="3"
+                style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+            </div>
+            <div>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Consumo (W)</label>
+              <input type="number" value={consumoW} onChange={e=>setConsumoW(parseFloat(e.target.value)||0)} placeholder="200"
+                style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+            </div>
+            <div>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Tarifa ($/kWh)</label>
+              <input type="number" value={costoKWh} onChange={e=>setCostoKWh(parseFloat(e.target.value)||0)} placeholder="120"
+                style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+            </div>
+          </div>
+          {h>0 && <div style={{ marginTop:10, background:"#fff8f5", borderRadius:8, padding:"9px 14px", display:"flex", justifyContent:"space-between" }}>
+            <span style={{ fontSize:13, color:"#a09080" }}>{h}h × {consumoW}W = {((consumoW/1000)*h).toFixed(2)} kWh:</span>
+            <span style={{ fontWeight:700, color:"#e65100" }}>${fmt(cEnergia)}</span>
+          </div>}
+        </div>
+
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>⚙️ Extras</div>
+          <OpcionCheck activo={llevaDiseño} onToggle={()=>setLlevaDiseño(v=>!v)} label="Diseño / prep. de archivo" subLabel={`$${costoDiseño.toLocaleString("es-AR")} fijo`} costo={cDiseño}/>
+          {llevaDiseño && (
+            <div style={{ marginTop:8, marginLeft:32 }}>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Costo diseño ($)</label>
+              <input type="number" value={costoDiseño} onChange={e=>setCostoDiseño(parseFloat(e.target.value)||0)}
+                style={{ width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
             </div>
           )}
         </div>
       </div>
+      <ResultadoPanel
+        costos={[{label:"🧵 Filamento PLA",valor:cFilamento},{label:"⚡ Energía",valor:cEnergia},{label:"🎨 Diseño",valor:cDiseño}]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`3D ${gramos||"?"}g ${horas||"?"}h`}/>
     </div>
   );
 }
@@ -2497,6 +2837,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
   const [tipoPrecios, setTipoPrecios]   = useState("venta"); // venta | gremio
   const [itemLibreNombre, setItemLibreNombre] = useState("");
   const [itemLibrePrecio, setItemLibrePrecio] = useState("");
+  const [modalAgendarVenta, setModalAgendarVenta] = useState(false);
   const [ordenVenta, setOrdenVenta]     = useState("popular"); // popular | nombre | precio_asc | precio_desc
   const [ventasData, setVentasData]     = useState([]);
 
@@ -2665,6 +3006,33 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
       showToast("Error al generar presupuesto", "error");
     }
     setSaving(false);
+  };
+
+  const handleAgendarVenta = async (fechaEntrega, categoria, notas) => {
+    if (items.length===0) return;
+    const desc = items.map(it=>`${it.cantidad}x ${it.nombre} $${(it.cantidad*it.precio).toLocaleString("es-AR")}`).join("\n");
+    const notaFinal = [notas, desc].filter(Boolean).join("\n---\n");
+    const snap = await getDocs(collection(db,"pedidos"));
+    const maxId = Math.max(...snap.docs.map(d=>d.data().id||0), 0);
+    const nuevoPedido = {
+      id:          maxId + 1,
+      nombre:      items.length===1 ? items[0].nombre : `Pedido de ${clienteNombre||"cliente"} (${items.length} items)`,
+      cliente:     clienteNombre || "Consumidor Final",
+      clienteId:   clienteSelId || null,
+      telefono:    "",
+      categoria:   categoria || "Otros",
+      estado:      "Pendiente",
+      precio:      total,
+      seña:        0,
+      fechaPedido: new Date().toISOString().split("T")[0],
+      fechaEntrega,
+      notas:       notaFinal,
+      itemsVenta:  items,
+    };
+    await addDoc(collection(db,"pedidos"), nuevoPedido);
+    showToast("✅ Pedido creado desde la venta");
+    setModalAgendarVenta(false);
+    setView("lista");
   };
 
   const agregarItemLibre = () => {
@@ -2863,7 +3231,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
             </div>
           </div>
 
-          {/* Botones confirmar + presupuesto */}
+          {/* Botones confirmar + presupuesto + pedido */}
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
             <button onClick={handleGuardar} disabled={saving||items.length===0}
               style={{ width:"100%", padding:"15px", background: items.length===0?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:15, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
@@ -2871,9 +3239,118 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
             </button>
             <button onClick={handlePresupuesto} disabled={saving||items.length===0}
               style={{ width:"100%", padding:"13px", background: items.length===0?"#f0f3f9":"#fff", color:items.length===0?"#a09080":"#1a2340", border:`2px solid ${items.length===0?"#e0e0e0":"#1a2340"}`, borderRadius:10, fontSize:14, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
-              📋 Generar Presupuesto (sin registrar como venta)
+              📋 Generar Presupuesto
+            </button>
+            <button onClick={()=>setModalAgendarVenta(true)} disabled={items.length===0}
+              style={{ width:"100%", padding:"13px", background: items.length===0?"#f0f3f9":"#e8eaf6", color:items.length===0?"#a09080":"#3949ab", border:`2px solid ${items.length===0?"#e0e0e0":"#3949ab"}`, borderRadius:10, fontSize:14, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
+              📅 Crear Pedido con fecha de entrega
             </button>
           </div>
+
+          {/* Modal agendar como pedido */}
+          {modalAgendarVenta && (
+            <ModalAgendarVenta
+              items={items}
+              total={total}
+              clienteNombre={clienteNombre}
+              onConfirmar={handleAgendarVenta}
+              onClose={()=>setModalAgendarVenta(false)}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: Agendar Venta como Pedido ─────────────────────────────────────
+function ModalAgendarVenta({ items, total, clienteNombre, onConfirmar, onClose }) {
+  const [fechaEntrega, setFechaEntrega] = useState("");
+  const [categoria, setCategoria]       = useState("");
+  const [notas, setNotas]               = useState("");
+  const [saving, setSaving]             = useState(false);
+  const hoy = new Date().toISOString().split("T")[0];
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  const handleOk = async () => {
+    if (!fechaEntrega || !categoria) return;
+    setSaving(true);
+    await onConfirmar(fechaEntrega, categoria, notas);
+    setSaving(false);
+  };
+
+  const listo = fechaEntrega && categoria;
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontSize:32, textAlign:"center", marginBottom:10 }}>📅</div>
+        <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:4, textAlign:"center" }}>Crear Pedido</div>
+        <div style={{ fontSize:13, color:"#a09080", textAlign:"center", marginBottom:20 }}>
+          Los items van a las notas del pedido · Cliente: <strong>{clienteNombre||"Consumidor Final"}</strong>
+        </div>
+
+        {/* Resumen de items */}
+        <div style={{ background:"#f0f3f9", borderRadius:10, padding:"12px 14px", marginBottom:18, maxHeight:130, overflowY:"auto" }}>
+          {items.map((it,i)=>(
+            <div key={i} style={{ display:"flex", justifyContent:"space-between", fontSize:12, padding:"3px 0", borderBottom:i<items.length-1?"1px solid #e0e4f0":"none" }}>
+              <span style={{ color:"#1a2340", fontWeight:500 }}>{it.cantidad}× {it.nombre}</span>
+              <span style={{ color:"#3949ab", fontWeight:700 }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</span>
+            </div>
+          ))}
+          <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, paddingTop:8, borderTop:"2px solid #c5cce0" }}>
+            <span style={{ fontWeight:700, fontSize:13, color:"#1a2340" }}>Total</span>
+            <span style={{ fontWeight:800, fontSize:15, color:"#e65100" }}>${total.toLocaleString("es-AR")}</span>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {/* Categoría */}
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>
+              Categoría *
+              {!categoria && <span style={{ color:"#ef5350", fontSize:11, marginLeft:6 }}>requerido</span>}
+            </label>
+            <select value={categoria} onChange={e=>setCategoria(e.target.value)}
+              style={{ ...inp, cursor:"pointer",
+                border:`1.5px solid ${!categoria?"#ef5350":"#f0d5c0"}`,
+                background: categoria ? (CATEGORIA_COLOR[categoria]?.bg||"#fff8f5") : "#fff",
+                color: categoria ? (CATEGORIA_COLOR[categoria]?.text||"#1a2340") : "#a09080",
+                fontWeight: categoria ? 700 : 400 }}>
+              <option value="">— Seleccioná una categoría —</option>
+              {CATEGORIAS.map(cat=>(
+                <option key={cat} value={cat}>{CATEGORIA_ICON[cat]} {cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Fecha */}
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>
+              Fecha de entrega *
+              {!fechaEntrega && <span style={{ color:"#ef5350", fontSize:11, marginLeft:6 }}>requerido</span>}
+            </label>
+            <input type="date" value={fechaEntrega} min={hoy} onChange={e=>setFechaEntrega(e.target.value)}
+              style={{ ...inp, border:`1.5px solid ${!fechaEntrega?"#ef5350":"#f0d5c0"}` }}/>
+          </div>
+
+          {/* Notas */}
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Notas adicionales (opcional)</label>
+            <textarea value={notas} onChange={e=>setNotas(e.target.value)} rows={2}
+              placeholder="Aclaraciones para el pedido..."
+              style={{ ...inp, resize:"none", lineHeight:1.5 }}/>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", gap:10, marginTop:20 }}>
+          <button onClick={onClose} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+            Cancelar
+          </button>
+          <button onClick={handleOk} disabled={!listo||saving}
+            style={{ flex:2, padding:"11px", background:!listo?"#c5cce0":"#3949ab", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:!listo?"not-allowed":"pointer", transition:"all .2s" }}>
+            {saving ? "Creando..." : "📅 Crear Pedido"}
+          </button>
         </div>
       </div>
     </div>
@@ -3033,8 +3510,8 @@ function InsumosView({ setView, showToast }) {
       {/* ── TAB MATERIAS PRIMAS ── */}
       {tabActiva==="materias" && <MateriasPrimasView showToast={showToast}/>}
 
-      {/* ── TAB PRODUCTOS ── */}
-      {tabActiva==="productos" && (<div>
+      {tabActiva==="productos" && (
+      <div>
 
       {/* Header productos */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
@@ -3229,18 +3706,23 @@ function InsumosView({ setView, showToast }) {
           </div>
         </div>
       )}
-    </div>{/* end productos tab */}
+      </div>
+      )}
     </div>
   );
 }
 
 // ── Componente: Materias Primas ───────────────────────────────────────────
 function MateriasPrimasView({ showToast }) {
-  const [materias, setMaterias]       = useState([]);
-  const [proveedores, setProveedores] = useState([]);
-  const [busq, setBusq]               = useState("");
-  const [modal, setModal]             = useState(null); // null | {} | item
-  const [filtroProv, setFiltroProv]   = useState("todos");
+  const [materias, setMaterias]         = useState([]);
+  const [proveedores, setProveedores]   = useState([]);
+  const [busq, setBusq]                 = useState("");
+  const [modal, setModal]               = useState(null);
+  const [filtroProv, setFiltroProv]     = useState("todos");
+  const [importData, setImportData]     = useState([]);
+  const [importModal, setImportModal]   = useState(false);
+  const [importing, setImporting]       = useState(false);
+  const [modoImport, setModoImport]     = useState("reemplazar");
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db,"materiasPrimas"), snap =>
@@ -3268,14 +3750,71 @@ function MateriasPrimasView({ showToast }) {
 
   const UNIDADES = ["unidad","kg","g","m","m²","cm","rollo","litro","ml","resma","caja","paq."];
 
+  const handleExcelMP = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+    const buf  = await file.arrayBuffer();
+    const wb   = XLSX.read(buf);
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    if (!ws) { showToast("No se pudo leer el Excel","error"); return; }
+    const rows = XLSX.utils.sheet_to_json(ws, { defval:"" });
+    const parsed = rows.filter(r=>r.nombre||r.Nombre).map(r=>({
+      nombre:      String(r.nombre||r.Nombre||"").trim(),
+      descripcion: String(r.descripcion||r.Descripcion||r.descripción||"").trim(),
+      precioCosto: parseFloat(r.precioCosto||r.precio||r.Precio||0)||0,
+      unidad:      String(r.unidad||r.Unidad||"unidad").trim(),
+      categoria:   String(r.categoria||r.Categoria||r.categoría||"General").trim(),
+      proveedor:   String(r.proveedor||r.Proveedor||"").trim(),
+      stock:       parseFloat(r.stock||r.Stock||0)||0,
+    }));
+    if (!parsed.length) { showToast("No encontré datos en el Excel","error"); return; }
+    setImportData(parsed);
+    setImportModal(true);
+    e.target.value = "";
+  };
+
+  const handleImportarMP = async () => {
+    setImporting(true);
+    try {
+      if (modoImport==="reemplazar") {
+        const snap = await getDocs(collection(db,"materiasPrimas"));
+        await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"materiasPrimas",d.id))));
+      }
+      for (const m of importData) {
+        // Buscar proveedor por nombre si viene en el Excel
+        let proveedorId = "";
+        if (m.proveedor) {
+          const prov = proveedores.find(p=>(p.empresa||p.titular||"").toLowerCase()===m.proveedor.toLowerCase());
+          if (prov) proveedorId = prov.fireId;
+        }
+        const data = { nombre:m.nombre, descripcion:m.descripcion, precioCosto:m.precioCosto, unidad:m.unidad, categoria:m.categoria, stock:m.stock, proveedorId };
+        if (modoImport==="agregar") {
+          const exist = materias.find(x=>x.nombre.toLowerCase()===m.nombre.toLowerCase());
+          if (exist) { await updateDoc(doc(db,"materiasPrimas",exist.fireId),{precioCosto:m.precioCosto,unidad:m.unidad,categoria:m.categoria}); continue; }
+        }
+        await addDoc(collection(db,"materiasPrimas"), data);
+      }
+      setImportModal(false);
+      showToast(`✅ ${importData.length} materias primas ${modoImport==="reemplazar"?"importadas":"actualizadas"}`);
+    } catch(e) { showToast("Error al importar","error"); console.error(e); }
+    setImporting(false);
+  };
+
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
         <p style={{ fontSize:14, color:"#a09080" }}>{materias.length} materia{materias.length!==1?"s":""} prima{materias.length!==1?"s":""}</p>
-        <button onClick={()=>setModal({})}
-          style={{ background:"#1a2340", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-          ➕ Nueva Materia Prima
-        </button>
+        <div style={{ display:"flex", gap:10 }}>
+          <label style={{ background:"#fff", border:"1.5px solid #1a2340", color:"#1a2340", padding:"9px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            📥 Importar Excel
+            <input type="file" accept=".xlsx,.xls" onChange={handleExcelMP} style={{ display:"none" }}/>
+          </label>
+          <button onClick={()=>setModal({})}
+            style={{ background:"#1a2340", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            ➕ Nueva Materia Prima
+          </button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -3352,6 +3891,67 @@ function MateriasPrimasView({ showToast }) {
           onClose={()=>setModal(null)}
           showToast={showToast}
         />
+      )}
+
+      {/* Modal importar Excel */}
+      {importModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={()=>setImportModal(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:"100%", maxWidth:600, maxHeight:"85vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:6 }}>📥 Importar Materias Primas</div>
+            <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>{importData.length} materias primas encontradas</div>
+
+            {/* Modo */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+              {[["reemplazar","🔄 Reemplazar todo","Borra las actuales y carga las del Excel"],["agregar","➕ Actualizar precios","Actualiza existentes, agrega nuevas"]].map(([val,lbl,sub])=>(
+                <div key={val} onClick={()=>setModoImport(val)}
+                  style={{ padding:"12px 14px", borderRadius:10, border:`2px solid ${modoImport===val?"#1a2340":"#f0d5c0"}`, background:modoImport===val?"#f0f3f9":"#fff", cursor:"pointer" }}>
+                  <div style={{ fontWeight:700, fontSize:13, color:modoImport===val?"#1a2340":"#4a5568" }}>{lbl}</div>
+                  <div style={{ fontSize:11, color:"#a09080", marginTop:3 }}>{sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {modoImport==="reemplazar" && (
+              <div style={{ background:"#fff3e0", border:"1.5px solid #ffb74d", borderRadius:8, padding:"9px 14px", marginBottom:14, fontSize:12, color:"#e65100", fontWeight:600 }}>
+                ⚠️ Se eliminarán todas las materias primas actuales
+              </div>
+            )}
+
+            {/* Preview tabla */}
+            <div style={{ maxHeight:260, overflowY:"auto", borderRadius:8, border:"1px solid #f0d5c0", marginBottom:18 }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                <thead>
+                  <tr style={{ background:"#f0f3f9", position:"sticky", top:0 }}>
+                    {["Nombre","Descripción","Precio Costo","Unidad","Categoría","Proveedor"].map(h=>(
+                      <th key={h} style={{ padding:"8px 10px", textAlign:"left", fontWeight:700, color:"#4a5568", fontSize:10, textTransform:"uppercase", borderBottom:"1px solid #e0e4f0" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {importData.slice(0,50).map((m,i)=>(
+                    <tr key={i} style={{ borderBottom:"1px solid #f0f3f9" }}>
+                      <td style={{ padding:"7px 10px", fontWeight:600, color:"#1a2340" }}>{m.nombre}</td>
+                      <td style={{ padding:"7px 10px", color:"#4a5568", maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.descripcion||"—"}</td>
+                      <td style={{ padding:"7px 10px", fontWeight:700, color:"#1a2340" }}>{m.precioCosto?`$${m.precioCosto.toLocaleString("es-AR")}`:"—"}</td>
+                      <td style={{ padding:"7px 10px" }}><span style={{ background:"#e8eaf6", color:"#3949ab", padding:"1px 7px", borderRadius:10, fontSize:10, fontWeight:600 }}>{m.unidad}</span></td>
+                      <td style={{ padding:"7px 10px", color:"#4a5568" }}>{m.categoria}</td>
+                      <td style={{ padding:"7px 10px", color:"#a09080" }}>{m.proveedor||"—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {importData.length>50 && <div style={{ padding:"8px 10px", fontSize:11, color:"#a09080", textAlign:"center" }}>...y {importData.length-50} más</div>}
+            </div>
+
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button onClick={()=>setImportModal(false)} style={{ padding:"10px 18px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={handleImportarMP} disabled={importing}
+                style={{ padding:"10px 24px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", opacity:importing?.7:1 }}>
+                {importing?"Importando...":`${modoImport==="reemplazar"?"🔄 Reemplazar":"➕ Actualizar"} ${importData.length} materias primas`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -5433,21 +6033,21 @@ export default function App() {
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
               {/* Categoría */}
               <div style={{ gridColumn:"1 / -1" }}>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:8 }}>Categoría *</label>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-                  {CATEGORIAS.map(cat => {
-                    const cc = CATEGORIA_COLOR[cat]; const sel = formData.categoria===cat;
-                    return (
-                      <button key={cat} onClick={() => setFormData(p=>({...p,categoria:cat}))}
-                        style={{ padding:"7px 14px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", transition:"all .18s",
-                          border:sel?`2px solid ${cc.accent}`:"2px solid #dde3ef",
-                          background:sel?cc.bg:"#f8faff", color:sel?cc.text:"#6b7a9a",
-                          transform:sel?"scale(1.05)":"scale(1)", boxShadow:sel?`0 2px 8px ${cc.accent}33`:"none" }}>
-                        {CATEGORIA_ICON[cat]} {cat}
-                      </button>
-                    );
-                  })}
-                </div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:8 }}>
+                  Categoría *
+                  {errors.categoria && <span style={{ color:"#ef5350", fontSize:12, fontWeight:400, marginLeft:8 }}>{errors.categoria}</span>}
+                </label>
+                <select value={formData.categoria||""} onChange={e=>setFormData(p=>({...p,categoria:e.target.value}))}
+                  style={{ width:"100%", padding:"11px 14px", borderRadius:8, border:`1.5px solid ${errors.categoria?"#ef5350":formData.categoria?"#e65100":"#dde3ef"}`,
+                    fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer",
+                    background: formData.categoria ? (CATEGORIA_COLOR[formData.categoria]?.bg||"#fff8f5") : "#fff",
+                    color: formData.categoria ? (CATEGORIA_COLOR[formData.categoria]?.text||"#1a2340") : "#a09080",
+                    fontWeight: formData.categoria ? 700 : 400 }}>
+                  <option value="">— Seleccioná una categoría —</option>
+                  {CATEGORIAS.map(cat=>(
+                    <option key={cat} value={cat}>{CATEGORIA_ICON[cat]} {cat}</option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ gridColumn:"1 / -1" }}>
