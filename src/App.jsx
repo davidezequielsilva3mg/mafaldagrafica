@@ -1148,6 +1148,91 @@ function buildComprobanteHTML(venta, empresa) {
 </body></html>`;
 }
 
+
+function buildPresupuestoHTML(datos, empresa) {
+  const num   = `P-${String(datos.numero||1).padStart(5,"0")}`;
+  const now   = new Date();
+  const fecha = now.toLocaleDateString("es-AR");
+  const hora  = now.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+  const nombre = empresa?.nombre || "Mafalda Gráfica";
+  const validez = new Date(now.getTime() + 7*24*60*60*1000).toLocaleDateString("es-AR");
+  const rows = datos.items.map(it => `
+    <tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0">${it.cantidad}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0">${it.nombre}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:right">$${parseFloat(it.precio).toLocaleString("es-AR")}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:700">$${(it.cantidad*it.precio).toLocaleString("es-AR")}</td>
+    </tr>`).join("");
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
+<title>Presupuesto ${num}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340;padding:20mm}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:3px solid #1a2340;margin-bottom:18px}
+  .brand{font-size:24px;font-weight:800;color:#1a2340}
+  .brand-sub{font-size:11px;color:#a09080;margin-top:3px;line-height:1.6}
+  .pres-num{font-size:20px;font-weight:800;color:#1a2340;text-align:right}
+  .pres-badge{display:inline-block;background:#e8eaf6;color:#1a2340;border:2px solid #1a2340;border-radius:6px;padding:3px 10px;font-size:13px;font-weight:700;margin-top:4px}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+  .ibox{background:#f5f5f5;border-radius:7px;padding:9px 12px;border-left:3px solid #1a2340}
+  .ilbl{font-size:10px;font-weight:600;color:#a09080;text-transform:uppercase;letter-spacing:.7px;margin-bottom:3px}
+  .ival{font-size:13px;font-weight:600;color:#1a2340}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
+  thead tr{background:#f0f3f9}
+  th{padding:9px 10px;text-align:left;font-size:11px;font-weight:700;color:#1a2340;text-transform:uppercase;letter-spacing:.5px}
+  th:last-child,th:nth-last-child(2){text-align:right}
+  .total-box{background:#f0f3f9;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .total-lbl{font-size:13px;font-weight:600;color:#1a2340;text-transform:uppercase;letter-spacing:.7px}
+  .total-val{font-size:26px;font-weight:800;color:#1a2340}
+  .validez{text-align:center;font-size:11px;color:#a09080;margin-bottom:10px;padding:8px;background:#fffde7;border-radius:6px}
+  .foot{border-top:1.5px solid #e0e0e0;padding-top:12px;display:flex;justify-content:space-between;font-size:10px;color:#a0a0a0}
+  @media print{body{padding:12mm 14mm}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    ${empresa?.logo?`<img src="${empresa.logo}" style="height:50px;object-fit:contain;margin-bottom:6px;display:block"/>`:""}
+    <div class="brand">${nombre}</div>
+    <div class="brand-sub">
+      ${empresa?.titular?`Titular: ${empresa.titular}<br/>`:""}
+      ${empresa?.cuit?`CUIT: ${empresa.cuit}<br/>`:""}
+      ${empresa?.direccion?`${empresa.direccion}<br/>`:""}
+      ${empresa?.telefono?`Tel: ${empresa.telefono}`:""}
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div class="pres-num">${num}</div>
+    <div style="font-size:11px;color:#a09080;margin-top:3px">Presupuesto</div>
+    <div class="pres-badge">📋 PRESUPUESTO</div>
+    <div style="font-size:11px;color:#a09080;margin-top:4px">${fecha} · ${hora}</div>
+  </div>
+</div>
+<div class="info-grid">
+  <div class="ibox"><div class="ilbl">Cliente</div><div class="ival">${datos.clienteNombre||"Consumidor Final"}</div></div>
+  <div class="ibox"><div class="ilbl">Válido hasta</div><div class="ival">${validez}</div></div>
+</div>
+<table>
+  <thead><tr><th>Cant.</th><th>Detalle</th><th style="text-align:right">P.Unit.</th><th style="text-align:right">Subtotal</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="total-box">
+  <div class="total-lbl">Total presupuestado</div>
+  <div class="total-val">$${parseFloat(datos.total).toLocaleString("es-AR")}</div>
+</div>
+<div class="validez">⏳ Este presupuesto tiene validez de 7 días · Sujeto a cambios de precio</div>
+<div class="foot"><span>${nombre}</span><span>${num} · ${fecha}</span></div>
+<script>window.onload=()=>window.print();</script>
+</body></html>`;
+}
+
+function imprimirPresupuesto(datos, empresa) {
+  const html = buildPresupuestoHTML(datos, empresa);
+  const win  = window.open("","_blank","width=860,height=700");
+  if (!win) { alert("Habilitá los popups para imprimir."); return; }
+  win.document.write(html);
+  win.document.close();
+}
+
 function imprimirComprobante(venta, empresa) {
   const html = buildComprobanteHTML(venta, empresa);
   const win  = window.open("","_blank","width=860,height=700");
@@ -2228,6 +2313,8 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
   const [metodoPago, setMetodoPago]     = useState("Efectivo");
   const [saving, setSaving]             = useState(false);
   const [tipoPrecios, setTipoPrecios]   = useState("venta"); // venta | gremio
+  const [itemLibreNombre, setItemLibreNombre] = useState("");
+  const [itemLibrePrecio, setItemLibrePrecio] = useState("");
   const [ordenVenta, setOrdenVenta]     = useState("popular"); // popular | nombre | precio_asc | precio_desc
   const [ventasData, setVentasData]     = useState([]);
 
@@ -2361,6 +2448,53 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
     setSaving(false);
   };
 
+  const handlePresupuesto = async () => {
+    if (items.length===0) { showToast("Agregá al menos un producto", "error"); return; }
+    setSaving(true);
+    try {
+      const snap = await getDocs(collection(db, "presupuestos"));
+      const numero = snap.size + 1;
+      const pres = {
+        numero,
+        fecha:         new Date().toISOString().split("T")[0],
+        clienteId:     clienteSelId||null,
+        clienteNombre: clienteNombre||"Consumidor Final",
+        items,
+        total,
+        creadoEn:      new Date().toISOString(),
+        estado:        "pendiente",
+      };
+      await addDoc(collection(db, "presupuestos"), pres);
+      // Si hay cliente, guardar en historial del cliente
+      if (clienteSelId) {
+        await addDoc(collection(db, "movimientosCuenta"), {
+          clienteId: clienteSelId,
+          tipo: "presupuesto",
+          monto: total,
+          fecha: new Date().toISOString().split("T")[0],
+          descripcion: `Presupuesto P-${String(numero).padStart(5,"0")}`,
+        });
+      }
+      showToast(`Presupuesto guardado ✅ · $${total.toLocaleString("es-AR")}`);
+      setTimeout(() => imprimirPresupuesto(pres, empresa), 400);
+      setView("ventas");
+    } catch(e) {
+      console.error(e);
+      showToast("Error al generar presupuesto", "error");
+    }
+    setSaving(false);
+  };
+
+  const agregarItemLibre = () => {
+    if (!itemLibreNombre.trim()) { showToast("Ingresá un nombre para el ítem", "error"); return; }
+    const precio = parseFloat(itemLibrePrecio)||0;
+    const id = `libre_${Date.now()}`;
+    setItems(prev => [...prev, { insumoId:id, codigo:"CUSTOM", nombre:itemLibreNombre.trim(), precio, cantidad:1, stockDisp:999, esLibre:true }]);
+    setItemLibreNombre("");
+    setItemLibrePrecio("");
+    showToast("Ítem personalizado agregado ✅");
+  };
+
   return (
     <div>
       <button onClick={() => setView("ventas")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
@@ -2427,6 +2561,23 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
                 );
               })}
             </div>
+
+            {/* Ítem personalizado */}
+            <div style={{ marginTop:14, borderTop:"1.5px dashed #f0d5c0", paddingTop:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:10 }}>✏️ Ítem personalizado</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input value={itemLibreNombre} onChange={e=>setItemLibreNombre(e.target.value)}
+                  placeholder="Nombre del ítem..."
+                  style={{ flex:2, padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
+                <input type="number" value={itemLibrePrecio} onChange={e=>setItemLibrePrecio(e.target.value)}
+                  placeholder="Precio"
+                  style={{ flex:1, padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
+                <button onClick={agregarItemLibre}
+                  style={{ padding:"9px 16px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+                  + Agregar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2491,9 +2642,13 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
                 {items.map(it=>(
-                  <div key={it.insumoId} style={{ padding:"8px 10px", borderRadius:8, background:"#fffaf7", border:"1px solid #f5e8e0" }}>
+                  <div key={it.insumoId} style={{ padding:"8px 10px", borderRadius:8, background: it.esLibre?"#f0f3f9":"#fffaf7", border:`1px solid ${it.esLibre?"#c5cce0":"#f5e8e0"}` }}>
                     <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
-                      <div style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", lineHeight:1.3 }}>{it.nombre}</div>
+                      {it.esLibre
+                        ? <input value={it.nombre} onChange={e=>setItems(prev=>prev.map(x=>x.insumoId===it.insumoId?{...x,nombre:e.target.value}:x))}
+                            style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", border:"1.5px solid #c5cce0", borderRadius:5, padding:"3px 8px", fontFamily:"'DM Sans',sans-serif", outline:"none", background:"#fff" }}/>
+                        : <div style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", lineHeight:1.3 }}>{it.nombre}</div>
+                      }
                       <button onClick={()=>removeItem(it.insumoId)} style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:14, fontWeight:700 }}>✕</button>
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -2526,11 +2681,17 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
             </div>
           </div>
 
-          {/* Botón confirmar */}
-          <button onClick={handleGuardar} disabled={saving||items.length===0}
-            style={{ width:"100%", padding:"15px", background: items.length===0?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:16, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
-            {saving ? "Guardando..." : !configCargada ? "⏳ Cargando configuración..." : "✅ Confirmar Venta · Imprimir Comprobante"}
-          </button>
+          {/* Botones confirmar + presupuesto */}
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <button onClick={handleGuardar} disabled={saving||items.length===0}
+              style={{ width:"100%", padding:"15px", background: items.length===0?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:15, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
+              {saving ? "Guardando..." : !configCargada ? "⏳ Cargando..." : "✅ Confirmar Venta · Imprimir Comprobante"}
+            </button>
+            <button onClick={handlePresupuesto} disabled={saving||items.length===0}
+              style={{ width:"100%", padding:"13px", background: items.length===0?"#f0f3f9":"#fff", color:items.length===0?"#a09080":"#1a2340", border:`2px solid ${items.length===0?"#e0e0e0":"#1a2340"}`, borderRadius:10, fontSize:14, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
+              📋 Generar Presupuesto (sin registrar como venta)
+            </button>
+          </div>
         </div>
       </div>
     </div>
