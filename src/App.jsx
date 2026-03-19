@@ -2148,21 +2148,6 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
         </button>
       </div>
 
-      {/* Stats rápidos */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
-        {[
-          { label:"Total", value:`$${totalFiltrado.toLocaleString("es-AR")}`, color:"#e65100" },
-          { label:"Efectivo", value:`$${totalEfectivo.toLocaleString("es-AR")}`, color:"#2e7d32" },
-          { label:"Transferencia", value:`$${totalTransfer.toLocaleString("es-AR")}`, color:"#1565c0" },
-          { label:"Cta. Corriente", value:`$${totalCtaCte.toLocaleString("es-AR")}`, color:"#6a1b9a" },
-        ].map((s,i) => (
-          <div key={i} style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px" }}>
-            <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>{s.label}</div>
-            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:s.color }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-
       {/* Filtros */}
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
         <div style={{ position:"relative", flex:"1 1 200px" }}>
@@ -2308,6 +2293,11 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
   };
 
   const removeItem = (insumoId) => setItems(prev => prev.filter(it => it.insumoId!==insumoId));
+
+  const updatePrecio = (insumoId, val) => {
+    const n = Math.max(0, parseFloat(val)||0);
+    setItems(prev => prev.map(it => it.insumoId===insumoId ? {...it, precio:n} : it));
+  };
 
   const total = items.reduce((s,it)=>s+it.cantidad*it.precio, 0);
 
@@ -2501,16 +2491,28 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
                 {items.map(it=>(
-                  <div key={it.insumoId} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, background:"#fffaf7", border:"1px solid #f5e8e0" }}>
-                    <div style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", lineHeight:1.3 }}>{it.nombre}</div>
-                    <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-                      <button onClick={()=>updateCantidad(it.insumoId,it.cantidad-1)} style={{ background:"#ffebee", border:"none", color:"#c62828", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>−</button>
-                      <input type="number" value={it.cantidad} onChange={e=>updateCantidad(it.insumoId,e.target.value)}
-                        style={{ width:40, textAlign:"center", border:"1.5px solid #f0d5c0", borderRadius:5, fontSize:13, fontWeight:700, padding:"2px 4px", fontFamily:"'DM Sans',sans-serif" }}/>
-                      <button onClick={()=>updateCantidad(it.insumoId,it.cantidad+1)} style={{ background:"#e8f5e9", border:"none", color:"#2e7d32", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>+</button>
+                  <div key={it.insumoId} style={{ padding:"8px 10px", borderRadius:8, background:"#fffaf7", border:"1px solid #f5e8e0" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                      <div style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", lineHeight:1.3 }}>{it.nombre}</div>
+                      <button onClick={()=>removeItem(it.insumoId)} style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:14, fontWeight:700 }}>✕</button>
                     </div>
-                    <div style={{ fontSize:13, fontWeight:700, color:"#e65100", minWidth:70, textAlign:"right" }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</div>
-                    <button onClick={()=>removeItem(it.insumoId)} style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:14, fontWeight:700 }}>✕</button>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      {/* Cantidad */}
+                      <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                        <button onClick={()=>updateCantidad(it.insumoId,it.cantidad-1)} style={{ background:"#ffebee", border:"none", color:"#c62828", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>−</button>
+                        <input type="number" value={it.cantidad} onChange={e=>updateCantidad(it.insumoId,e.target.value)}
+                          style={{ width:38, textAlign:"center", border:"1.5px solid #f0d5c0", borderRadius:5, fontSize:12, fontWeight:700, padding:"2px 3px", fontFamily:"'DM Sans',sans-serif" }}/>
+                        <button onClick={()=>updateCantidad(it.insumoId,it.cantidad+1)} style={{ background:"#e8f5e9", border:"none", color:"#2e7d32", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>+</button>
+                      </div>
+                      {/* Precio unitario editable */}
+                      <div style={{ display:"flex", alignItems:"center", gap:4, flex:1 }}>
+                        <span style={{ fontSize:11, color:"#a09080", whiteSpace:"nowrap" }}>$ p/u</span>
+                        <input type="number" value={it.precio} onChange={e=>updatePrecio(it.insumoId,e.target.value)}
+                          style={{ width:"100%", textAlign:"right", border:"1.5px solid #e65100", borderRadius:5, fontSize:12, fontWeight:700, padding:"3px 6px", fontFamily:"'DM Sans',sans-serif", color:"#e65100", background:"#fff8f5", outline:"none" }}/>
+                      </div>
+                      {/* Total item */}
+                      <div style={{ fontSize:13, fontWeight:800, color:"#e65100", minWidth:65, textAlign:"right" }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3588,25 +3590,39 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
               ))}
             </div>
 
-            {/* Gráfico barras últimos 7 días */}
+            {/* Resumen por día — últimos 7 días */}
             <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
-              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:16 }}>📊 Últimos 7 días</div>
-              <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:120 }}>
-                {ultimos7.map((d,i)=>(
-                  <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-                    <div style={{ width:"100%", display:"flex", gap:2, alignItems:"flex-end", height:100 }}>
-                      <div title={`Ventas: $${d.total.toLocaleString("es-AR")}`}
-                        style={{ flex:1, background:"#e65100", borderRadius:"4px 4px 0 0", height:`${Math.round((d.total/maxBar)*100)}%`, minHeight:d.total>0?4:0, transition:"height .3s" }}/>
-                      <div title={`Gastos: $${d.gasto.toLocaleString("es-AR")}`}
-                        style={{ flex:1, background:"#ffccbc", borderRadius:"4px 4px 0 0", height:`${Math.round((d.gasto/maxBar)*100)}%`, minHeight:d.gasto>0?4:0, transition:"height .3s" }}/>
+              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:4 }}>📅 Resumen por día</div>
+              <div style={{ fontSize:12, color:"#a09080", marginBottom:14 }}>Últimos 7 días — se reinicia cada día automáticamente</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+                {ultimos7.slice().reverse().map((d,i)=>{
+                  const esHoy = d.fecha === hoy;
+                  const ef  = ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago==="Efectivo").reduce((s,v)=>s+parseFloat(v.total||0),0);
+                  const tr  = ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago==="Transferencia").reduce((s,v)=>s+parseFloat(v.total||0),0);
+                  const tj  = ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago==="Tarjeta de Crédito").reduce((s,v)=>s+parseFloat(v.total||0),0);
+                  const cc  = ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago==="Cuenta Corriente").reduce((s,v)=>s+parseFloat(v.total||0),0);
+                  return (
+                    <div key={d.fecha} style={{ borderBottom:i<6?"1px solid #fef0e8":"none", padding:"10px 0" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: d.total>0?6:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          {esHoy && <span style={{ background:"#e65100", color:"#fff", padding:"1px 7px", borderRadius:20, fontSize:10, fontWeight:700 }}>HOY</span>}
+                          <span style={{ fontSize:13, fontWeight:esHoy?700:500, color:esHoy?"#1a2340":"#4a5568" }}>{d.dia}</span>
+                        </div>
+                        <span style={{ fontWeight:700, fontSize:14, color:d.total>0?"#e65100":"#a09080" }}>
+                          {d.total>0?`$${d.total.toLocaleString("es-AR")}`:"—"}
+                        </span>
+                      </div>
+                      {d.total>0 && (
+                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                          {ef>0 && <span style={{ background:"#e8f5e9", color:"#2e7d32", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>💵 ${ef.toLocaleString("es-AR")}</span>}
+                          {tr>0 && <span style={{ background:"#e3f2fd", color:"#1565c0", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>📲 ${tr.toLocaleString("es-AR")}</span>}
+                          {tj>0 && <span style={{ background:"#f3e5f5", color:"#6a1b9a", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>💳 ${tj.toLocaleString("es-AR")}</span>}
+                          {cc>0 && <span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>📒 ${cc.toLocaleString("es-AR")}</span>}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize:9, color:"#a09080", textAlign:"center", lineHeight:1.2 }}>{d.dia}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display:"flex", gap:16, marginTop:10, justifyContent:"center" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:"#a09080" }}><span style={{ width:10, height:10, background:"#e65100", borderRadius:2, display:"inline-block" }}></span>Ventas</div>
-                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:"#a09080" }}><span style={{ width:10, height:10, background:"#ffccbc", borderRadius:2, display:"inline-block" }}></span>Gastos</div>
+                  );
+                })}
               </div>
             </div>
           </div>
