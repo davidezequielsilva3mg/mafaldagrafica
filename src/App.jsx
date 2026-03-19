@@ -2888,10 +2888,11 @@ function InsumosView({ setView, showToast }) {
   const [importModal, setImportModal] = useState(false);
   const [importData, setImportData]   = useState([]);
   const [importing, setImporting]     = useState(false);
-  const [modoImport, setModoImport]   = useState("reemplazar"); // reemplazar | agregar
+  const [modoImport, setModoImport]   = useState("reemplazar");
   const [loadingInsumos, setLoadingInsumos] = useState(true);
   const [editingId, setEditingId]     = useState(null);
   const [editModal, setEditModal]     = useState(null);
+  const [tabActiva, setTabActiva]     = useState("productos"); // productos | materias
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "insumos"), snap => {
@@ -3012,12 +3013,32 @@ function InsumosView({ setView, showToast }) {
 
   return (
     <div>
-      {/* Header */}
+      {/* Tabs */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+        <button onClick={()=>setTabActiva("productos")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="productos"?"#e65100":"#fff", color:tabActiva==="productos"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="productos"?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          🏷️ Servicios y Productos
+          <span style={{ marginLeft:6, background:tabActiva==="productos"?"rgba(255,255,255,.25)":"#f0f3f9", color:tabActiva==="productos"?"#fff":"#a09080", borderRadius:20, padding:"1px 7px", fontSize:12, fontWeight:700 }}>{insumos.length}</span>
+        </button>
+        <button onClick={()=>setTabActiva("materias")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="materias"?"#1a2340":"#fff", color:tabActiva==="materias"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="materias"?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          🧪 Materias Primas
+        </button>
+      </div>
+
+      {/* ── TAB MATERIAS PRIMAS ── */}
+      {tabActiva==="materias" && <MateriasPrimasView showToast={showToast}/>}
+
+      {/* ── TAB PRODUCTOS ── */}
+      {tabActiva==="productos" && (<div>
+
+      {/* Header productos */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
-        <div>
-          <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>📦 Insumos</h2>
-          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{insumos.length} insumos · {filtrados.length} mostrados</p>
-        </div>
+        <p style={{ fontSize:14, color:"#a09080" }}>{insumos.length} productos · {filtrados.length} mostrados</p>
         <div style={{ display:"flex", gap:10 }}>
           <button onClick={async () => {
             if (!window.confirm(`⚠️ ¿Seguro que querés borrar los ${insumos.length} insumos? Esta acción no se puede deshacer.`)) return;
@@ -3033,7 +3054,7 @@ function InsumosView({ setView, showToast }) {
           </label>
           <button onClick={() => setView("nuevoInsumo")}
             style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            ➕ Nuevo Insumo
+            ➕ Nuevo Producto
           </button>
         </div>
       </div>
@@ -3208,6 +3229,203 @@ function InsumosView({ setView, showToast }) {
           </div>
         </div>
       )}
+    </div>{/* end productos tab */}
+    </div>
+  );
+}
+
+// ── Componente: Materias Primas ───────────────────────────────────────────
+function MateriasPrimasView({ showToast }) {
+  const [materias, setMaterias]       = useState([]);
+  const [proveedores, setProveedores] = useState([]);
+  const [busq, setBusq]               = useState("");
+  const [modal, setModal]             = useState(null); // null | {} | item
+  const [filtroProv, setFiltroProv]   = useState("todos");
+
+  useEffect(() => {
+    const u1 = onSnapshot(collection(db,"materiasPrimas"), snap =>
+      setMaterias(snap.docs.map(d=>({...d.data(),fireId:d.id})).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")))
+    );
+    const u2 = onSnapshot(collection(db,"proveedores"), snap =>
+      setProveedores(snap.docs.map(d=>({...d.data(),fireId:d.id})))
+    );
+    return () => { u1(); u2(); };
+  }, []);
+
+  const filtradas = materias.filter(m => {
+    const palabras = busq.toLowerCase().split(/\s+/).filter(Boolean);
+    const texto = `${m.nombre||""} ${m.descripcion||""} ${m.categoria||""}`.toLowerCase();
+    const matchBusq = !busq || palabras.every(p=>texto.includes(p));
+    const matchProv = filtroProv==="todos" || m.proveedorId===filtroProv;
+    return matchBusq && matchProv;
+  });
+
+  const eliminar = async (m) => {
+    if (!window.confirm(`¿Eliminar "${m.nombre}"?`)) return;
+    await deleteDoc(doc(db,"materiasPrimas",m.fireId));
+    showToast("Materia prima eliminada","error");
+  };
+
+  const UNIDADES = ["unidad","kg","g","m","m²","cm","rollo","litro","ml","resma","caja","paq."];
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+        <p style={{ fontSize:14, color:"#a09080" }}>{materias.length} materia{materias.length!==1?"s":""} prima{materias.length!==1?"s":""}</p>
+        <button onClick={()=>setModal({})}
+          style={{ background:"#1a2340", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          ➕ Nueva Materia Prima
+        </button>
+      </div>
+
+      {/* Filtros */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        <div style={{ position:"relative", flex:"1 1 200px" }}>
+          <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
+          <input placeholder="Buscar materia prima..." value={busq} onChange={e=>setBusq(e.target.value)}
+            style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+        </div>
+        <select value={filtroProv} onChange={e=>setFiltroProv(e.target.value)}
+          style={{ padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer" }}>
+          <option value="todos">Todos los proveedores</option>
+          {proveedores.map(p=><option key={p.fireId} value={p.fireId}>{p.empresa||p.titular}</option>)}
+        </select>
+      </div>
+
+      {filtradas.length===0 ? (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+          <div style={{ fontSize:40, marginBottom:14 }}>🧪</div>
+          <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>{materias.length===0?"Sin materias primas cargadas":"Sin resultados"}</div>
+          <div style={{ color:"#a09080", fontSize:14 }}>Cargá tus materias primas para usarlas en las calculadoras</div>
+        </div>
+      ) : (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+            <thead><tr style={{ background:"#f0f3f9" }}>
+              {["Nombre","Descripción","Unidad","Precio costo","Proveedor","Stock",""].map(h=>(
+                <th key={h} style={{ padding:"11px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#4a5568", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"2px solid #e8eaf0" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {filtradas.map(m=>{
+                const prov = proveedores.find(p=>p.fireId===m.proveedorId);
+                return (
+                  <tr key={m.fireId} style={{ borderBottom:"1px solid #f0f3f9" }}
+                    onMouseOver={e=>e.currentTarget.style.background="#fafbff"}
+                    onMouseOut={e=>e.currentTarget.style.background="#fff"}>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1a2340" }}>{m.nombre}</td>
+                    <td style={{ padding:"12px 14px", color:"#4a5568", maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.descripcion||"—"}</td>
+                    <td style={{ padding:"12px 14px" }}>
+                      <span style={{ background:"#e8eaf6", color:"#3949ab", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{m.unidad||"unidad"}</span>
+                    </td>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1a2340" }}>${parseFloat(m.precioCosto||0).toLocaleString("es-AR")}</td>
+                    <td style={{ padding:"12px 14px" }}>
+                      {prov
+                        ? <span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{prov.empresa||prov.titular}</span>
+                        : <span style={{ color:"#a09080", fontSize:12 }}>Sin asignar</span>}
+                    </td>
+                    <td style={{ padding:"12px 14px", fontWeight:600, color: parseFloat(m.stock||0)<=0?"#c62828":"#2e7d32" }}>
+                      {parseFloat(m.stock||0)} {m.unidad||""}
+                    </td>
+                    <td style={{ padding:"12px 12px" }}>
+                      <div style={{ display:"flex", gap:6 }}>
+                        <button onClick={()=>setModal(m)}
+                          style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>✏️</button>
+                        <button onClick={()=>eliminar(m)}
+                          style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Modal nueva/editar materia prima */}
+      {modal && (
+        <ModalMateriaPrima
+          materia={modal.fireId ? modal : null}
+          proveedores={proveedores}
+          unidades={UNIDADES}
+          onClose={()=>setModal(null)}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+function ModalMateriaPrima({ materia, proveedores, unidades, onClose, showToast }) {
+  const [form, setForm] = useState(materia || { nombre:"", descripcion:"", precioCosto:"", unidad:"unidad", proveedorId:"", stock:"", categoria:"" });
+  const [saving, setSaving] = useState(false);
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  const handleSave = async () => {
+    if (!form.nombre.trim()) { showToast("El nombre es obligatorio","error"); return; }
+    setSaving(true);
+    const data = { ...form, precioCosto: parseFloat(form.precioCosto)||0, stock: parseFloat(form.stock)||0 };
+    if (materia?.fireId) {
+      await updateDoc(doc(db,"materiasPrimas",materia.fireId), data);
+      showToast("Materia prima actualizada ✅");
+    } else {
+      await addDoc(collection(db,"materiasPrimas"), data);
+      showToast("Materia prima creada ✅");
+    }
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:520, boxShadow:"0 20px 60px rgba(0,0,0,.2)", maxHeight:"90vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>
+          {materia?"✏️ Editar Materia Prima":"🧪 Nueva Materia Prima"}
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+          <div style={{ gridColumn:"1/-1" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nombre *</label>
+            <input value={form.nombre} onChange={e=>setForm(f=>({...f,nombre:e.target.value}))} placeholder="Ej: Vinilo Arlon base blanca" style={inp}/>
+          </div>
+          <div style={{ gridColumn:"1/-1" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Descripción</label>
+            <input value={form.descripcion||""} onChange={e=>setForm(f=>({...f,descripcion:e.target.value}))} placeholder="Ej: Rollo 1.52m × 50m" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio de costo ($)</label>
+            <input type="number" value={form.precioCosto} onChange={e=>setForm(f=>({...f,precioCosto:e.target.value}))} placeholder="0" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Unidad de medida</label>
+            <select value={form.unidad} onChange={e=>setForm(f=>({...f,unidad:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+              {unidades.map(u=><option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Stock disponible</label>
+            <input type="number" value={form.stock} onChange={e=>setForm(f=>({...f,stock:e.target.value}))} placeholder="0" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Categoría</label>
+            <input value={form.categoria||""} onChange={e=>setForm(f=>({...f,categoria:e.target.value}))} placeholder="Vinilo, Papel, Tinta..." style={inp}/>
+          </div>
+          <div style={{ gridColumn:"1/-1" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Proveedor</label>
+            <select value={form.proveedorId||""} onChange={e=>setForm(f=>({...f,proveedorId:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+              <option value="">Sin asignar</option>
+              {proveedores.map(p=><option key={p.fireId} value={p.fireId}>{p.empresa||p.titular}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:22 }}>
+          <button onClick={onClose} style={{ padding:"9px 18px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding:"9px 24px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            {saving?"Guardando...":"✅ Guardar"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -4858,8 +5076,8 @@ export default function App() {
               <span className="sidebar-label">Clientes</span>
             </button>
             <button className={`sidebar-item ${(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo")?"act":""}` + ""} onClick={()=>{ setView("insumos"); }}>
-              <span className="sidebar-icon">📦</span>
-              <span className="sidebar-label">Insumos</span>
+              <span className="sidebar-icon">🏷️</span>
+              <span className="sidebar-label">Servicios y Productos</span>
             </button>
             <button className={`sidebar-item ${(view==="ventas"||view==="nuevaVenta")?"act":""}` + ""} onClick={()=>{ setView("ventas"); }}>
               <span className="sidebar-icon">💰</span>
@@ -4932,9 +5150,9 @@ export default function App() {
           view==="clientes" ? "👥 Clientes" :
           view==="nuevoCliente" ? "👥 Clientes" :
           view==="editarCliente" ? "👥 Clientes" :
-          view==="insumos" ? "📦 Insumos" :
-          view==="nuevoInsumo" ? "📦 Insumos" :
-          view==="editarInsumo" ? "📦 Insumos" :
+          view==="insumos" ? "🏷️ Servicios y Productos" :
+          view==="nuevoInsumo" ? "🏷️ Servicios y Productos" :
+          view==="editarInsumo" ? "🏷️ Servicios y Productos" :
           view==="ventas" ? "💰 Ventas" :
           view==="nuevaVenta" ? "💰 Ventas" :
           view==="agenda" ? "📅 Agenda" :
@@ -4957,7 +5175,7 @@ export default function App() {
               <button className="ctx-btn" onClick={()=>setView("nuevoCliente")}>➕ Nuevo Cliente</button>
             )}
             {(view==="insumos"||view==="nuevoInsumo") && (
-              <button className="ctx-btn" onClick={()=>setView("nuevoInsumo")}>➕ Nuevo Insumo</button>
+              <button className="ctx-btn" onClick={()=>setView("nuevoInsumo")}>➕ Nuevo Producto</button>
             )}
             {(view==="ventas"||view==="nuevaVenta") && (
               <button className="ctx-btn" onClick={()=>setView("nuevaVenta")}>➕ Nueva Venta</button>
