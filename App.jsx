@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   collection, onSnapshot, addDoc, updateDoc,
-  deleteDoc, doc, setDoc, getDoc
+  deleteDoc, doc, setDoc, getDoc, getDocs
 } from "firebase/firestore";
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
@@ -76,21 +76,21 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
 <meta charset="UTF-8"/>
 <title>Orden ${num} — ${nombre}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');
-  *{box-sizing:border-box;margin:0;padding:0}
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
   body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340}
   .page{width:210mm;min-height:148mm;margin:0 auto;padding:20mm 20mm 16mm}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:13px;border-bottom:3px solid #e65100;margin-bottom:16px}
   .hdr-left{display:flex;align-items:center;gap:14px}
   .logo-img{width:60px;height:60px;object-fit:contain;border-radius:8px}
-  .brand{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#e65100}
+  .brand{font-family:'DM Sans',sans-serif;font-size:24px;font-weight:800;color:#e65100}
   .brand-data{font-size:11px;color:#8a7060;margin-top:3px;line-height:1.6}
-  .onum{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#e65100;text-align:right}
+  .onum{font-family:'DM Sans',sans-serif;font-size:20px;font-weight:800;color:#e65100;text-align:right}
   .ofecha{font-size:11px;color:#a09080;text-align:right;margin-top:3px}
   .banner{background:#fff3e0;color:#bf360c;text-align:center;padding:7px 0;border-radius:6px;font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:16px}
   .ped{background:#fff8f5;border-radius:8px;padding:12px 15px;margin-bottom:14px}
   .ped-lbl{font-size:10px;font-weight:600;color:#a09080;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
-  .ped-nom{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:#1a2340}
+  .ped-nom{font-family:'DM Sans',sans-serif;font-size:18px;font-weight:700;color:#1a2340}
   .ped-cat{display:inline-block;margin-top:5px;font-size:12px;font-weight:600;color:#e65100;background:#dde6ff;padding:3px 10px;border-radius:20px}
   .igrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:13px}
   .ibox{background:#fffaf7;border-radius:7px;padding:9px 12px;border-left:3px solid #e65100}
@@ -102,7 +102,7 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
   .fgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:16px}
   .fbox{text-align:center;background:#fffaf7;border-radius:7px;padding:9px 7px}
   .flbl{font-size:10px;font-weight:600;color:#a09080;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
-  .fval{font-family:'Playfair Display',serif;font-size:17px;font-weight:700}
+  .fval{font-family:'DM Sans',sans-serif;font-size:17px;font-weight:700}
   .foot{border-top:1.5px solid #edf0f7;padding-top:11px;display:flex;justify-content:space-between;align-items:flex-end}
   .firma{text-align:center}
   .flin{width:160px;border-bottom:1.5px solid #8a93a8;margin-bottom:4px;height:26px}
@@ -330,7 +330,7 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => moverFecha(-1)} style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>‹</button>
-          <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:220, textAlign:"center", textTransform:"capitalize" }}>{tituloNavegacion()}</span>
+          <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:220, textAlign:"center", textTransform:"capitalize" }}>{tituloNavegacion()}</span>
           <button onClick={() => moverFecha(1)}  style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>›</button>
           <button onClick={() => setFechaBase(new Date())} style={{ padding:"7px 14px", borderRadius:8, fontSize:12, fontWeight:600, border:"1.5px solid #e65100", color:"#e65100", background:"#fff", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>Hoy</button>
         </div>
@@ -355,7 +355,7 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
           return (
             <div style={{ padding:"24px 28px" }}>
               <div style={{ marginBottom:16, display:"flex", alignItems:"center", gap:10 }}>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:esHoy?"#e65100":"#1a2340" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:esHoy?"#e65100":"#1a2340" }}>
                   {diasAMostrar[0].toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"})}
                 </div>
                 {esHoy && <span style={{ background:"#e65100", color:"#fff", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700 }}>Hoy</span>}
@@ -440,144 +440,1102 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
 
 
 function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp }) {
-  const [busqL, setBusqL] = useState("");
+  const [busqL, setBusqL]       = useState("");
+  const [busqH, setBusqH]       = useState("");
+  const [tabActiva, setTabActiva] = useState("listos");
+
   const listos = pedidos
     .filter(p => p.estado === "Listo")
     .sort((a,b) => (!a.fechaEntrega?1:!b.fechaEntrega?-1:a.fechaEntrega.localeCompare(b.fechaEntrega)));
+
   const filtrados = listos.filter(p => {
     const q = busqL.toLowerCase();
     return !busqL || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q);
   });
+
   const totalCobrar = listos.reduce((s,p) => s + saldo(p), 0);
-  const entregados  = pedidos.filter(p=>p.estado==="Entregado").sort((a,b)=>b.fechaEntrega?.localeCompare(a.fechaEntrega||"")||0);
+
+  const entregados = pedidos
+    .filter(p => p.estado === "Entregado")
+    .sort((a,b) => b.fechaEntrega?.localeCompare(a.fechaEntrega||"")||0);
+
+  const entregadosFiltrados = entregados.filter(p => {
+    const q = busqH.toLowerCase();
+    return !busqH || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q) || p.telefono?.includes(busqH);
+  });
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+      {/* Tabs */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+        <button onClick={()=>setTabActiva("listos")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="listos"?"#e65100":"#fff", color:tabActiva==="listos"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="listos"?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          ✅ Listos para entregar
+          {listos.length > 0 && <span style={{ marginLeft:7, background:tabActiva==="listos"?"rgba(255,255,255,.3)":"#fff3e0", color:tabActiva==="listos"?"#fff":"#e65100", borderRadius:20, padding:"0 7px", fontSize:12, fontWeight:700 }}>{listos.length}</span>}
+        </button>
+        <button onClick={()=>setTabActiva("historial")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="historial"?"#1a2340":"#fff", color:tabActiva==="historial"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="historial"?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          📦 Historial de Entregados
+          {entregados.length > 0 && <span style={{ marginLeft:7, background:tabActiva==="historial"?"rgba(255,255,255,.2)":"#f0f3f9", color:tabActiva==="historial"?"#fff":"#4a5568", borderRadius:20, padding:"0 7px", fontSize:12, fontWeight:700 }}>{entregados.length}</span>}
+        </button>
+      </div>
+
+      {/* ── TAB: LISTOS ── */}
+      {tabActiva === "listos" && (
         <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>✅ Pedidos Listos para Entregar</h2>
-          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>Pedidos finalizados que esperan ser retirados o entregados</p>
-        </div>
-        <div style={{ display:"flex", gap:12 }}>
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
-            <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Pedidos listos</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#f57f17" }}>{listos.length}</div>
+          {/* Stats */}
+          <div style={{ display:"flex", gap:12, marginBottom:18, flexWrap:"wrap" }}>
+            <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
+              <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Pedidos listos</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#f57f17" }}>{listos.length}</div>
+            </div>
+            <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
+              <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Por cobrar</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#c62828" }}>${totalCobrar.toLocaleString("es-AR")}</div>
+            </div>
           </div>
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
-            <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Por cobrar</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#c62828" }}>${totalCobrar.toLocaleString("es-AR")}</div>
-          </div>
-        </div>
-      </div>
 
-      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
-        <div style={{ position:"relative" }}>
-          <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
-          <input placeholder="Buscar por pedido o cliente..." value={busqL} onChange={e => setBusqL(e.target.value)}
-            style={{ ...inp(), paddingLeft:34, width:"100%" }}/>
-        </div>
-      </div>
+          {/* Buscador */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
+              <input placeholder="Buscar por pedido o cliente..." value={busqL} onChange={e=>setBusqL(e.target.value)}
+                style={{ ...inp(), paddingLeft:34, width:"100%" }}/>
+            </div>
+          </div>
 
-      {filtrados.length === 0 ? (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
-          <div style={{ fontSize:40, marginBottom:14 }}>🎉</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>
-            {listos.length === 0 ? "No hay pedidos listos aún" : "Sin resultados"}
-          </div>
-          <div style={{ color:"#a09080", fontSize:14 }}>
-            {listos.length === 0 ? "Cuando un pedido pase a 'Listo' aparecerá aquí" : "Probá con otro término"}
-          </div>
-        </div>
-      ) : (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
-            <thead>
-              <tr style={{ background:"#fffaf7" }}>
-                {["Pedido","Categoría","Cliente","Fecha Entrega","Total","Saldo","Acciones"].map(h => (
-                  <th key={h} style={{ padding:"11px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #edf0f7" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtrados.map(p => {
-                const cc = CATEGORIA_COLOR[p.categoria];
-                const hf = isHoy(p);
-                return (
-                  <tr key={p.id} style={{ borderBottom:"1px solid #f2f4f9", background:hf?"#fffdf0":"#fff" }}>
-                    <td style={{ padding:"13px 16px" }}>
-                      <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nombre}</div>
-                      {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
-                    </td>
-                    <td style={{ padding:"13px 16px" }}>
-                      <span style={{ background:cc.bg, color:cc.text, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
-                    </td>
-                    <td style={{ padding:"13px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>
-                      <div style={{ fontWeight:600 }}>{p.cliente}</div>
-                      {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100", marginTop:2, display:"flex", alignItems:"center", gap:3 }}>📞 {p.telefono}</div>}
-                    </td>
-                    <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
-                      <span style={{ fontWeight:600, color:hf?"#f57f17":"#1a2340" }}>{hf&&"📍 "}{p.fechaEntrega||"—"}</span>
-                      {hf && <div style={{ fontSize:11, color:"#f57f17" }}>Hoy</div>}
-                    </td>
-                    <td style={{ padding:"13px 16px", fontWeight:600, color:"#1a2340", whiteSpace:"nowrap" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
-                    <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
-                      <span style={{ fontWeight:700, color:saldo(p)>0?"#c62828":"#2e7d32", fontSize:14 }}>{p.precio?`$${saldo(p).toLocaleString("es-AR")}`:"—"}</span>
-                    </td>
-                    <td style={{ padding:"13px 16px" }}>
-                      <div style={{ display:"flex", gap:6 }}>
-                        <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setMsgModal({ pedido: p })}>💬</button>
-                        <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }} onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
-                        <button style={{ background:"#ef5350", color:"#fff", border:"none", padding:"7px 12px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }} onClick={() => handleDelete(p.id)}>🗑</button>
-                      </div>
-                    </td>
+          {filtrados.length === 0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+              <div style={{ fontSize:40, marginBottom:14 }}>🎉</div>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>
+                {listos.length === 0 ? "No hay pedidos listos aún" : "Sin resultados"}
+              </div>
+              <div style={{ color:"#a09080", fontSize:14 }}>
+                {listos.length === 0 ? "Cuando un pedido pase a 'Listo' aparecerá aquí" : "Probá con otro término"}
+              </div>
+            </div>
+          ) : (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+                <thead>
+                  <tr style={{ background:"#fffaf7" }}>
+                    {["Pedido","Categoría","Cliente","Fecha Entrega","Total","Saldo","Acciones"].map(h=>(
+                      <th key={h} style={{ padding:"11px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #f5e8e0" }}>{h}</th>
+                    ))}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {filtrados.map(p => {
+                    const cc = CATEGORIA_COLOR[p.categoria];
+                    const hf = isHoy(p);
+                    return (
+                      <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid #fef0e8", background:hf?"#fffdf0":"#fff" }}>
+                        <td style={{ padding:"13px 16px" }}>
+                          <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nombre}</div>
+                          {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
+                        </td>
+                        <td style={{ padding:"13px 16px" }}>
+                          <span style={{ background:cc.bg, color:cc.text, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
+                        </td>
+                        <td style={{ padding:"13px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>
+                          <div style={{ fontWeight:600 }}>{p.cliente}</div>
+                          {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100", marginTop:2 }}>📞 {p.telefono}</div>}
+                        </td>
+                        <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
+                          <span style={{ fontWeight:600, color:hf?"#f57f17":"#1a2340" }}>{hf&&"📍 "}{p.fechaEntrega||"—"}</span>
+                          {hf && <div style={{ fontSize:11, color:"#f57f17" }}>Hoy</div>}
+                        </td>
+                        <td style={{ padding:"13px 16px", fontWeight:600, color:"#1a2340", whiteSpace:"nowrap" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
+                        <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
+                          <span style={{ fontWeight:700, color:saldo(p)>0?"#c62828":"#2e7d32", fontSize:14 }}>{p.precio?`$${saldo(p).toLocaleString("es-AR")}`:"—"}</span>
+                        </td>
+                        <td style={{ padding:"13px 16px" }}>
+                          <div style={{ display:"flex", gap:6 }}>
+                            <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setMsgModal({ pedido: p })}>💬</button>
+                            <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }} onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
+                            <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 12px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }} onClick={() => handleDelete(p.id)}>🗑</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
-      {entregados.length > 0 && (
-        <div style={{ marginTop:32 }}>
-          <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#4a5568", marginBottom:14 }}>
-            📦 Historial de Entregados ({entregados.length})
-          </h3>
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
-            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
-              <thead>
-                <tr style={{ background:"#fffaf7" }}>
-                  {["Pedido","Categoría","Cliente","Fecha Entrega","Total","Estado"].map(h => (
-                    <th key={h} style={{ padding:"10px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #edf0f7" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {entregados.map(p => {
-                  const cc = CATEGORIA_COLOR[p.categoria];
-                  return (
-                    <tr key={p.id} style={{ borderBottom:"1px solid #f2f4f9", opacity:.85 }}>
-                      <td style={{ padding:"11px 16px", fontWeight:600, color:"#4a5568" }}>{p.nombre}</td>
-                      <td style={{ padding:"11px 16px" }}>
-                        <span style={{ background:cc.bg, color:cc.text, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:600, whiteSpace:"nowrap" }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
-                      </td>
-                      <td style={{ padding:"11px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>{p.cliente}</td>
-                      <td style={{ padding:"11px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>{p.fechaEntrega||"—"}</td>
-                      <td style={{ padding:"11px 16px", fontWeight:600, color:"#4a5568", whiteSpace:"nowrap" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
-                      <td style={{ padding:"11px 16px" }}>
-                        <span style={{ background:"#e8f5e9", color:"#1b5e20", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>✅ Entregado</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {/* ── TAB: HISTORIAL ── */}
+      {tabActiva === "historial" && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+            <p style={{ fontSize:14, color:"#a09080" }}>{entregados.length} pedido{entregados.length!==1?"s":""} entregado{entregados.length!==1?"s":""}</p>
           </div>
+
+          {/* Buscador propio */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
+              <input placeholder="Buscar en historial..." value={busqH} onChange={e=>setBusqH(e.target.value)}
+                style={{ ...inp(), paddingLeft:34, width:"100%" }}/>
+            </div>
+          </div>
+
+          {entregadosFiltrados.length === 0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+              <div style={{ fontSize:40, marginBottom:14 }}>📦</div>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>
+                {entregados.length === 0 ? "Sin pedidos entregados aún" : "Sin resultados"}
+              </div>
+            </div>
+          ) : (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+                <thead>
+                  <tr style={{ background:"#fffaf7" }}>
+                    {["Pedido","Categoría","Cliente","Teléfono","Fecha Entrega","Total",""].map(h=>(
+                      <th key={h} style={{ padding:"10px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #f5e8e0" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {entregadosFiltrados.map(p => {
+                    const cc = CATEGORIA_COLOR[p.categoria] || {bg:"#f5f5f5",text:"#424242"};
+                    return (
+                      <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid #fef0e8", opacity:.9 }}>
+                        <td style={{ padding:"11px 16px", fontWeight:600, color:"#4a5568" }}>{p.nombre}</td>
+                        <td style={{ padding:"11px 16px" }}>
+                          <span style={{ background:cc.bg, color:cc.text, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:600 }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
+                        </td>
+                        <td style={{ padding:"11px 16px", fontWeight:600, color:"#1a2340" }}>{p.cliente}</td>
+                        <td style={{ padding:"11px 16px", fontWeight:700, color:"#e65100", fontSize:12 }}>{p.telefono?`📞 ${p.telefono}`:"—"}</td>
+                        <td style={{ padding:"11px 16px", color:"#4a5568" }}>{p.fechaEntrega||"—"}</td>
+                        <td style={{ padding:"11px 16px", fontWeight:700, color:"#1a2340" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
+                        <td style={{ padding:"11px 16px" }}>
+                          <span style={{ background:"#e8f5e9", color:"#1b5e20", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>✅ Entregado</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
+
+// ── Calculadora de Costos ────────────────────────────────────────────────
+
+// Categorías fijas que la app reconoce en Materias Primas
+const CAT_KEYS = {
+  VINILO_IMP:   "vinilo_imprimible",
+  TINTA:        "tinta_plotter",
+  LONA_FRONT:   "lona_frontlight",
+  LONA_BACK:    "lona_backlight",
+  VINILO_TRANS: "vinilo_transparente",
+  VINILO_CORTE: "vinilo_corte",
+  CINTA:        "cinta_posicionadora",
+  CORRUGADO:    "plastico_corrugado",
+  BICAPA:       "plastico_bicapa",
+  POLIFAN:      "polifan",
+  PLA:          "filamento_pla",
+};
+
+// Costos fijos por defecto
+const FIJOS_DEFAULT = {
+  impresion:  500,   // $/m² máquina + energía
+  colocacion: 8387,  // $/m²
+  masillado:  3000,  // $/m²
+  pintado:    2500,  // $/m²
+  disenio:    5000,  // $ fijo
+  operario:   381,   // $/min
+};
+
+// ── Hook: Materias primas con cálculo automático ─────────────────────────
+function useMateriasPrimas() {
+  const [materias, setMaterias] = useState([]);
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db,"materiasPrimas"), snap =>
+      setMaterias(snap.docs.map(d=>({...d.data(),fireId:d.id})))
+    );
+    return () => unsub();
+  }, []);
+
+  // Calcular $/m² o $/g según categoría
+  const getPrecioM2 = (catKey) => {
+    const m = materias.find(x => x.categoriaKey === catKey);
+    if (!m) return null;
+    const precio = parseFloat(m.precioCosto||0);
+    const rinde  = parseFloat(m.rendimiento||0);
+    if (rinde > 0) return { precio: precio / rinde, materia: m };
+    return { precio, materia: m };
+  };
+
+  return { materias, getPrecioM2 };
+}
+
+// ── Hook: Costos fijos (Firebase) ────────────────────────────────────────
+function useCostosFijos() {
+  const [fijos, setFijos] = useState(FIJOS_DEFAULT);
+  useEffect(() => {
+    getDoc(doc(db,"config","costosFijos")).then(snap => {
+      if (snap.exists()) setFijos({...FIJOS_DEFAULT,...snap.data()});
+    }).catch(()=>{});
+  }, []);
+  const guardar = async (nuevos) => {
+    await setDoc(doc(db,"config","costosFijos"), nuevos);
+    setFijos(nuevos);
+  };
+  return { fijos, guardar };
+}
+
+// ── Componente: Precio desde materia prima ───────────────────────────────
+function PrecioMP({ catKey, label, valor, setValor, getPrecioM2 }) {
+  const mp = getPrecioM2(catKey);
+  return (
+    <div style={{ background:"#fff", borderRadius:10, padding:"12px 14px", border:"1.5px solid #f0d5c0" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+        <span style={{ fontSize:13, fontWeight:600, color:"#1a2340" }}>{label}</span>
+        {mp && (
+          <button onClick={()=>setValor(Math.round(mp.precio))}
+            style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100",
+              padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, cursor:"pointer" }}>
+            📌 ${Math.round(mp.precio).toLocaleString("es-AR")}/m² ({mp.materia.nombre})
+          </button>
+        )}
+        {!mp && (
+          <span style={{ fontSize:10, color:"#ffb74d", fontWeight:600 }}>
+            ⚠️ Sin materia prima vinculada
+          </span>
+        )}
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+        <span style={{ fontSize:12, color:"#a09080" }}>$</span>
+        <input type="number" value={valor||""} onChange={e=>setValor(parseFloat(e.target.value)||0)}
+          placeholder="0"
+          style={{ flex:1, padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0",
+            fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
+        <span style={{ fontSize:11, color:"#a09080" }}>/m²</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Componente: Panel resultado ──────────────────────────────────────────
+function ResultPanel({ items, ganancia, setGanancia, listo, onGuardar, titulo }) {
+  const total  = items.reduce((s,i)=>s+(i.activo!==false?i.valor:0),0);
+  const precio = Math.round(total * ganancia);
+  const fmt    = n => Math.round(n).toLocaleString("es-AR");
+
+  return (
+    <div style={{ position:"sticky", top:20, display:"flex", flexDirection:"column", gap:12 }}>
+      {/* Ganancia */}
+      <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 16px" }}>
+        <div style={{ fontSize:12, fontWeight:700, color:"#4a5568", marginBottom:10 }}>GANANCIA</div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {[1.5,2,2.5,3,3.5,4].map(g=>(
+            <button key={g} onClick={()=>setGanancia(g)}
+              style={{ padding:"6px 12px", borderRadius:20, fontSize:13, fontWeight:700,
+                cursor:"pointer", border:"none",
+                background:ganancia===g?"#e65100":"#fff8f5",
+                color:ganancia===g?"#fff":"#e65100" }}>
+              ×{g}
+            </button>
+          ))}
+          <input type="number" step="0.1" min="1" value={ganancia}
+            onChange={e=>setGanancia(parseFloat(e.target.value)||1)}
+            style={{ width:52, padding:"5px 6px", borderRadius:8, border:"1.5px solid #f0d5c0",
+              fontSize:12, outline:"none", textAlign:"center" }}/>
+        </div>
+      </div>
+
+      {/* Resultado */}
+      <div style={{ background:listo?"linear-gradient(135deg,#bf360c,#e65100)":"#f5f7fd",
+        borderRadius:14, padding:"20px 18px", boxShadow:"0 4px 20px rgba(230,81,0,.15)" }}>
+        {!listo ? (
+          <div style={{ textAlign:"center", color:"#a09080", padding:"16px 0" }}>
+            <div style={{ fontSize:30, marginBottom:6 }}>🧮</div>
+            <div style={{ fontSize:13 }}>Completá las medidas</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,.6)",
+              textTransform:"uppercase", letterSpacing:".8px", marginBottom:12 }}>
+              DESGLOSE DE COSTOS
+            </div>
+            {items.filter(i=>i.activo!==false&&i.valor>0).map((it,i)=>(
+              <div key={i} style={{ display:"flex", justifyContent:"space-between",
+                fontSize:12, marginBottom:6 }}>
+                <span style={{ color:"rgba(255,255,255,.8)" }}>{it.label}</span>
+                <span style={{ fontWeight:600, color:"#fff" }}>${fmt(it.valor)}</span>
+              </div>
+            ))}
+            <div style={{ borderTop:"1px solid rgba(255,255,255,.25)", marginTop:10, paddingTop:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                <span style={{ color:"rgba(255,255,255,.7)" }}>Costo total</span>
+                <span style={{ fontWeight:600, color:"#fff" }}>${fmt(total)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:10 }}>
+                <span style={{ color:"rgba(255,255,255,.7)" }}>Ganancia ×{ganancia}</span>
+                <span style={{ fontWeight:600, color:"#fff" }}>${fmt(precio-total)}</span>
+              </div>
+              <div style={{ background:"rgba(255,255,255,.15)", borderRadius:10,
+                padding:"12px", textAlign:"center" }}>
+                <div style={{ fontSize:10, color:"rgba(255,255,255,.6)", fontWeight:700,
+                  textTransform:"uppercase", letterSpacing:".7px", marginBottom:4 }}>
+                  PRECIO DE VENTA
+                </div>
+                <div style={{ fontSize:32, fontWeight:800, color:"#fff" }}>
+                  ${fmt(precio)}
+                </div>
+              </div>
+              <button onClick={()=>onGuardar(titulo, total, precio)}
+                style={{ width:"100%", marginTop:10, padding:"9px",
+                  background:"rgba(255,255,255,.2)", color:"#fff",
+                  border:"1.5px solid rgba(255,255,255,.3)", borderRadius:8,
+                  fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                💾 Guardar en historial
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Medidas con m² ───────────────────────────────────────────────────────
+function Medidas({ alto, setAlto, ancho, setAncho }) {
+  const m2 = (parseFloat(alto)||0) * (parseFloat(ancho)||0);
+  return (
+    <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+      <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:14 }}>📐 Medidas del trabajo</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        {[["Alto (m)", alto, setAlto],["Ancho (m)", ancho, setAncho]].map(([lbl,val,setVal])=>(
+          <div key={lbl}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>{lbl}</label>
+            <input type="number" step="0.01" value={val} onChange={e=>setVal(e.target.value)}
+              placeholder="0.00"
+              style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0",
+                fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+          </div>
+        ))}
+      </div>
+      {m2>0 && (
+        <div style={{ marginTop:10, background:"#fff8f5", borderRadius:8, padding:"8px 14px",
+          display:"flex", justifyContent:"space-between" }}>
+          <span style={{ fontSize:13, color:"#a09080" }}>Superficie:</span>
+          <span style={{ fontWeight:800, color:"#e65100", fontSize:15 }}>{m2.toFixed(3)} m²</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Check opción ─────────────────────────────────────────────────────────
+function Opcion({ activo, toggle, label, detalle, costo }) {
+  return (
+    <div onClick={toggle}
+      style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer",
+        padding:"11px 14px", borderRadius:10,
+        border:`2px solid ${activo?"#e65100":"#f0d5c0"}`,
+        background:activo?"#fff8f5":"#fff", transition:"all .15s" }}>
+      <div style={{ width:20, height:20, borderRadius:5, flexShrink:0, transition:"all .15s",
+        border:`2px solid ${activo?"#e65100":"#f0d5c0"}`,
+        background:activo?"#e65100":"#fff",
+        display:"flex", alignItems:"center", justifyContent:"center" }}>
+        {activo && <span style={{ color:"#fff", fontSize:11, fontWeight:800 }}>✓</span>}
+      </div>
+      <div style={{ flex:1 }}>
+        <div style={{ fontSize:13, fontWeight:600, color:"#1a2340" }}>{label}</div>
+        {detalle && <div style={{ fontSize:11, color:"#a09080", marginTop:1 }}>{detalle}</div>}
+      </div>
+      {activo && costo>0 && (
+        <span style={{ fontSize:12, fontWeight:700, color:"#e65100" }}>
+          ${Math.round(costo).toLocaleString("es-AR")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALCULADORA PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════════════
+function CalculadoraCostos() {
+  const [tab, setTab]           = useState("bases");
+  const [historial, setHistorial] = useState([]);
+  const { materias, getPrecioM2 } = useMateriasPrimas();
+  const { fijos, guardar }      = useCostosFijos();
+
+  const addHistorial = (tipo, costo, precio) => {
+    setHistorial(prev=>[{
+      id:Date.now(), tipo,
+      costo:Math.round(costo), precio:Math.round(precio),
+      fecha:new Date().toLocaleDateString("es-AR")
+    },...prev].slice(0,15));
+  };
+
+  const TABS = [
+    {id:"bases",    label:"🪟 Bases"},
+    {id:"rotulado", label:"🏷️ Rotulados"},
+    {id:"lona",     label:"🚩 Lona"},
+    {id:"polyfan",  label:"🟡 Polyfan"},
+    {id:"3d",       label:"📦 3D"},
+    {id:"config",   label:"⚙️ Costos fijos"},
+  ];
+
+  const props = { getPrecioM2, fijos, onGuardar:addHistorial };
+
+  return (
+    <div>
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:6, marginBottom:20, flexWrap:"wrap" }}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{ padding:"9px 18px", borderRadius:20, fontSize:13, fontWeight:600,
+              cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:tab===t.id?(t.id==="config"?"#1a2340":"#e65100"):"#fff",
+              color:tab===t.id?"#fff":"#4a5568",
+              boxShadow:tab===t.id?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(0,0,0,.06)" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab==="bases"    && <CalcBases    {...props}/>}
+      {tab==="rotulado" && <CalcRotulado {...props}/>}
+      {tab==="lona"     && <CalcLona     {...props}/>}
+      {tab==="polyfan"  && <CalcPolyfan  {...props}/>}
+      {tab==="3d"       && <Calc3D       {...props}/>}
+      {tab==="config"   && <CalcConfigFijos fijos={fijos} onGuardar={guardar} materias={materias} getPrecioM2={getPrecioM2}/>}
+
+      {/* Historial */}
+      {historial.length>0 && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)",
+          padding:"16px 20px", marginTop:20 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div style={{ fontWeight:700, fontSize:14, color:"#1a2340" }}>📋 Historial</div>
+            <button onClick={()=>setHistorial([])}
+              style={{ background:"transparent", border:"none", color:"#a09080", fontSize:12, cursor:"pointer" }}>
+              Limpiar
+            </button>
+          </div>
+          {historial.map(h=>(
+            <div key={h.id} style={{ display:"flex", justifyContent:"space-between",
+              alignItems:"center", padding:"8px 0", borderBottom:"1px solid #fef0e8" }}>
+              <div>
+                <span style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{h.tipo}</span>
+                <span style={{ fontSize:11, color:"#a09080", marginLeft:8 }}>
+                  costo ${h.costo.toLocaleString("es-AR")}
+                </span>
+              </div>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <span style={{ fontWeight:800, fontSize:15, color:"#e65100" }}>
+                  ${h.precio.toLocaleString("es-AR")}
+                </span>
+                <span style={{ fontSize:11, color:"#a09080" }}>{h.fecha}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALC: BASES (placa plástica)
+// ═══════════════════════════════════════════════════════════════════════════
+function CalcBases({ getPrecioM2, fijos, onGuardar }) {
+  const [alto, setAlto]       = useState("");
+  const [ancho, setAncho]     = useState("");
+  const [tipoPlas, setTipoPlas] = useState("corrugado");
+  const [ganancia, setGanancia] = useState(2.5);
+  const [llevaVinilo, setLlevaVinilo] = useState(true);
+  const [llevaTrans, setLlevaTrans]   = useState(false);
+  const [dobleFaz, setDobleFaz]       = useState(false);
+  const [llevaColoc, setLlevaColoc]   = useState(false);
+
+  // Costos desde materias primas — editables
+  const mpCorr = getPrecioM2(CAT_KEYS.CORRUGADO);
+  const mpBicapa = getPrecioM2(CAT_KEYS.BICAPA);
+  const mpVinilo = getPrecioM2(CAT_KEYS.VINILO_IMP);
+  const mpTrans  = getPrecioM2(CAT_KEYS.VINILO_TRANS);
+
+  const [cPlas,   setCPlas]   = useState(0);
+  const [cVinilo, setCVinilo] = useState(0);
+  const [cTrans,  setCTrans]  = useState(0);
+  const [cImp,    setCImp]    = useState(fijos.impresion||500);
+  const [cColoc,  setCColoc]  = useState(fijos.colocacion||8387);
+
+  // Autocargar desde MP cuando cambia la selección
+  useEffect(()=>{
+    if (tipoPlas==="corrugado" && mpCorr) setCPlas(Math.round(mpCorr.precio));
+    if (tipoPlas==="bicapa"    && mpBicapa) setCPlas(Math.round(mpBicapa.precio));
+  },[tipoPlas, mpCorr?.precio, mpBicapa?.precio]);
+  useEffect(()=>{ if(mpVinilo) setCVinilo(Math.round(mpVinilo.precio)); },[mpVinilo?.precio]);
+  useEffect(()=>{ if(mpTrans)  setCTrans(Math.round(mpTrans.precio));  },[mpTrans?.precio]);
+  useEffect(()=>{ setCImp(fijos.impresion||500); },[fijos.impresion]);
+  useEffect(()=>{ setCColoc(fijos.colocacion||8387); },[fijos.colocacion]);
+
+  const h  = parseFloat(alto)||0;
+  const w  = parseFloat(ancho)||0;
+  const m2 = h*w;
+  const listo = m2>0;
+
+  const vCPlas   = cPlas   * m2;
+  const vVinilo  = llevaVinilo ? (cVinilo+cImp) * m2 * (dobleFaz?2:1) : 0;
+  const vTrans   = llevaTrans  ? cTrans * m2 : 0;
+  const vColoc   = llevaColoc  ? cColoc * m2 : 0;
+
+  const inp = {padding:"9px 12px",borderRadius:8,border:"1.5px solid #f0d5c0",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",width:"100%",boxSizing:"border-box"};
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+        <Medidas alto={alto} setAlto={setAlto} ancho={ancho} setAncho={setAncho}/>
+
+        {/* Material base */}
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>🪟 Material base</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+            {[["corrugado","Corrugado",mpCorr],["bicapa","Bicapa / PAI / PVC",mpBicapa]].map(([id,lbl,mp])=>(
+              <div key={id} onClick={()=>setTipoPlas(id)}
+                style={{ padding:"10px 14px", borderRadius:10, cursor:"pointer",
+                  border:`2px solid ${tipoPlas===id?"#e65100":"#f0d5c0"}`,
+                  background:tipoPlas===id?"#fff8f5":"#fff" }}>
+                <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{lbl}</div>
+                <div style={{ fontSize:11, color:mp?"#e65100":"#ffb74d", marginTop:2 }}>
+                  {mp?`📌 $${Math.round(mp.precio).toLocaleString("es-AR")}/m²`:"⚠️ Sin MP cargada"}
+                </div>
+              </div>
+            ))}
+          </div>
+          <label style={{ fontSize:12, fontWeight:600, color:"#4a5568", display:"block", marginBottom:5 }}>
+            Costo material ($/m²)
+          </label>
+          <input type="number" value={cPlas} onChange={e=>setCPlas(parseFloat(e.target.value)||0)} style={inp}/>
+        </div>
+
+        {/* Opciones */}
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>⚙️ Opciones</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <Opcion activo={llevaVinilo} toggle={()=>setLlevaVinilo(v=>!v)}
+              label="Vinilo impreso"
+              detalle={`Material $${cVinilo}/m² + impresión $${cImp}/m²${dobleFaz?" × 2 caras":""}`}
+              costo={vVinilo}/>
+            {llevaVinilo && (
+              <div style={{ marginLeft:32, display:"flex", flexDirection:"column", gap:8 }}>
+                <Opcion activo={dobleFaz} toggle={()=>setDobleFaz(v=>!v)}
+                  label="Doble faz" detalle="Vinilo en ambas caras" costo={0}/>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>
+                      Vinilo $/m² {mpVinilo&&<span style={{color:"#e65100"}}>📌</span>}
+                    </label>
+                    <input type="number" value={cVinilo} onChange={e=>setCVinilo(parseFloat(e.target.value)||0)} style={inp}/>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>
+                      Impresión $/m²
+                    </label>
+                    <input type="number" value={cImp} onChange={e=>setCImp(parseFloat(e.target.value)||0)} style={inp}/>
+                  </div>
+                </div>
+              </div>
+            )}
+            <Opcion activo={llevaTrans} toggle={()=>setLlevaTrans(v=>!v)}
+              label="Vinilo transparente (protector)"
+              detalle={`$${cTrans}/m² ${mpTrans?"📌":""}`}
+              costo={vTrans}/>
+            {llevaTrans && (
+              <div style={{ marginLeft:32 }}>
+                <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>Transparente $/m²</label>
+                <input type="number" value={cTrans} onChange={e=>setCTrans(parseFloat(e.target.value)||0)} style={inp}/>
+              </div>
+            )}
+            <Opcion activo={llevaColoc} toggle={()=>setLlevaColoc(v=>!v)}
+              label="Colocación"
+              detalle={`$${cColoc}/m² (mano de obra)`}
+              costo={vColoc}/>
+            {llevaColoc && (
+              <div style={{ marginLeft:32 }}>
+                <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>Colocación $/m²</label>
+                <input type="number" value={cColoc} onChange={e=>setCColoc(parseFloat(e.target.value)||0)} style={inp}/>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <ResultPanel
+        items={[
+          {label:"🪟 Material base", valor:vCPlas},
+          {label:"🖨️ Vinilo impreso", valor:vVinilo, activo:llevaVinilo},
+          {label:"🔲 Transparente",  valor:vTrans,  activo:llevaTrans},
+          {label:"🔧 Colocación",    valor:vColoc,  activo:llevaColoc},
+        ]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`Bases ${tipoPlas} ${alto||"?"}×${ancho||"?"}m`}/>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALC: ROTULADOS
+// ═══════════════════════════════════════════════════════════════════════════
+function CalcRotulado({ getPrecioM2, fijos, onGuardar }) {
+  const [alto, setAlto]   = useState("");
+  const [ancho, setAncho] = useState("");
+  const [tipo, setTipo]   = useState("calado"); // calado | impreso
+  const [ganancia, setGanancia] = useState(2.5);
+  const [llevaCinta, setLlevaCinta] = useState(true);
+
+  const mpCorte  = getPrecioM2(CAT_KEYS.VINILO_CORTE);
+  const mpImp    = getPrecioM2(CAT_KEYS.VINILO_IMP);
+  const mpCinta  = getPrecioM2(CAT_KEYS.CINTA);
+
+  const [cVinilo, setCVinilo] = useState(0);
+  const [cImp,    setCImp]    = useState(fijos.impresion||500);
+  const [cCinta,  setCCinta]  = useState(0);
+
+  useEffect(()=>{
+    if(tipo==="calado"  && mpCorte) setCVinilo(Math.round(mpCorte.precio));
+    if(tipo==="impreso" && mpImp)   setCVinilo(Math.round(mpImp.precio));
+  },[tipo, mpCorte?.precio, mpImp?.precio]);
+  useEffect(()=>{ if(mpCinta) setCCinta(Math.round(mpCinta.precio)); },[mpCinta?.precio]);
+  useEffect(()=>{ setCImp(fijos.impresion||500); },[fijos.impresion]);
+
+  const h  = parseFloat(alto)||0;
+  const w  = parseFloat(ancho)||0;
+  const m2 = h*w;
+  const listo = m2>0;
+
+  const vVinilo = cVinilo * m2;
+  const vImp    = tipo==="impreso" ? cImp * m2 : 0;
+  const vCinta  = llevaCinta ? cCinta * m2 : 0;
+
+  const inp = {padding:"9px 12px",borderRadius:8,border:"1.5px solid #f0d5c0",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",width:"100%",boxSizing:"border-box"};
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <Medidas alto={alto} setAlto={setAlto} ancho={ancho} setAncho={setAncho}/>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>🏷️ Tipo de vinilo</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+            {[["calado","Vinilo calado",mpCorte],["impreso","Vinilo impreso",mpImp]].map(([id,lbl,mp])=>(
+              <div key={id} onClick={()=>setTipo(id)}
+                style={{ padding:"10px 14px", borderRadius:10, cursor:"pointer", textAlign:"center",
+                  border:`2px solid ${tipo===id?"#e65100":"#f0d5c0"}`,
+                  background:tipo===id?"#fff8f5":"#fff" }}>
+                <div style={{ fontWeight:600, fontSize:13 }}>{lbl}</div>
+                <div style={{ fontSize:11, color:mp?"#e65100":"#ffb74d", marginTop:2 }}>
+                  {mp?`📌 $${Math.round(mp.precio).toLocaleString("es-AR")}/m²`:"⚠️ Sin MP"}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:tipo==="impreso"?"1fr 1fr":"1fr", gap:8 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>
+                Vinilo $/m² {(tipo==="calado"?mpCorte:mpImp)&&<span style={{color:"#e65100"}}>📌</span>}
+              </label>
+              <input type="number" value={cVinilo} onChange={e=>setCVinilo(parseFloat(e.target.value)||0)} style={inp}/>
+            </div>
+            {tipo==="impreso" && (
+              <div>
+                <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>Impresión $/m²</label>
+                <input type="number" value={cImp} onChange={e=>setCImp(parseFloat(e.target.value)||0)} style={inp}/>
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <Opcion activo={llevaCinta} toggle={()=>setLlevaCinta(v=>!v)}
+            label="Cinta posicionadora"
+            detalle={`$${cCinta}/m² ${mpCinta?"📌":"⚠️ Sin MP"}`}
+            costo={vCinta}/>
+          {llevaCinta && (
+            <div style={{ marginTop:8, marginLeft:32 }}>
+              <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>Cinta $/m²</label>
+              <input type="number" value={cCinta} onChange={e=>setCCinta(parseFloat(e.target.value)||0)} style={inp}/>
+            </div>
+          )}
+        </div>
+      </div>
+      <ResultPanel
+        items={[
+          {label:"🏷️ Vinilo", valor:vVinilo},
+          {label:"🖨️ Impresión", valor:vImp, activo:tipo==="impreso"},
+          {label:"📏 Cinta", valor:vCinta, activo:llevaCinta},
+        ]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`Rotulado ${tipo} ${alto||"?"}×${ancho||"?"}m`}/>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALC: LONA
+// ═══════════════════════════════════════════════════════════════════════════
+function CalcLona({ getPrecioM2, fijos, onGuardar }) {
+  const [alto, setAlto]   = useState("");
+  const [ancho, setAncho] = useState("");
+  const [tipoLona, setTipoLona] = useState("frontlight");
+  const [ganancia, setGanancia] = useState(2.5);
+  const [llevaEst,   setLlevaEst]   = useState(false);
+  const [llevaOjales, setLlevaOjales] = useState(true);
+  const [llevaColoc, setLlevaColoc] = useState(false);
+  const [doble, setDoble] = useState(false);
+
+  const mpFront = getPrecioM2(CAT_KEYS.LONA_FRONT);
+  const mpBack  = getPrecioM2(CAT_KEYS.LONA_BACK);
+
+  const [cLona,    setCLona]    = useState(0);
+  const [cImp,     setCImp]     = useState(fijos.impresion||500);
+  const [cEst,     setCEst]     = useState(39000);
+  const [cOjal,    setCOjal]    = useState(200);
+  const [cColoc,   setCColoc]   = useState(fijos.colocacion||8387);
+
+  useEffect(()=>{
+    if(tipoLona==="frontlight" && mpFront) setCLona(Math.round(mpFront.precio));
+    if(tipoLona==="backlight"  && mpBack)  setCLona(Math.round(mpBack.precio));
+  },[tipoLona, mpFront?.precio, mpBack?.precio]);
+  useEffect(()=>{ setCImp(fijos.impresion||500); },[fijos.impresion]);
+  useEffect(()=>{ setCColoc(fijos.colocacion||8387); },[fijos.colocacion]);
+
+  const h   = parseFloat(alto)||0;
+  const w   = parseFloat(ancho)||0;
+  const m2  = h * w * (doble?2:1);
+  const ojales = h>0&&w>0 ? Math.ceil((h+w)*2/0.5) : 0;
+  const listo = m2>0;
+
+  const vLona   = (cLona+cImp) * m2;
+  const vEst    = llevaEst    ? cEst : 0;
+  const vOjales = llevaOjales ? ojales * cOjal : 0;
+  const vColoc  = llevaColoc  ? cColoc * m2 : 0;
+
+  const inp = {padding:"9px 12px",borderRadius:8,border:"1.5px solid #f0d5c0",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",width:"100%",boxSizing:"border-box"};
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <Medidas alto={alto} setAlto={setAlto} ancho={ancho} setAncho={setAncho}/>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>🚩 Tipo de lona</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+            {[["frontlight","Frontlight",mpFront],["backlight","Backlight",mpBack]].map(([id,lbl,mp])=>(
+              <div key={id} onClick={()=>setTipoLona(id)}
+                style={{ padding:"10px 14px", borderRadius:10, cursor:"pointer", textAlign:"center",
+                  border:`2px solid ${tipoLona===id?"#e65100":"#f0d5c0"}`,
+                  background:tipoLona===id?"#fff8f5":"#fff" }}>
+                <div style={{ fontWeight:600, fontSize:13 }}>{lbl}</div>
+                <div style={{ fontSize:11, color:mp?"#e65100":"#ffb74d", marginTop:2 }}>
+                  {mp?`📌 $${Math.round(mp.precio).toLocaleString("es-AR")}/m²`:"⚠️ Sin MP"}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>Lona $/m²</label>
+              <input type="number" value={cLona} onChange={e=>setCLona(parseFloat(e.target.value)||0)} style={inp}/>
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>Impresión $/m²</label>
+              <input type="number" value={cImp} onChange={e=>setCImp(parseFloat(e.target.value)||0)} style={inp}/>
+            </div>
+          </div>
+        </div>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>⚙️ Opciones</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <Opcion activo={doble} toggle={()=>setDoble(v=>!v)} label="Doble (dos lonas)" detalle="Se duplica el m²" costo={0}/>
+            <Opcion activo={llevaEst} toggle={()=>setLlevaEst(v=>!v)}
+              label="Estructura / Portabanner" detalle={`$${cEst.toLocaleString("es-AR")} por unidad`} costo={vEst}/>
+            {llevaEst && <div style={{marginLeft:32}}><label style={{fontSize:11,fontWeight:600,color:"#4a5568",display:"block",marginBottom:4}}>Costo estructura $</label><input type="number" value={cEst} onChange={e=>setCEst(parseFloat(e.target.value)||0)} style={inp}/></div>}
+            <Opcion activo={llevaOjales} toggle={()=>setLlevaOjales(v=>!v)}
+              label="Ojales"
+              detalle={listo?`${ojales} ojales estimados × $${cOjal}`:"—"}
+              costo={vOjales}/>
+            {llevaOjales && <div style={{marginLeft:32}}><label style={{fontSize:11,fontWeight:600,color:"#4a5568",display:"block",marginBottom:4}}>$ por ojal</label><input type="number" value={cOjal} onChange={e=>setCOjal(parseFloat(e.target.value)||0)} style={inp}/></div>}
+            <Opcion activo={llevaColoc} toggle={()=>setLlevaColoc(v=>!v)}
+              label="Colocación" detalle={`$${cColoc}/m²`} costo={vColoc}/>
+            {llevaColoc && <div style={{marginLeft:32}}><label style={{fontSize:11,fontWeight:600,color:"#4a5568",display:"block",marginBottom:4}}>Colocación $/m²</label><input type="number" value={cColoc} onChange={e=>setCColoc(parseFloat(e.target.value)||0)} style={inp}/></div>}
+          </div>
+        </div>
+      </div>
+      <ResultPanel
+        items={[
+          {label:"🚩 Lona + impresión", valor:vLona},
+          {label:"🏗️ Estructura", valor:vEst, activo:llevaEst},
+          {label:"⭕ Ojales", valor:vOjales, activo:llevaOjales},
+          {label:"🔧 Colocación", valor:vColoc, activo:llevaColoc},
+        ]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`Lona ${tipoLona} ${alto||"?"}×${ancho||"?"}m`}/>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALC: POLYFAN
+// ═══════════════════════════════════════════════════════════════════════════
+function CalcPolyfan({ getPrecioM2, fijos, onGuardar }) {
+  const [alto, setAlto]   = useState("");
+  const [ancho, setAncho] = useState("");
+  const [ganancia, setGanancia] = useState(2.5);
+  const [llevaMas, setLlevaMas] = useState(false);
+  const [llevaPint, setLlevaPint] = useState(false);
+
+  const mpPoli = getPrecioM2(CAT_KEYS.POLIFAN);
+  const [cPoli, setCPoli]   = useState(0);
+  const [cMas,  setCMas]    = useState(fijos.masillado||3000);
+  const [cPint, setCPint]   = useState(fijos.pintado||2500);
+
+  useEffect(()=>{ if(mpPoli) setCPoli(Math.round(mpPoli.precio)); },[mpPoli?.precio]);
+  useEffect(()=>{ setCMas(fijos.masillado||3000); },[fijos.masillado]);
+  useEffect(()=>{ setCPint(fijos.pintado||2500);  },[fijos.pintado]);
+
+  const h  = parseFloat(alto)||0;
+  const w  = parseFloat(ancho)||0;
+  const m2 = h*w;
+  const listo = m2>0;
+
+  const vPoli = cPoli * m2;
+  const vMas  = llevaMas  ? cMas  * m2 : 0;
+  const vPint = llevaPint ? cPint * m2 : 0;
+
+  const inp = {padding:"9px 12px",borderRadius:8,border:"1.5px solid #f0d5c0",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",width:"100%",boxSizing:"border-box"};
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <Medidas alto={alto} setAlto={setAlto} ancho={ancho} setAncho={setAncho}/>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>
+            🟡 Placa Polyfan/Foam
+            {mpPoli && <span style={{fontSize:11,color:"#e65100",fontWeight:700,marginLeft:8}}>📌 {mpPoli.materia.nombre}</span>}
+            {!mpPoli && <span style={{fontSize:11,color:"#ffb74d",marginLeft:8}}>⚠️ Sin MP cargada</span>}
+          </div>
+          <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:5 }}>Costo Polyfan $/m²</label>
+          <input type="number" value={cPoli} onChange={e=>setCPoli(parseFloat(e.target.value)||0)} style={inp}/>
+        </div>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>🖌️ Terminaciones</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <Opcion activo={llevaMas} toggle={()=>setLlevaMas(v=>!v)} label="Masillado" detalle={`$${cMas}/m²`} costo={vMas}/>
+            {llevaMas && <div style={{marginLeft:32}}><label style={{fontSize:11,fontWeight:600,color:"#4a5568",display:"block",marginBottom:4}}>Masillado $/m²</label><input type="number" value={cMas} onChange={e=>setCMas(parseFloat(e.target.value)||0)} style={inp}/></div>}
+            <Opcion activo={llevaPint} toggle={()=>setLlevaPint(v=>!v)} label="Pintado" detalle={`$${cPint}/m²`} costo={vPint}/>
+            {llevaPint && <div style={{marginLeft:32}}><label style={{fontSize:11,fontWeight:600,color:"#4a5568",display:"block",marginBottom:4}}>Pintado $/m²</label><input type="number" value={cPint} onChange={e=>setCPint(parseFloat(e.target.value)||0)} style={inp}/></div>}
+          </div>
+        </div>
+      </div>
+      <ResultPanel
+        items={[
+          {label:"🟡 Polyfan", valor:vPoli},
+          {label:"🖌️ Masillado", valor:vMas, activo:llevaMas},
+          {label:"🎨 Pintado", valor:vPint, activo:llevaPint},
+        ]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`Polyfan ${alto||"?"}×${ancho||"?"}m`}/>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALC: 3D
+// ═══════════════════════════════════════════════════════════════════════════
+function Calc3D({ getPrecioM2, fijos, onGuardar }) {
+  const [gramos, setGramos] = useState("");
+  const [horas,  setHoras]  = useState("");
+  const [ganancia, setGanancia] = useState(3);
+  const [llevaDis, setLlevaDis] = useState(false);
+
+  const mpPLA = getPrecioM2(CAT_KEYS.PLA);
+  const [cPLAg,   setCPLAg]   = useState(18);
+  const [cKWh,    setCKWh]    = useState(120);
+  const [cW,      setCW]      = useState(200);
+  const [cDis,    setCDis]    = useState(fijos.disenio||5000);
+
+  useEffect(()=>{
+    if(mpPLA) {
+      // PLA viene en precio de rollo 1kg ÷ 1000 = $/g
+      const unidad = (mpPLA.materia.unidad||"").toLowerCase();
+      const precio = parseFloat(mpPLA.materia.precioCosto||0);
+      const rinde  = parseFloat(mpPLA.materia.rendimiento||0);
+      if (rinde>0) setCPLAg(precio/rinde);
+      else if (unidad==="kg") setCPLAg(precio/1000);
+      else setCPLAg(precio);
+    }
+  },[mpPLA?.precio]);
+  useEffect(()=>{ setCDis(fijos.disenio||5000); },[fijos.disenio]);
+
+  const g  = parseFloat(gramos)||0;
+  const h  = parseFloat(horas)||0;
+  const listo = g>0||h>0;
+
+  const vPLA = cPLAg * g;
+  const vEne = (cW/1000) * h * cKWh;
+  const vDis = llevaDis ? cDis : 0;
+
+  const inp = {padding:"9px 12px",borderRadius:8,border:"1.5px solid #f0d5c0",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",width:"100%",boxSizing:"border-box"};
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:20, alignItems:"start" }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>
+            🧵 Filamento PLA
+            {mpPLA && <span style={{fontSize:11,color:"#e65100",fontWeight:700,marginLeft:8}}>📌 {mpPLA.materia.nombre}</span>}
+            {!mpPLA && <span style={{fontSize:11,color:"#ffb74d",marginLeft:8}}>⚠️ Sin MP cargada</span>}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>Peso estimado (gramos)</label>
+              <input type="number" value={gramos} onChange={e=>setGramos(e.target.value)} placeholder="50" style={inp}/>
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>Costo PLA ($/gramo)</label>
+              <input type="number" step="0.1" value={cPLAg} onChange={e=>setCPLAg(parseFloat(e.target.value)||0)} style={inp}/>
+            </div>
+          </div>
+          {g>0 && <div style={{marginTop:10,background:"#fff8f5",borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between",fontSize:12}}>
+            <span style={{color:"#a09080"}}>{g}g × ${cPLAg}/g</span>
+            <span style={{fontWeight:700,color:"#e65100"}}>${Math.round(vPLA).toLocaleString("es-AR")}</span>
+          </div>}
+        </div>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:12 }}>⚡ Energía</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+            {[["Tiempo (hs)", horas, setHoras, "3"],["Tarifa ($/kWh)", cKWh, setCKWh, "120"],["Consumo (W)", cW, setCW, "200"]].map(([lbl,val,setVal,ph])=>(
+              <div key={lbl}>
+                <label style={{ fontSize:11, fontWeight:600, color:"#4a5568", display:"block", marginBottom:4 }}>{lbl}</label>
+                <input type="number" value={val} onChange={e=>setVal(parseFloat(e.target.value)||0)} placeholder={ph} style={inp}/>
+              </div>
+            ))}
+          </div>
+          {h>0 && <div style={{marginTop:10,background:"#fff8f5",borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between",fontSize:12}}>
+            <span style={{color:"#a09080"}}>{h}h × {cW}W = {((cW/1000)*h).toFixed(2)} kWh</span>
+            <span style={{fontWeight:700,color:"#e65100"}}>${Math.round(vEne).toLocaleString("es-AR")}</span>
+          </div>}
+        </div>
+        <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+          <Opcion activo={llevaDis} toggle={()=>setLlevaDis(v=>!v)} label="Diseño / prep. archivo" detalle={`$${cDis} fijo`} costo={vDis}/>
+          {llevaDis && <div style={{marginTop:8,marginLeft:32}}><label style={{fontSize:11,fontWeight:600,color:"#4a5568",display:"block",marginBottom:4}}>Costo diseño $</label><input type="number" value={cDis} onChange={e=>setCDis(parseFloat(e.target.value)||0)} style={inp}/></div>}
+        </div>
+      </div>
+      <ResultPanel
+        items={[
+          {label:"🧵 Filamento", valor:vPLA},
+          {label:"⚡ Energía",   valor:vEne},
+          {label:"🎨 Diseño",    valor:vDis, activo:llevaDis},
+        ]}
+        ganancia={ganancia} setGanancia={setGanancia} listo={listo}
+        onGuardar={onGuardar} titulo={`3D ${gramos||"?"}g ${horas||"?"}h`}/>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALC: CONFIG COSTOS FIJOS
+// ═══════════════════════════════════════════════════════════════════════════
+function CalcConfigFijos({ fijos, onGuardar, materias, getPrecioM2 }) {
+  const [form, setForm]   = useState({...fijos});
+  const [saving, setSaving] = useState(false);
+  const [saved,  setSaved]  = useState(false);
+
+  const set = (k,v) => setForm(f=>({...f,[k]:parseFloat(v)||0}));
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onGuardar(form);
+    setSaving(false); setSaved(true);
+    setTimeout(()=>setSaved(false),2500);
+  };
+
+  const inp = {padding:"9px 12px",borderRadius:8,border:"1.5px solid #f0d5c0",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",width:"100%",boxSizing:"border-box"};
+
+  const CAMPOS = [
+    {k:"impresion",  label:"🖨️ Costo impresión (máquina + energía)", desc:"$/m² — amortización del plotter, energía eléctrica, tiempo operario", sufijo:"$/m²"},
+    {k:"colocacion", label:"🔧 Colocación de vinilo",                 desc:"$/m² — mano de obra para colocar vinilo o lona",                     sufijo:"$/m²"},
+    {k:"masillado",  label:"🖌️ Masillado",                           desc:"$/m² — mano de obra de masillado en polyfan",                        sufijo:"$/m²"},
+    {k:"pintado",    label:"🎨 Pintado",                              desc:"$/m² — mano de obra de pintado en polyfan",                          sufijo:"$/m²"},
+    {k:"disenio",    label:"✏️ Diseño / archivo",                    desc:"$ fijo — preparación de archivo o diseño",                           sufijo:"$ fijo"},
+    {k:"operario",   label:"👷 Tiempo operario",                     desc:"$/minuto — costo del tiempo de trabajo",                             sufijo:"$/min"},
+  ];
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div>
+          <h3 style={{ fontWeight:700, fontSize:18, color:"#1a2340", marginBottom:4 }}>⚙️ Costos fijos de producción</h3>
+          <p style={{ fontSize:13, color:"#a09080", maxWidth:480 }}>
+            Estos son los costos que no vienen de materias primas — mano de obra, máquinas, energía.
+            Se usan como valores por defecto en todas las calculadoras. Podés sobreescribirlos en cada cálculo.
+          </p>
+        </div>
+        <button onClick={handleSave} disabled={saving}
+          style={{ padding:"11px 24px", background:saved?"#2e7d32":"#1a2340", color:"#fff",
+            border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+          {saving?"Guardando...":saved?"✅ Guardado":"💾 Guardar"}
+        </button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14 }}>
+        {CAMPOS.map(c=>(
+          <div key={c.k} style={{ background:"#fff", borderRadius:12, padding:"16px 18px", boxShadow:"0 2px 14px rgba(230,81,0,.07)" }}>
+            <div style={{ fontWeight:700, fontSize:13, color:"#1a2340", marginBottom:3 }}>{c.label}</div>
+            <div style={{ fontSize:11, color:"#a09080", marginBottom:10 }}>{c.desc}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ fontSize:12, color:"#a09080" }}>$</span>
+              <input type="number" value={form[c.k]||0} onChange={e=>set(c.k,e.target.value)} style={inp}/>
+              <span style={{ fontSize:11, color:"#a09080", whiteSpace:"nowrap" }}>{c.sufijo}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop:24, background:"#f0f3f9", borderRadius:12, padding:"16px 20px" }}>
+        <div style={{ fontWeight:700, fontSize:13, color:"#1a2340", marginBottom:8 }}>
+          📌 Materias primas vinculadas automáticamente
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:8 }}>
+          {Object.entries(CAT_KEYS).map(([key,catKey])=>{
+            const mp = getPrecioM2(catKey);
+            return (
+              <div key={key} style={{ background:"#fff", borderRadius:8, padding:"10px 12px", border:`1.5px solid ${mp?"#e65100":"#f0d5c0"}` }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"#4a5568", textTransform:"uppercase", letterSpacing:".5px", marginBottom:3 }}>{catKey.replace(/_/g," ")}</div>
+                {mp ? (
+                  <div style={{ fontSize:12, color:"#e65100", fontWeight:600 }}>
+                    ✅ {mp.materia.nombre} — ${Math.round(mp.precio).toLocaleString("es-AR")}/u
+                  </div>
+                ) : (
+                  <div style={{ fontSize:12, color:"#a09080" }}>⚠️ Sin materia prima cargada</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ marginTop:10, fontSize:12, color:"#a09080" }}>
+          Para vincular: en Materias Primas, al cargar un item elegí la categoría correspondiente del desplegable.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ── Componente: Configuración ─────────────────────────────────────────────
 function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
@@ -608,9 +1566,9 @@ function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
   );
 
   return (
-    <div style={{ maxWidth:760, margin:"0 auto" }}>
+    <div>
       <div style={{ marginBottom:26 }}>
-        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>⚙️ Configuración del Local</h2>
+        <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>⚙️ Configuración del Local</h2>
         <p style={{ fontSize:14, color:"#a09080" }}>Estos datos aparecerán en todas las órdenes de trabajo que imprimas.</p>
       </div>
 
@@ -653,7 +1611,7 @@ function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               {preview && <img src={preview} alt="Logo" style={{ width:50, height:50, objectFit:"contain", borderRadius:7 }}/>}
               <div>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#e65100" }}>{form.nombre||"Nombre del local"}</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#e65100" }}>{form.nombre||"Nombre del local"}</div>
                 <div style={{ fontSize:11, color:"#8a7060", marginTop:3, lineHeight:1.7 }}>
                   {form.titular   && <div>Titular: {form.titular}</div>}
                   {form.cuit      && <div>CUIT: {form.cuit}</div>}
@@ -663,7 +1621,7 @@ function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
               </div>
             </div>
             <div style={{ textAlign:"right" }}>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#e65100" }}>OT-0001</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#e65100" }}>OT-0001</div>
               <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>Emitida: hoy</div>
             </div>
           </div>
@@ -700,11 +1658,11 @@ function LoginScreen() {
 
   return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(135deg, #e65100 0%, #bf360c 100%)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif", padding:20 }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
       <div style={{ background:"#fff", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:"0 24px 60px rgba(0,0,0,.25)" }}>
         {/* Logo / título */}
         <div style={{ textAlign:"center", marginBottom:36 }}>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:32, fontWeight:700, color:"#e65100", marginBottom:6 }}>Mafalda Gráfica</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:32, fontWeight:700, color:"#e65100", marginBottom:6 }}>Mafalda Gráfica</div>
           <div style={{ fontSize:14, color:"#a09080" }}>Sistema de gestión de pedidos</div>
         </div>
 
@@ -767,13 +1725,13 @@ function buildComprobanteHTML(venta, empresa) {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
 <title>${num}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600&display=swap');
-  *{box-sizing:border-box;margin:0;padding:0}
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
   body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340;padding:20mm}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:3px solid #e65100;margin-bottom:18px}
-  .brand{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#e65100}
+  .brand{font-family:'DM Sans',sans-serif;font-size:24px;font-weight:800;color:#e65100}
   .brand-sub{font-size:11px;color:#a09080;margin-top:3px;line-height:1.6}
-  .comp-num{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#e65100;text-align:right}
+  .comp-num{font-family:'DM Sans',sans-serif;font-size:20px;font-weight:800;color:#e65100;text-align:right}
   .comp-tipo{font-size:11px;color:#a09080;text-align:right;margin-top:3px}
   .badge-x{display:inline-block;background:#fff3e0;color:#e65100;border:2px solid #e65100;border-radius:6px;padding:3px 10px;font-size:13px;font-weight:700;margin-top:4px}
   .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
@@ -786,7 +1744,7 @@ function buildComprobanteHTML(venta, empresa) {
   th:last-child,th:nth-last-child(2){text-align:right}
   .total-box{background:#fff3e0;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
   .total-lbl{font-size:13px;font-weight:600;color:#bf360c;text-transform:uppercase;letter-spacing:.7px}
-  .total-val{font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:#e65100}
+  .total-val{font-family:'DM Sans',sans-serif;font-size:26px;font-weight:800;color:#e65100}
   .metodo{font-size:12px;color:#a09080;margin-bottom:16px}
   .foot{border-top:1.5px solid #f0e8e0;padding-top:12px;display:flex;justify-content:space-between;font-size:10px;color:#c0b0a0}
   .no-valido{text-align:center;font-size:11px;color:#c0b0a0;margin-bottom:10px;letter-spacing:.5px}
@@ -826,6 +1784,91 @@ function buildComprobanteHTML(venta, empresa) {
 <div class="foot"><span>${nombre}</span><span>${num} · ${fecha}</span></div>
 <script>window.onload=()=>window.print();</script>
 </body></html>`;
+}
+
+
+function buildPresupuestoHTML(datos, empresa) {
+  const num   = `P-${String(datos.numero||1).padStart(5,"0")}`;
+  const now   = new Date();
+  const fecha = now.toLocaleDateString("es-AR");
+  const hora  = now.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+  const nombre = empresa?.nombre || "Mafalda Gráfica";
+  const validez = new Date(now.getTime() + 7*24*60*60*1000).toLocaleDateString("es-AR");
+  const rows = datos.items.map(it => `
+    <tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0">${it.cantidad}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0">${it.nombre}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:right">$${parseFloat(it.precio).toLocaleString("es-AR")}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:700">$${(it.cantidad*it.precio).toLocaleString("es-AR")}</td>
+    </tr>`).join("");
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
+<title>Presupuesto ${num}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a2340;padding:20mm}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:3px solid #1a2340;margin-bottom:18px}
+  .brand{font-size:24px;font-weight:800;color:#1a2340}
+  .brand-sub{font-size:11px;color:#a09080;margin-top:3px;line-height:1.6}
+  .pres-num{font-size:20px;font-weight:800;color:#1a2340;text-align:right}
+  .pres-badge{display:inline-block;background:#e8eaf6;color:#1a2340;border:2px solid #1a2340;border-radius:6px;padding:3px 10px;font-size:13px;font-weight:700;margin-top:4px}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+  .ibox{background:#f5f5f5;border-radius:7px;padding:9px 12px;border-left:3px solid #1a2340}
+  .ilbl{font-size:10px;font-weight:600;color:#a09080;text-transform:uppercase;letter-spacing:.7px;margin-bottom:3px}
+  .ival{font-size:13px;font-weight:600;color:#1a2340}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
+  thead tr{background:#f0f3f9}
+  th{padding:9px 10px;text-align:left;font-size:11px;font-weight:700;color:#1a2340;text-transform:uppercase;letter-spacing:.5px}
+  th:last-child,th:nth-last-child(2){text-align:right}
+  .total-box{background:#f0f3f9;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .total-lbl{font-size:13px;font-weight:600;color:#1a2340;text-transform:uppercase;letter-spacing:.7px}
+  .total-val{font-size:26px;font-weight:800;color:#1a2340}
+  .validez{text-align:center;font-size:11px;color:#a09080;margin-bottom:10px;padding:8px;background:#fffde7;border-radius:6px}
+  .foot{border-top:1.5px solid #e0e0e0;padding-top:12px;display:flex;justify-content:space-between;font-size:10px;color:#a0a0a0}
+  @media print{body{padding:12mm 14mm}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    ${empresa?.logo?`<img src="${empresa.logo}" style="height:50px;object-fit:contain;margin-bottom:6px;display:block"/>`:""}
+    <div class="brand">${nombre}</div>
+    <div class="brand-sub">
+      ${empresa?.titular?`Titular: ${empresa.titular}<br/>`:""}
+      ${empresa?.cuit?`CUIT: ${empresa.cuit}<br/>`:""}
+      ${empresa?.direccion?`${empresa.direccion}<br/>`:""}
+      ${empresa?.telefono?`Tel: ${empresa.telefono}`:""}
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div class="pres-num">${num}</div>
+    <div style="font-size:11px;color:#a09080;margin-top:3px">Presupuesto</div>
+    <div class="pres-badge">📋 PRESUPUESTO</div>
+    <div style="font-size:11px;color:#a09080;margin-top:4px">${fecha} · ${hora}</div>
+  </div>
+</div>
+<div class="info-grid">
+  <div class="ibox"><div class="ilbl">Cliente</div><div class="ival">${datos.clienteNombre||"Consumidor Final"}</div></div>
+  <div class="ibox"><div class="ilbl">Válido hasta</div><div class="ival">${validez}</div></div>
+</div>
+<table>
+  <thead><tr><th>Cant.</th><th>Detalle</th><th style="text-align:right">P.Unit.</th><th style="text-align:right">Subtotal</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="total-box">
+  <div class="total-lbl">Total presupuestado</div>
+  <div class="total-val">$${parseFloat(datos.total).toLocaleString("es-AR")}</div>
+</div>
+<div class="validez">⏳ Este presupuesto tiene validez de 7 días · Sujeto a cambios de precio</div>
+<div class="foot"><span>${nombre}</span><span>${num} · ${fecha}</span></div>
+<script>window.onload=()=>window.print();</script>
+</body></html>`;
+}
+
+function imprimirPresupuesto(datos, empresa) {
+  const html = buildPresupuestoHTML(datos, empresa);
+  const win  = window.open("","_blank","width=860,height=700");
+  if (!win) { alert("Habilitá los popups para imprimir."); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 function imprimirComprobante(venta, empresa) {
@@ -951,7 +1994,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
 
   return (
     <div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:20, alignItems:"start" }}>
+      <div className="grid-agenda">
 
         {/* ── Calendario ── */}
         <div>
@@ -969,7 +2012,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <button onClick={()=>moverFecha(-1)} style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>‹</button>
-              <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:240, textAlign:"center", textTransform:"capitalize" }}>{titulo()}</span>
+              <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:16, color:"#1a2340", minWidth:240, textAlign:"center", textTransform:"capitalize" }}>{titulo()}</span>
               <button onClick={()=>moverFecha(1)}  style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#1a2340", width:34, height:34, borderRadius:8, fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>›</button>
               <button onClick={()=>setFechaBase(new Date())} style={{ padding:"7px 14px", borderRadius:8, fontSize:12, fontWeight:600, border:"1.5px solid #e65100", color:"#e65100", background:"#fff", cursor:"pointer" }}>Hoy</button>
               <button onClick={()=>setNuevoEventoModal(true)} style={{ padding:"7px 16px", borderRadius:8, fontSize:13, fontWeight:700, background:"#e65100", color:"#fff", border:"none", cursor:"pointer" }}>+ Evento</button>
@@ -989,7 +2032,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
             {modoVista==="dia" ? (
               <div style={{ padding:"24px 28px" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
-                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:fmtFecha(fechaBase)===hoy?"#e65100":"#1a2340", textTransform:"capitalize" }}>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:fmtFecha(fechaBase)===hoy?"#e65100":"#1a2340", textTransform:"capitalize" }}>
                     {fechaBase.toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"})}
                   </div>
                   {fmtFecha(fechaBase)===hoy && <span style={{ background:"#e65100", color:"#fff", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700 }}>Hoy</span>}
@@ -1057,7 +2100,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
         {/* ── Panel lateral: próximos eventos ── */}
         <div>
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:"#1a2340", marginBottom:14 }}>📋 Próximos eventos</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:"#1a2340", marginBottom:14 }}>📋 Próximos eventos</div>
             {proximos.length===0 ? (
               <div style={{ textAlign:"center", padding:"20px 0", color:"#d4bfb0", fontSize:13 }}>Sin eventos próximos</div>
             ) : proximos.map(ev=>{
@@ -1112,7 +2155,7 @@ function AgendaView({ nuevoEventoModal, setNuevoEventoModal, showToast }) {
               <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
                 <span style={{ fontSize:32 }}>{t.icon}</span>
                 <div>
-                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>{verEvento.titulo}</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>{verEvento.titulo}</div>
                   <span style={{ background:t.bg, color:t.color, padding:"2px 8px", borderRadius:10, fontSize:12, fontWeight:600 }}>{t.label}</span>
                 </div>
               </div>
@@ -1158,7 +2201,7 @@ function ModalEvento({ evento, onClose, showToast, fechaInicial }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
       <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{evento?"✏️ Editar Evento":"➕ Nuevo Evento"}</div>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{evento?"✏️ Editar Evento":"➕ Nuevo Evento"}</div>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           <div>
             <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Título *</label>
@@ -1209,6 +2252,7 @@ function ProveedoresView({ view, setView, showToast }) {
   const [selected, setSelected]       = useState(null);
   const [busq, setBusq]               = useState("");
   const [editingId, setEditingId]     = useState(null);
+  const [tabProv, setTabProv]         = useState("proveedores"); // proveedores | compras
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db,"proveedores"), snap => {
@@ -1244,48 +2288,299 @@ function ProveedoresView({ view, setView, showToast }) {
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-        <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>🏭 Proveedores</h2>
-          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{proveedores.length} proveedor{proveedores.length!==1?"es":""}</p>
+      {/* Tabs principales */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div style={{ display:"flex", gap:8 }}>
+          {[["proveedores","🏭 Proveedores"],["compras","🛒 Lista de Compras"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTabProv(t)}
+              style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+                background:tabProv===t?"#e65100":"#fff", color:tabProv===t?"#fff":"#4a5568",
+                boxShadow:tabProv===t?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+              {l}
+            </button>
+          ))}
         </div>
-        <button onClick={()=>{ setEditingId(null); setView("nuevoProveedor"); }}
-          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
-          ➕ Nuevo Proveedor
+        {tabProv==="proveedores" && (
+          <button onClick={()=>{ setEditingId(null); setView("nuevoProveedor"); }}
+            style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+            ➕ Nuevo Proveedor
+          </button>
+        )}
+      </div>
+
+      {/* ── TAB: PROVEEDORES ── */}
+      {tabProv==="proveedores" && (
+        <div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
+              <input placeholder="Buscar proveedor..." value={busq} onChange={e=>setBusq(e.target.value)}
+                style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+            </div>
+          </div>
+
+          {filtrados.length===0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center" }}>
+              <div style={{ fontSize:40, marginBottom:14 }}>🏭</div>
+              <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay proveedores"}</div>
+              <div style={{ color:"#a09080" }}>Agregá tu primer proveedor</div>
+            </div>
+          ) : (
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+              {filtrados.map(p=>(
+                <div key={p.fireId} onClick={()=>setSelected(p.fireId)}
+                  style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px", cursor:"pointer", borderTop:"3px solid #e65100", transition:"all .15s" }}
+                  onMouseOver={e=>e.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
+                  onMouseOut={e=>e.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{p.empresa||"Sin nombre"}</div>
+                  {p.titular && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {p.titular}</div>}
+                  <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                    {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100" }}>📞 {p.telefono}</div>}
+                    {p.mail     && <div style={{ fontSize:12, color:"#4a5568" }}>✉️ {p.mail}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: LISTA DE COMPRAS ── */}
+      {tabProv==="compras" && (
+        <ListaComprasView proveedores={proveedores} showToast={showToast}/>
+      )}
+    </div>
+  );
+}
+
+// ── Lista de Compras Global ───────────────────────────────────────────────
+function ListaComprasView({ proveedores, showToast }) {
+  const [items, setItems]         = useState([]);
+  const [modalItem, setModalItem] = useState(null); // null | {} | item existente
+  const [filtroProv, setFiltroProv] = useState("todos");
+  const [filtroEstado, setFiltroEst] = useState("pendiente");
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db,"listaCompras"), snap => {
+      setItems(snap.docs.map(d=>({...d.data(),fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0));
+    });
+    return () => unsub();
+  }, []);
+
+  const filtrados = items.filter(i => {
+    const matchProv  = filtroProv==="todos" || i.proveedorId===filtroProv;
+    const matchEst   = filtroEstado==="todos" || i.estado===filtroEstado;
+    return matchProv && matchEst;
+  });
+
+  const totalPendiente = filtrados.filter(i=>i.estado==="pendiente")
+    .reduce((s,i)=>s+(parseFloat(i.precioInd||0)*parseInt(i.cantidad||1)),0);
+
+  const marcarConseguido = async (item) => {
+    await updateDoc(doc(db,"listaCompras",item.fireId),{estado:"conseguido",fechaConseguido:new Date().toISOString().split("T")[0]});
+    showToast(`"${item.detalle}" marcado como conseguido ✅`);
+  };
+
+  const eliminar = async (item) => {
+    await deleteDoc(doc(db,"listaCompras",item.fireId));
+    showToast("Item eliminado","error");
+  };
+
+  const inp = {padding:"9px 12px",borderRadius:8,border:"1.5px solid #f0d5c0",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box",width:"100%"};
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div>
+          <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>🛒 Lista de Compras</h3>
+          <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>
+            {filtrados.filter(i=>i.estado==="pendiente").length} pendiente{filtrados.filter(i=>i.estado==="pendiente").length!==1?"s":""} · Total: <strong style={{color:"#e65100"}}>${totalPendiente.toLocaleString("es-AR")}</strong>
+          </p>
+        </div>
+        <button onClick={()=>setModalItem({})}
+          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          ➕ Agregar Item
         </button>
       </div>
 
-      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
-        <div style={{ position:"relative" }}>
-          <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
-          <input placeholder="Buscar proveedor..." value={busq} onChange={e=>setBusq(e.target.value)}
-            style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+      {/* Filtros */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
+        <select value={filtroProv} onChange={e=>setFiltroProv(e.target.value)}
+          style={{ ...inp, width:"auto", minWidth:180, cursor:"pointer" }}>
+          <option value="todos">Todos los proveedores</option>
+          {proveedores.map(p=><option key={p.fireId} value={p.fireId}>{p.empresa||p.titular}</option>)}
+        </select>
+        <div style={{ display:"flex", gap:6 }}>
+          {[["pendiente","⏳ Pendientes"],["conseguido","✅ Conseguidos"],["todos","Todos"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setFiltroEst(v)}
+              style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer", border:"none",
+                background:filtroEstado===v?"#e65100":"#fff8f5", color:filtroEstado===v?"#fff":"#a09080" }}>
+              {l}
+            </button>
+          ))}
         </div>
       </div>
 
+      {/* Tabla */}
       {filtrados.length===0 ? (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center" }}>
-          <div style={{ fontSize:40, marginBottom:14 }}>🏭</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay proveedores"}</div>
-          <div style={{ color:"#a09080" }}>Agregá tu primer proveedor</div>
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center", color:"#a09080" }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>🛒</div>
+          <div style={{ fontWeight:700, fontSize:16, fontFamily:"'DM Sans',sans-serif" }}>Sin items en la lista</div>
+          <div style={{ fontSize:13, marginTop:6 }}>Agregá lo que necesitás comprar</div>
         </div>
       ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
-          {filtrados.map(p=>(
-            <div key={p.fireId} onClick={()=>setSelected(p.fireId)}
-              style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px", cursor:"pointer", borderTop:"3px solid #e65100", transition:"all .15s" }}
-              onMouseOver={e=>e.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
-              onMouseOut={e=>e.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{p.empresa||"Sin nombre"}</div>
-              {p.titular && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {p.titular}</div>}
-              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-                {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100" }}>📞 {p.telefono}</div>}
-                {p.mail     && <div style={{ fontSize:12, color:"#4a5568" }}>✉️ {p.mail}</div>}
-              </div>
-            </div>
-          ))}
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+            <thead>
+              <tr style={{ background:"#fffaf7" }}>
+                {["Cant.","Detalle","Proveedor","P. Individual","P. Total","Estado",""].map(h=>(
+                  <th key={h} style={{ padding:"11px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0", whiteSpace:"nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map(item => {
+                const prov = proveedores.find(p=>p.fireId===item.proveedorId);
+                const cant = parseInt(item.cantidad||1);
+                const pInd = parseFloat(item.precioInd||0);
+                const pTot = cant * pInd;
+                const conseguido = item.estado==="conseguido";
+                return (
+                  <tr key={item.fireId} style={{ borderBottom:"1px solid #fef0e8", opacity:conseguido?.6:1, background:conseguido?"#fffaf7":"#fff" }}>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#e65100", fontSize:15 }}>{cant}</td>
+                    <td style={{ padding:"12px 14px", color:"#1a2340", fontWeight:600 }}>
+                      <div style={{ textDecoration:conseguido?"line-through":"none" }}>{item.detalle}</div>
+                      {item.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>{item.notas}</div>}
+                    </td>
+                    <td style={{ padding:"12px 14px" }}>
+                      {prov
+                        ? <span style={{ background:"#fff3e0", color:"#e65100", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{prov.empresa||prov.titular}</span>
+                        : <span style={{ color:"#a09080", fontSize:12 }}>Sin asignar</span>
+                      }
+                    </td>
+                    <td style={{ padding:"12px 14px", color:"#4a5568" }}>{pInd>0?`$${pInd.toLocaleString("es-AR")}`:"—"}</td>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:pTot>0?"#1a2340":"#a09080" }}>{pTot>0?`$${pTot.toLocaleString("es-AR")}`:"—"}</td>
+                    <td style={{ padding:"12px 14px" }}>
+                      {conseguido
+                        ? <span style={{ background:"#e8f5e9", color:"#2e7d32", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>✅ Conseguido</span>
+                        : <span style={{ background:"#fff3e0", color:"#e65100", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>⏳ Pendiente</span>
+                      }
+                    </td>
+                    <td style={{ padding:"12px 12px" }}>
+                      <div style={{ display:"flex", gap:5 }}>
+                        {!conseguido && (
+                          <button onClick={()=>marcarConseguido(item)}
+                            style={{ background:"#e8f5e9", border:"none", color:"#2e7d32", padding:"5px 9px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:700 }} title="Marcar conseguido">
+                            ✓
+                          </button>
+                        )}
+                        <button onClick={()=>setModalItem(item)}
+                          style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>✏️</button>
+                        <button onClick={()=>eliminar(item)}
+                          style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {totalPendiente > 0 && (
+              <tfoot>
+                <tr style={{ background:"#fff8f5", borderTop:"2px solid #f0d5c0" }}>
+                  <td colSpan={4} style={{ padding:"12px 14px", fontWeight:700, color:"#a09080", fontSize:13 }}>TOTAL PENDIENTE</td>
+                  <td style={{ padding:"12px 14px", fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#e65100" }}>${totalPendiente.toLocaleString("es-AR")}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       )}
+
+      {/* Modal agregar/editar item */}
+      {modalItem && (
+        <ModalItemCompra
+          item={modalItem.fireId ? modalItem : null}
+          proveedores={proveedores}
+          onClose={()=>setModalItem(null)}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modal Item de Compra ──────────────────────────────────────────────────
+function ModalItemCompra({ item, proveedores, onClose, showToast }) {
+  const [form, setForm] = useState(item || { cantidad:1, detalle:"", proveedorId:"", precioInd:"", notas:"", estado:"pendiente" });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!form.detalle.trim()) { showToast("El detalle es obligatorio","error"); return; }
+    setSaving(true);
+    const data = { ...form, cantidad:parseInt(form.cantidad)||1, precioInd:parseFloat(form.precioInd)||0, fecha:form.fecha||new Date().toISOString().split("T")[0] };
+    if (item?.fireId) {
+      await updateDoc(doc(db,"listaCompras",item.fireId), data);
+      showToast("Item actualizado ✅");
+    } else {
+      await addDoc(collection(db,"listaCompras"), data);
+      showToast("Item agregado a la lista ✅");
+    }
+    setSaving(false);
+    onClose();
+  };
+
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:500, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>
+          {item?.fireId?"✏️ Editar Item":"➕ Nuevo Item de Compra"}
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Detalle *</label>
+            <input value={form.detalle} onChange={e=>setForm(f=>({...f,detalle:e.target.value}))} placeholder="Ej: Vinilo base blanca 1.52m" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Cantidad</label>
+            <input type="number" min="1" value={form.cantidad} onChange={e=>setForm(f=>({...f,cantidad:e.target.value}))} style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio Individual ($)</label>
+            <input type="number" value={form.precioInd} onChange={e=>setForm(f=>({...f,precioInd:e.target.value}))} placeholder="0" style={inp}/>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Proveedor</label>
+            <select value={form.proveedorId||""} onChange={e=>setForm(f=>({...f,proveedorId:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+              <option value="">Sin asignar</option>
+              {proveedores.map(p=><option key={p.fireId} value={p.fireId}>{p.empresa||p.titular}</option>)}
+            </select>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Notas (opcional)</label>
+            <input value={form.notas||""} onChange={e=>setForm(f=>({...f,notas:e.target.value}))} placeholder="Medida, color, especificaciones..." style={inp}/>
+          </div>
+          {form.precioInd > 0 && form.cantidad > 0 && (
+            <div style={{ gridColumn:"1 / -1", background:"#fff8f5", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ fontSize:13, color:"#a09080", fontWeight:600 }}>Total estimado:</span>
+              <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#e65100" }}>
+                ${(parseFloat(form.precioInd||0)*parseInt(form.cantidad||1)).toLocaleString("es-AR")}
+              </span>
+            </div>
+          )}
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:20 }}>
+          <button onClick={onClose} style={{ padding:"9px 18px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding:"9px 22px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            {saving?"Guardando...":"✅ Guardar"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1343,13 +2638,13 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
   };
 
   return (
-    <div style={{ maxWidth:900, margin:"0 auto" }}>
+    <div>
       <button onClick={()=>setSelected(null)} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver a proveedores</button>
 
       {/* Ficha */}
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
         <div>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov.empresa||"Sin nombre"}</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov.empresa||"Sin nombre"}</div>
           {prov.titular   && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {prov.titular}</div>}
           <div style={{ display:"flex", flexWrap:"wrap", gap:16 }}>
             {prov.cuit      && <span style={{ fontSize:13 }}>🪪 {prov.cuit}</span>}
@@ -1477,10 +2772,10 @@ function FormularioProveedor({ prov, setView, setSelected, showToast }) {
   const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", color:"#1a2340", outline:"none", boxSizing:"border-box" };
 
   return (
-    <div style={{ maxWidth:680, margin:"0 auto" }}>
+    <div>
       <button onClick={()=>setView("proveedores")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
-        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov?"✏️ Editar Proveedor":"➕ Nuevo Proveedor"}</h2>
+        <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{prov?"✏️ Editar Proveedor":"➕ Nuevo Proveedor"}</h2>
         <p style={{ fontSize:14, color:"#a09080", marginBottom:24 }}>Datos del proveedor.</p>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
           <div style={{ gridColumn:"1 / -1" }}>
@@ -1521,41 +2816,45 @@ function FormularioProveedor({ prov, setView, setSelected, showToast }) {
 }
 
 // ── Componente: Historial de Ventas ───────────────────────────────────────
-function VentasView({ setView, showToast, clientes, empresa }) {
-  const [ventas, setVentas]     = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [busq, setBusq]         = useState("");
+function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
+  const [ventas, setVentas]           = useState([]);
+  const [presupuestos, setPresupuestos] = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [busq, setBusq]               = useState("");
   const [filtroFecha, setFiltroFecha] = useState("hoy");
+  const [tabActiva, setTabActiva]     = useState("ventas"); // ventas | presupuestos
+  const [convirtiendo, setConvirtiendo] = useState(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "ventas"), snap => {
-      const data = snap.docs.map(d=>({...d.data(), fireId:d.id}))
-        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0);
-      setVentas(data);
+    const u1 = onSnapshot(collection(db, "ventas"), snap => {
+      setVentas(snap.docs.map(d=>({...d.data(), fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0));
       setLoading(false);
     });
-    return () => unsub();
+    const u2 = onSnapshot(collection(db, "presupuestos"), snap => {
+      setPresupuestos(snap.docs.map(d=>({...d.data(), fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0));
+    });
+    return () => { u1(); u2(); };
   }, []);
 
   const hoy = new Date().toISOString().split("T")[0];
+
   const filtradas = ventas.filter(v => {
     const q = busq.toLowerCase();
     const matchBusq = !busq || v.clienteNombre?.toLowerCase().includes(q) || v.numero?.toString().includes(q);
-    if (filtroFecha==="hoy")   return matchBusq && v.fecha===hoy;
-    if (filtroFecha==="semana") {
-      const d = new Date(); d.setDate(d.getDate()-7);
-      return matchBusq && v.fecha >= d.toISOString().split("T")[0];
-    }
-    if (filtroFecha==="mes") {
-      return matchBusq && v.fecha?.startsWith(hoy.slice(0,7));
-    }
+    if (filtroFecha==="hoy")    return matchBusq && v.fecha===hoy;
+    if (filtroFecha==="semana") { const d=new Date(); d.setDate(d.getDate()-7); return matchBusq && v.fecha>=d.toISOString().split("T")[0]; }
+    if (filtroFecha==="mes")    return matchBusq && v.fecha?.startsWith(hoy.slice(0,7));
     return matchBusq;
   });
 
+  const presFiltrados = presupuestos.filter(p => {
+    const q = busq.toLowerCase();
+    return !busq || p.clienteNombre?.toLowerCase().includes(q) || p.numero?.toString().includes(q);
+  });
+
   const totalFiltrado = filtradas.reduce((s,v)=>s+parseFloat(v.total||0),0);
-  const totalEfectivo = filtradas.filter(v=>v.metodoPago==="Efectivo").reduce((s,v)=>s+parseFloat(v.total||0),0);
-  const totalTransfer = filtradas.filter(v=>v.metodoPago==="Transferencia").reduce((s,v)=>s+parseFloat(v.total||0),0);
-  const totalCtaCte   = filtradas.filter(v=>v.metodoPago==="Cuenta Corriente").reduce((s,v)=>s+parseFloat(v.total||0),0);
 
   const handleDelete = async (v) => {
     if (!window.confirm("¿Eliminar esta venta?")) return;
@@ -1563,96 +2862,259 @@ function VentasView({ setView, showToast, clientes, empresa }) {
     showToast("Venta eliminada", "error");
   };
 
+  const handleDeletePres = async (p) => {
+    if (!window.confirm("¿Eliminar este presupuesto?")) return;
+    await deleteDoc(doc(db, "presupuestos", p.fireId));
+    showToast("Presupuesto eliminado", "error");
+  };
+
+  const handleReimprimir = (p) => {
+    imprimirPresupuesto(p, empresa);
+  };
+
+  const handleConvertirVenta = async (pres, metodoPago) => {
+    setConvirtiendo(null);
+    try {
+      const snap = await getDocs(collection(db, "ventas"));
+      const numero = snap.size + 1;
+      const venta = {
+        numero,
+        fecha:         hoy,
+        clienteId:     pres.clienteId||null,
+        clienteNombre: pres.clienteNombre||"Consumidor Final",
+        metodoPago,
+        items:         pres.items,
+        total:         pres.total,
+        creadoEn:      new Date().toISOString(),
+        origen:        "presupuesto",
+        presupuestoId: pres.fireId,
+      };
+      await addDoc(collection(db, "ventas"), venta);
+      // Marcar presupuesto como convertido
+      await updateDoc(doc(db, "presupuestos", pres.fireId), { estado:"convertido", ventaId: pres.fireId });
+      // Descontar stock
+      if (pres.items) {
+        for (const it of pres.items) {
+          if (it.insumoId && !it.esLibre) {
+            const insSnap = await getDoc(doc(db, "insumos", it.insumoId)).catch(()=>null);
+            if (insSnap?.exists()) {
+              const nuevoStock = Math.max(0, (parseFloat(insSnap.data().stock)||0) - it.cantidad);
+              await updateDoc(doc(db, "insumos", it.insumoId), { stock: nuevoStock });
+            }
+          }
+        }
+      }
+      showToast(`✅ Presupuesto convertido a venta · $${parseFloat(pres.total).toLocaleString("es-AR")}`);
+      setTimeout(() => imprimirComprobante(venta, empresa), 400);
+      setTabActiva("ventas");
+    } catch(e) {
+      console.error(e);
+      showToast("Error al convertir", "error");
+    }
+  };
+
+  const estadoPres = (p) => {
+    if (p.estado==="convertido") return { label:"✅ Convertido", bg:"#e8f5e9", color:"#2e7d32" };
+    // Verificar vencimiento (7 días)
+    const fechaPres = new Date(p.fecha);
+    const diff = (new Date() - fechaPres) / (1000*60*60*24);
+    if (diff > 7) return { label:"⏰ Vencido", bg:"#ffebee", color:"#c62828" };
+    return { label:"⏳ Pendiente", bg:"#fff3e0", color:"#e65100" };
+  };
+
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
-        <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>💰 Ventas</h2>
-          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{filtradas.length} venta{filtradas.length!==1?"s":""} · Total: <strong style={{color:"#e65100"}}>${totalFiltrado.toLocaleString("es-AR")}</strong></p>
-        </div>
-        <button onClick={() => setView("nuevaVenta")}
-          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
-          ➕ Nueva Venta
+      {/* Tabs */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+        <button onClick={()=>setTabActiva("ventas")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="ventas"?"#e65100":"#fff", color:tabActiva==="ventas"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="ventas"?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          💰 Ventas
+          {filtradas.length>0 && tabActiva!=="ventas" && <span style={{ marginLeft:6, background:"#fff3e0", color:"#e65100", borderRadius:20, padding:"1px 7px", fontSize:12, fontWeight:700 }}>{filtradas.length}</span>}
+        </button>
+        <button onClick={()=>setTabActiva("presupuestos")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="presupuestos"?"#1a2340":"#fff", color:tabActiva==="presupuestos"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="presupuestos"?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          📋 Presupuestos
+          {presupuestos.filter(p=>p.estado!=="convertido").length>0 && (
+            <span style={{ marginLeft:6, background:tabActiva==="presupuestos"?"rgba(255,255,255,.2)":"#f0f3f9", color:tabActiva==="presupuestos"?"#fff":"#4a5568", borderRadius:20, padding:"1px 7px", fontSize:12, fontWeight:700 }}>
+              {presupuestos.filter(p=>p.estado!=="convertido").length}
+            </span>
+          )}
         </button>
       </div>
 
-      {/* Stats rápidos */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
-        {[
-          { label:"Total", value:`$${totalFiltrado.toLocaleString("es-AR")}`, color:"#e65100" },
-          { label:"Efectivo", value:`$${totalEfectivo.toLocaleString("es-AR")}`, color:"#2e7d32" },
-          { label:"Transferencia", value:`$${totalTransfer.toLocaleString("es-AR")}`, color:"#1565c0" },
-          { label:"Cta. Corriente", value:`$${totalCtaCte.toLocaleString("es-AR")}`, color:"#6a1b9a" },
-        ].map((s,i) => (
-          <div key={i} style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px" }}>
-            <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>{s.label}</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:s.color }}>{s.value}</div>
+      {/* ── TAB VENTAS ── */}
+      {tabActiva==="ventas" && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+            <p style={{ fontSize:14, color:"#a09080" }}>{filtradas.length} venta{filtradas.length!==1?"s":""} · Total: <strong style={{color:"#e65100"}}>${totalFiltrado.toLocaleString("es-AR")}</strong></p>
           </div>
-        ))}
-      </div>
 
-      {/* Filtros */}
-      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
-        <div style={{ position:"relative", flex:"1 1 200px" }}>
-          <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
-          <input placeholder="Buscar por cliente o número..." value={busq} onChange={e=>setBusq(e.target.value)}
-            style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
-        </div>
-        {["hoy","semana","mes","todos"].map(f => (
-          <button key={f} onClick={() => setFiltroFecha(f)}
-            style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
-              background:filtroFecha===f?"#e65100":"#fff8f5", color:filtroFecha===f?"#fff":"#a09080",
-              boxShadow:filtroFecha===f?"0 3px 10px rgba(230,81,0,.2)":"none" }}>
-            {f==="hoy"?"Hoy":f==="semana"?"Esta semana":f==="mes"?"Este mes":"Todas"}
-          </button>
-        ))}
-      </div>
+          {/* Filtros */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
+            <div style={{ position:"relative", flex:"1 1 200px" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
+              <input placeholder="Buscar por cliente o número..." value={busq} onChange={e=>setBusq(e.target.value)}
+                style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+            </div>
+            {["hoy","semana","mes","todos"].map(f => (
+              <button key={f} onClick={() => setFiltroFecha(f)}
+                style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+                  background:filtroFecha===f?"#e65100":"#fff8f5", color:filtroFecha===f?"#fff":"#a09080",
+                  boxShadow:filtroFecha===f?"0 3px 10px rgba(230,81,0,.2)":"none" }}>
+                {f==="hoy"?"Hoy":f==="semana"?"Esta semana":f==="mes"?"Este mes":"Todas"}
+              </button>
+            ))}
+          </div>
 
-      {loading ? (
-        <div style={{ textAlign:"center", padding:40, color:"#a09080" }}>Cargando ventas...</div>
-      ) : filtradas.length === 0 ? (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
-          <div style={{ fontSize:40, marginBottom:14 }}>💰</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>Sin ventas {filtroFecha==="hoy"?"hoy":filtroFecha==="semana"?"esta semana":filtroFecha==="mes"?"este mes":""}</div>
-          <div style={{ color:"#a09080", fontSize:14 }}>Registrá una nueva venta con el botón de arriba</div>
+          {loading ? (
+            <div style={{ textAlign:"center", padding:40, color:"#a09080" }}>Cargando ventas...</div>
+          ) : filtradas.length === 0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+              <div style={{ fontSize:40, marginBottom:14 }}>💰</div>
+              <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>Sin ventas {filtroFecha==="hoy"?"hoy":filtroFecha==="semana"?"esta semana":filtroFecha==="mes"?"este mes":""}</div>
+              <div style={{ color:"#a09080", fontSize:14 }}>Registrá una nueva venta con el botón de arriba</div>
+            </div>
+          ) : (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+                <thead><tr style={{ background:"#fffaf7" }}>
+                  {["N°","Fecha","Cliente","Items","Método","Total",""].map(h=>(
+                    <th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0" }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {filtradas.map(v=>(
+                    <tr key={v.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                      <td style={{ padding:"11px 16px", color:"#a09080", fontFamily:"monospace", fontSize:12 }}>X-{String(v.numero||1).padStart(5,"0")}</td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568" }}>{v.fecha}</td>
+                      <td style={{ padding:"11px 16px", fontWeight:600, color:"#1a2340" }}>
+                        {v.clienteNombre||"Consumidor Final"}
+                        {v.origen==="pedido" && <span style={{ marginLeft:6, background:"#e8eaf6", color:"#3949ab", padding:"1px 6px", borderRadius:10, fontSize:10, fontWeight:700 }}>PEDIDO</span>}
+                        {v.origen==="presupuesto" && <span style={{ marginLeft:6, background:"#e8f5e9", color:"#2e7d32", padding:"1px 6px", borderRadius:10, fontSize:10, fontWeight:700 }}>PRES.</span>}
+                      </td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568", maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                        {v.items?.map(i=>`${i.cantidad}x ${i.nombre}`).join(", ")||"—"}
+                      </td>
+                      <td style={{ padding:"11px 16px" }}>
+                        <span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.metodoPago}</span>
+                      </td>
+                      <td style={{ padding:"11px 16px", fontWeight:800, color:"#e65100", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</td>
+                      <td style={{ padding:"11px 14px" }}>
+                        <div style={{ display:"flex", gap:6 }}>
+                          <button onClick={() => imprimirComprobante(v, empresa)}
+                            style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🖨️</button>
+                          <button onClick={() => handleDelete(v)}
+                            style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      ) : (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
-            <thead>
-              <tr style={{ background:"#fffaf7" }}>
-                {["N°","Fecha","Cliente","Items","Método de Pago","Total",""].map(h=>(
-                  <th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0", whiteSpace:"nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtradas.map(v => {
-                const mpColor = v.metodoPago==="Efectivo"?"#2e7d32":v.metodoPago==="Transferencia"?"#1565c0":v.metodoPago==="Cuenta Corriente"?"#6a1b9a":"#e65100";
-                const mpBg    = v.metodoPago==="Efectivo"?"#e8f5e9":v.metodoPago==="Transferencia"?"#e3f2fd":v.metodoPago==="Cuenta Corriente"?"#f3e5f5":"#fff3e0";
+      )}
+
+      {/* ── TAB PRESUPUESTOS ── */}
+      {tabActiva==="presupuestos" && (
+        <div>
+          <div style={{ marginBottom:16 }}>
+            <p style={{ fontSize:14, color:"#a09080" }}>{presupuestos.length} presupuesto{presupuestos.length!==1?"s":""} · {presupuestos.filter(p=>p.estado!=="convertido").length} pendiente{presupuestos.filter(p=>p.estado!=="convertido").length!==1?"s":""}</p>
+          </div>
+
+          {/* Buscador */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
+              <input placeholder="Buscar por cliente o número..." value={busq} onChange={e=>setBusq(e.target.value)}
+                style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+            </div>
+          </div>
+
+          {presFiltrados.length===0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+              <div style={{ fontSize:40, marginBottom:14 }}>📋</div>
+              <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>Sin presupuestos</div>
+              <div style={{ color:"#a09080", fontSize:14 }}>Generá un presupuesto desde Nueva Venta</div>
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              {presFiltrados.map(p => {
+                const est = estadoPres(p);
                 return (
-                  <tr key={v.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
-                    <td style={{ padding:"12px 16px", fontFamily:"monospace", color:"#a09080", fontSize:12 }}>X-{String(v.numero||1).padStart(5,"0")}</td>
-                    <td style={{ padding:"12px 16px", color:"#4a5568" }}>{v.fecha||"—"}</td>
-                    <td style={{ padding:"12px 16px", fontWeight:600, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</td>
-                    <td style={{ padding:"12px 16px", color:"#4a5568" }}>{v.items?.length||0} producto{v.items?.length!==1?"s":""}</td>
-                    <td style={{ padding:"12px 16px" }}>
-                      <span style={{ background:mpBg, color:mpColor, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{v.metodoPago||"—"}</span>
-                    </td>
-                    <td style={{ padding:"12px 16px", fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:"#e65100" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</td>
-                    <td style={{ padding:"12px 14px" }}>
-                      <div style={{ display:"flex", gap:6 }}>
-                        <button onClick={() => imprimirComprobante(v, empresa)}
-                          style={{ background:"#e65100", color:"#fff", border:"none", padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>🖨️</button>
-                        <button onClick={() => handleDelete(v)}
-                          style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                  <div key={p.fireId} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 22px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                          <span style={{ fontFamily:"monospace", fontSize:12, color:"#a09080" }}>P-{String(p.numero||1).padStart(5,"0")}</span>
+                          <span style={{ background:est.bg, color:est.color, padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>{est.label}</span>
+                        </div>
+                        <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:4 }}>{p.clienteNombre||"Consumidor Final"}</div>
+                        <div style={{ fontSize:12, color:"#a09080", marginBottom:8 }}>
+                          {p.fecha} · {p.items?.length||0} item{p.items?.length!==1?"s":""}
+                        </div>
+                        {/* Items */}
+                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                          {p.items?.slice(0,4).map((it,i)=>(
+                            <span key={i} style={{ background:"#f0f3f9", color:"#4a5568", padding:"2px 8px", borderRadius:20, fontSize:11 }}>
+                              {it.cantidad}× {it.nombre.length>25?it.nombre.slice(0,25)+"...":it.nombre}
+                            </span>
+                          ))}
+                          {p.items?.length>4 && <span style={{ background:"#f0f3f9", color:"#a09080", padding:"2px 8px", borderRadius:20, fontSize:11 }}>+{p.items.length-4} más</span>}
+                        </div>
                       </div>
-                    </td>
-                  </tr>
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:10 }}>
+                        <div style={{ fontWeight:800, fontSize:22, color:"#1a2340" }}>${parseFloat(p.total||0).toLocaleString("es-AR")}</div>
+                        <div style={{ display:"flex", gap:8 }}>
+                          <button onClick={()=>handleReimprimir(p)}
+                            style={{ background:"#f0f3f9", border:"none", color:"#4a5568", padding:"7px 12px", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                            🖨️ Reimprimir
+                          </button>
+                          <button onClick={()=>handleDeletePres(p)}
+                            style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 10px", borderRadius:8, fontSize:12, cursor:"pointer" }}>🗑</button>
+                          {p.estado!=="convertido" && (
+                            <button onClick={()=>setConvirtiendo(p)}
+                              style={{ background:"#e65100", color:"#fff", border:"none", padding:"7px 14px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              ✅ Convertir a venta
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal: elegir método de pago al convertir */}
+      {convirtiendo && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setConvirtiendo(null)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:400, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:18, color:"#1a2340", marginBottom:6 }}>✅ Convertir a venta</div>
+            <div style={{ fontSize:13, color:"#a09080", marginBottom:20 }}>
+              {convirtiendo.clienteNombre} · <strong style={{color:"#e65100"}}>${parseFloat(convirtiendo.total).toLocaleString("es-AR")}</strong>
+            </div>
+            <div style={{ fontWeight:600, fontSize:13, color:"#4a5568", marginBottom:12 }}>Método de pago:</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:20 }}>
+              {["Efectivo","Transferencia","Tarjeta de Crédito","Cuenta Corriente"].map(m=>(
+                <button key={m} onClick={()=>handleConvertirVenta(convirtiendo, m)}
+                  style={{ padding:"12px 8px", borderRadius:8, border:"1.5px solid #f0d5c0", background:"#fff", fontSize:12, fontWeight:600, cursor:"pointer", color:"#1a2340", transition:"all .15s" }}
+                  onMouseOver={e=>{e.currentTarget.style.background="#fff8f5";e.currentTarget.style.borderColor="#e65100";}}
+                  onMouseOut={e=>{e.currentTarget.style.background="#fff";e.currentTarget.style.borderColor="#f0d5c0";}}>
+                  {m==="Efectivo"?"💵 Efectivo":m==="Transferencia"?"📲 Transferencia":m==="Tarjeta de Crédito"?"💳 Tarjeta":"📒 Cta. Corriente"}
+                </button>
+              ))}
+            </div>
+            <button onClick={()=>setConvirtiendo(null)} style={{ width:"100%", padding:"10px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          </div>
         </div>
       )}
     </div>
@@ -1660,7 +3122,7 @@ function VentasView({ setView, showToast, clientes, empresa }) {
 }
 
 // ── Componente: Nueva Venta ───────────────────────────────────────────────
-function NuevaVentaView({ setView, showToast, clientes, empresa }) {
+function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }) {
   const [insumos, setInsumos]           = useState([]);
   const [items, setItems]               = useState([]);
   const [busqProd, setBusqProd]         = useState("");
@@ -1671,6 +3133,11 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
   const [metodoPago, setMetodoPago]     = useState("Efectivo");
   const [saving, setSaving]             = useState(false);
   const [tipoPrecios, setTipoPrecios]   = useState("venta"); // venta | gremio
+  const [itemLibreNombre, setItemLibreNombre] = useState("");
+  const [itemLibrePrecio, setItemLibrePrecio] = useState("");
+  const [modalAgendarVenta, setModalAgendarVenta] = useState(false);
+  const [ordenVenta, setOrdenVenta]     = useState("popular"); // popular | nombre | precio_asc | precio_desc
+  const [ventasData, setVentasData]     = useState([]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "insumos"), snap => {
@@ -1679,12 +3146,45 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
     return () => unsub();
   }, []);
 
-  const prodFiltrados = insumos.filter(i => {
-    if (!busqProd) return true;
-    const palabras = busqProd.toLowerCase().split(/\s+/).filter(Boolean);
-    const texto = `${i.nombre||""} ${i.codigo||""} ${i.categoria||""}`.toLowerCase();
-    return palabras.every(p => texto.includes(p));
-  }).slice(0,80);
+  useEffect(() => {
+    // Cargar ventas para calcular popularidad
+    getDocs(collection(db, "ventas")).then(snap => {
+      setVentasData(snap.docs.map(d=>d.data()));
+    });
+  }, []);
+
+  // Calcular popularidad: cuántas veces se vendió cada insumo
+  const popularidad = useMemo(() => {
+    const map = {};
+    ventasData.forEach(v => {
+      (v.items||[]).forEach(it => {
+        if (it.insumoId) map[it.insumoId] = (map[it.insumoId]||0) + (it.cantidad||1);
+      });
+    });
+    return map;
+  }, [ventasData]);
+
+  const prodFiltrados = useMemo(() => {
+    const filtrados = insumos.filter(i => {
+      if (!busqProd) return true;
+      const palabras = busqProd.toLowerCase().split(/\s+/).filter(Boolean);
+      const texto = `${i.nombre||""} ${i.codigo||""} ${i.categoria||""}`.toLowerCase();
+      return palabras.every(p => texto.includes(p));
+    });
+
+    return filtrados.sort((a, b) => {
+      if (ordenVenta === "popular") {
+        const diff = (popularidad[b.fireId]||0) - (popularidad[a.fireId]||0);
+        return diff !== 0 ? diff : (a.nombre||"").localeCompare(b.nombre||"");
+      }
+      if (ordenVenta === "nombre") return (a.nombre||"").localeCompare(b.nombre||"");
+      const pa = parseFloat(a.precioVenta||0);
+      const pb = parseFloat(b.precioVenta||0);
+      if (ordenVenta === "precio_asc")  return pa - pb;
+      if (ordenVenta === "precio_desc") return pb - pa;
+      return 0;
+    }).slice(0, 80);
+  }, [insumos, busqProd, ordenVenta, popularidad]);
 
   const agregarItem = (ins) => {
     setItems(prev => {
@@ -1701,6 +3201,11 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
   };
 
   const removeItem = (insumoId) => setItems(prev => prev.filter(it => it.insumoId!==insumoId));
+
+  const updatePrecio = (insumoId, val) => {
+    const n = Math.max(0, parseFloat(val)||0);
+    setItems(prev => prev.map(it => it.insumoId===insumoId ? {...it, precio:n} : it));
+  };
 
   const total = items.reduce((s,it)=>s+it.cantidad*it.precio, 0);
 
@@ -1764,11 +3269,85 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
     setSaving(false);
   };
 
+  const handlePresupuesto = async () => {
+    if (items.length===0) { showToast("Agregá al menos un producto", "error"); return; }
+    setSaving(true);
+    try {
+      const snap = await getDocs(collection(db, "presupuestos"));
+      const numero = snap.size + 1;
+      const pres = {
+        numero,
+        fecha:         new Date().toISOString().split("T")[0],
+        clienteId:     clienteSelId||null,
+        clienteNombre: clienteNombre||"Consumidor Final",
+        items,
+        total,
+        creadoEn:      new Date().toISOString(),
+        estado:        "pendiente",
+      };
+      await addDoc(collection(db, "presupuestos"), pres);
+      // Si hay cliente, guardar en historial del cliente
+      if (clienteSelId) {
+        await addDoc(collection(db, "movimientosCuenta"), {
+          clienteId: clienteSelId,
+          tipo: "presupuesto",
+          monto: total,
+          fecha: new Date().toISOString().split("T")[0],
+          descripcion: `Presupuesto P-${String(numero).padStart(5,"0")}`,
+        });
+      }
+      showToast(`Presupuesto guardado ✅ · $${total.toLocaleString("es-AR")}`);
+      setTimeout(() => imprimirPresupuesto(pres, empresa), 400);
+      setView("ventas");
+    } catch(e) {
+      console.error(e);
+      showToast("Error al generar presupuesto", "error");
+    }
+    setSaving(false);
+  };
+
+  const handleAgendarVenta = async (fechaEntrega, categoria, notas) => {
+    if (items.length===0) return;
+    const desc = items.map(it=>`${it.cantidad}x ${it.nombre} $${(it.cantidad*it.precio).toLocaleString("es-AR")}`).join("\n");
+    const notaFinal = [notas, desc].filter(Boolean).join("\n---\n");
+    const snap = await getDocs(collection(db,"pedidos"));
+    const maxId = Math.max(...snap.docs.map(d=>d.data().id||0), 0);
+    const nuevoPedido = {
+      id:          maxId + 1,
+      nombre:      items.length===1 ? items[0].nombre : `Pedido de ${clienteNombre||"cliente"} (${items.length} items)`,
+      cliente:     clienteNombre || "Consumidor Final",
+      clienteId:   clienteSelId || null,
+      telefono:    "",
+      categoria:   categoria || "Otros",
+      estado:      "Pendiente",
+      precio:      total,
+      seña:        0,
+      fechaPedido: new Date().toISOString().split("T")[0],
+      fechaEntrega,
+      notas:       notaFinal,
+      itemsVenta:  items,
+    };
+    await addDoc(collection(db,"pedidos"), nuevoPedido);
+    showToast("✅ Pedido creado desde la venta");
+    setModalAgendarVenta(false);
+    setView("lista");
+  };
+
+  const agregarItemLibre = () => {
+    if (!itemLibreNombre.trim()) { showToast("Ingresá un nombre para el ítem", "error"); return; }
+    const precio = parseFloat(itemLibrePrecio)||0;
+    const id = `libre_${Date.now()}`;
+    setItems(prev => [...prev, { insumoId:id, codigo:"CUSTOM", nombre:itemLibreNombre.trim(), precio, cantidad:1, stockDisp:999, esLibre:true }]);
+    setItemLibreNombre("");
+    setItemLibrePrecio("");
+    showToast("Ítem personalizado agregado ✅");
+  };
+
   return (
     <div>
       <button onClick={() => setView("ventas")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 420px", gap:20, alignItems:"start" }}>
+      <div className="grid-nueva-venta">
 
         {/* ── Columna izquierda: productos ── */}
         <div>
@@ -1786,7 +3365,24 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
               </div>
             </div>
             <input placeholder="Buscar por nombre o código..." value={busqProd} onChange={e=>setBusqProd(e.target.value)}
-              style={{ width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", marginBottom:14 }}/>
+              style={{ width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", marginBottom:10 }}/>
+            {/* Ordenamiento */}
+            <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+              <span style={{ fontSize:11, color:"#a09080", fontWeight:600, alignSelf:"center", marginRight:2 }}>Ordenar:</span>
+              {[
+                ["popular","⭐ Más vendidos"],
+                ["nombre","🔤 A-Z"],
+                ["precio_asc","💲 Menor precio"],
+                ["precio_desc","💲 Mayor precio"],
+              ].map(([val,lbl])=>(
+                <button key={val} onClick={()=>setOrdenVenta(val)}
+                  style={{ padding:"4px 11px", borderRadius:20, fontSize:11, fontWeight:600, cursor:"pointer", border:"none",
+                    background:ordenVenta===val?"#1a2340":"#f0f3f9",
+                    color:ordenVenta===val?"#fff":"#4a5568", transition:"all .15s" }}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
             <div style={{ maxHeight:420, overflowY:"auto", display:"flex", flexDirection:"column", gap:6 }}>
               {prodFiltrados.length===0 ? (
                 <div style={{ textAlign:"center", padding:"24px 0", color:"#a09080", fontSize:13 }}>Sin productos{busqProd?" con ese criterio":""}</div>
@@ -1812,6 +3408,23 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
                   </div>
                 );
               })}
+            </div>
+
+            {/* Ítem personalizado */}
+            <div style={{ marginTop:14, borderTop:"1.5px dashed #f0d5c0", paddingTop:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:10 }}>✏️ Ítem personalizado</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input value={itemLibreNombre} onChange={e=>setItemLibreNombre(e.target.value)}
+                  placeholder="Nombre del ítem..."
+                  style={{ flex:2, padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
+                <input type="number" value={itemLibrePrecio} onChange={e=>setItemLibrePrecio(e.target.value)}
+                  placeholder="Precio"
+                  style={{ flex:1, padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
+                <button onClick={agregarItemLibre}
+                  style={{ padding:"9px 16px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+                  + Agregar
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1877,16 +3490,32 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
                 {items.map(it=>(
-                  <div key={it.insumoId} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, background:"#fffaf7", border:"1px solid #f5e8e0" }}>
-                    <div style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", lineHeight:1.3 }}>{it.nombre}</div>
-                    <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-                      <button onClick={()=>updateCantidad(it.insumoId,it.cantidad-1)} style={{ background:"#ffebee", border:"none", color:"#c62828", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>−</button>
-                      <input type="number" value={it.cantidad} onChange={e=>updateCantidad(it.insumoId,e.target.value)}
-                        style={{ width:40, textAlign:"center", border:"1.5px solid #f0d5c0", borderRadius:5, fontSize:13, fontWeight:700, padding:"2px 4px", fontFamily:"'DM Sans',sans-serif" }}/>
-                      <button onClick={()=>updateCantidad(it.insumoId,it.cantidad+1)} style={{ background:"#e8f5e9", border:"none", color:"#2e7d32", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>+</button>
+                  <div key={it.insumoId} style={{ padding:"8px 10px", borderRadius:8, background: it.esLibre?"#f0f3f9":"#fffaf7", border:`1px solid ${it.esLibre?"#c5cce0":"#f5e8e0"}` }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                      {it.esLibre
+                        ? <input value={it.nombre} onChange={e=>setItems(prev=>prev.map(x=>x.insumoId===it.insumoId?{...x,nombre:e.target.value}:x))}
+                            style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", border:"1.5px solid #c5cce0", borderRadius:5, padding:"3px 8px", fontFamily:"'DM Sans',sans-serif", outline:"none", background:"#fff" }}/>
+                        : <div style={{ flex:1, fontSize:12, fontWeight:600, color:"#1a2340", lineHeight:1.3 }}>{it.nombre}</div>
+                      }
+                      <button onClick={()=>removeItem(it.insumoId)} style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:14, fontWeight:700 }}>✕</button>
                     </div>
-                    <div style={{ fontSize:13, fontWeight:700, color:"#e65100", minWidth:70, textAlign:"right" }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</div>
-                    <button onClick={()=>removeItem(it.insumoId)} style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:14, fontWeight:700 }}>✕</button>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      {/* Cantidad */}
+                      <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                        <button onClick={()=>updateCantidad(it.insumoId,it.cantidad-1)} style={{ background:"#ffebee", border:"none", color:"#c62828", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>−</button>
+                        <input type="number" value={it.cantidad} onChange={e=>updateCantidad(it.insumoId,e.target.value)}
+                          style={{ width:38, textAlign:"center", border:"1.5px solid #f0d5c0", borderRadius:5, fontSize:12, fontWeight:700, padding:"2px 3px", fontFamily:"'DM Sans',sans-serif" }}/>
+                        <button onClick={()=>updateCantidad(it.insumoId,it.cantidad+1)} style={{ background:"#e8f5e9", border:"none", color:"#2e7d32", width:22, height:22, borderRadius:5, fontWeight:700, cursor:"pointer" }}>+</button>
+                      </div>
+                      {/* Precio unitario editable */}
+                      <div style={{ display:"flex", alignItems:"center", gap:4, flex:1 }}>
+                        <span style={{ fontSize:11, color:"#a09080", whiteSpace:"nowrap" }}>$ p/u</span>
+                        <input type="number" value={it.precio} onChange={e=>updatePrecio(it.insumoId,e.target.value)}
+                          style={{ width:"100%", textAlign:"right", border:"1.5px solid #e65100", borderRadius:5, fontSize:12, fontWeight:700, padding:"3px 6px", fontFamily:"'DM Sans',sans-serif", color:"#e65100", background:"#fff8f5", outline:"none" }}/>
+                      </div>
+                      {/* Total item */}
+                      <div style={{ fontSize:13, fontWeight:800, color:"#e65100", minWidth:65, textAlign:"right" }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1895,15 +3524,130 @@ function NuevaVentaView({ setView, showToast, clientes, empresa }) {
             <div style={{ borderTop:"2px solid #f5e8e0", paddingTop:14 }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <span style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>TOTAL</span>
-                <span style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#e65100" }}>${total.toLocaleString("es-AR")}</span>
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#e65100" }}>${total.toLocaleString("es-AR")}</span>
               </div>
             </div>
           </div>
 
-          {/* Botón confirmar */}
-          <button onClick={handleGuardar} disabled={saving||items.length===0}
-            style={{ width:"100%", padding:"15px", background: items.length===0?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:16, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
-            {saving ? "Guardando..." : "✅ Confirmar Venta · Imprimir Comprobante"}
+          {/* Botones confirmar + presupuesto + pedido */}
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <button onClick={handleGuardar} disabled={saving||items.length===0}
+              style={{ width:"100%", padding:"15px", background: items.length===0?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:15, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
+              {saving ? "Guardando..." : !configCargada ? "⏳ Cargando..." : "✅ Confirmar Venta · Imprimir Comprobante"}
+            </button>
+            <button onClick={handlePresupuesto} disabled={saving||items.length===0}
+              style={{ width:"100%", padding:"13px", background: items.length===0?"#f0f3f9":"#fff", color:items.length===0?"#a09080":"#1a2340", border:`2px solid ${items.length===0?"#e0e0e0":"#1a2340"}`, borderRadius:10, fontSize:14, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
+              📋 Generar Presupuesto
+            </button>
+            <button onClick={()=>setModalAgendarVenta(true)} disabled={items.length===0}
+              style={{ width:"100%", padding:"13px", background: items.length===0?"#f0f3f9":"#e8eaf6", color:items.length===0?"#a09080":"#3949ab", border:`2px solid ${items.length===0?"#e0e0e0":"#3949ab"}`, borderRadius:10, fontSize:14, fontWeight:700, cursor:items.length===0?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all .2s" }}>
+              📅 Crear Pedido con fecha de entrega
+            </button>
+          </div>
+
+          {/* Modal agendar como pedido */}
+          {modalAgendarVenta && (
+            <ModalAgendarVenta
+              items={items}
+              total={total}
+              clienteNombre={clienteNombre}
+              onConfirmar={handleAgendarVenta}
+              onClose={()=>setModalAgendarVenta(false)}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: Agendar Venta como Pedido ─────────────────────────────────────
+function ModalAgendarVenta({ items, total, clienteNombre, onConfirmar, onClose }) {
+  const [fechaEntrega, setFechaEntrega] = useState("");
+  const [categoria, setCategoria]       = useState("");
+  const [notas, setNotas]               = useState("");
+  const [saving, setSaving]             = useState(false);
+  const hoy = new Date().toISOString().split("T")[0];
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  const handleOk = async () => {
+    if (!fechaEntrega || !categoria) return;
+    setSaving(true);
+    await onConfirmar(fechaEntrega, categoria, notas);
+    setSaving(false);
+  };
+
+  const listo = fechaEntrega && categoria;
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontSize:32, textAlign:"center", marginBottom:10 }}>📅</div>
+        <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:4, textAlign:"center" }}>Crear Pedido</div>
+        <div style={{ fontSize:13, color:"#a09080", textAlign:"center", marginBottom:20 }}>
+          Los items van a las notas del pedido · Cliente: <strong>{clienteNombre||"Consumidor Final"}</strong>
+        </div>
+
+        {/* Resumen de items */}
+        <div style={{ background:"#f0f3f9", borderRadius:10, padding:"12px 14px", marginBottom:18, maxHeight:130, overflowY:"auto" }}>
+          {items.map((it,i)=>(
+            <div key={i} style={{ display:"flex", justifyContent:"space-between", fontSize:12, padding:"3px 0", borderBottom:i<items.length-1?"1px solid #e0e4f0":"none" }}>
+              <span style={{ color:"#1a2340", fontWeight:500 }}>{it.cantidad}× {it.nombre}</span>
+              <span style={{ color:"#3949ab", fontWeight:700 }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</span>
+            </div>
+          ))}
+          <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, paddingTop:8, borderTop:"2px solid #c5cce0" }}>
+            <span style={{ fontWeight:700, fontSize:13, color:"#1a2340" }}>Total</span>
+            <span style={{ fontWeight:800, fontSize:15, color:"#e65100" }}>${total.toLocaleString("es-AR")}</span>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {/* Categoría */}
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>
+              Categoría *
+              {!categoria && <span style={{ color:"#ef5350", fontSize:11, marginLeft:6 }}>requerido</span>}
+            </label>
+            <select value={categoria} onChange={e=>setCategoria(e.target.value)}
+              style={{ ...inp, cursor:"pointer",
+                border:`1.5px solid ${!categoria?"#ef5350":"#f0d5c0"}`,
+                background: categoria ? (CATEGORIA_COLOR[categoria]?.bg||"#fff8f5") : "#fff",
+                color: categoria ? (CATEGORIA_COLOR[categoria]?.text||"#1a2340") : "#a09080",
+                fontWeight: categoria ? 700 : 400 }}>
+              <option value="">— Seleccioná una categoría —</option>
+              {CATEGORIAS.map(cat=>(
+                <option key={cat} value={cat}>{CATEGORIA_ICON[cat]} {cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Fecha */}
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>
+              Fecha de entrega *
+              {!fechaEntrega && <span style={{ color:"#ef5350", fontSize:11, marginLeft:6 }}>requerido</span>}
+            </label>
+            <input type="date" value={fechaEntrega} min={hoy} onChange={e=>setFechaEntrega(e.target.value)}
+              style={{ ...inp, border:`1.5px solid ${!fechaEntrega?"#ef5350":"#f0d5c0"}` }}/>
+          </div>
+
+          {/* Notas */}
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Notas adicionales (opcional)</label>
+            <textarea value={notas} onChange={e=>setNotas(e.target.value)} rows={2}
+              placeholder="Aclaraciones para el pedido..."
+              style={{ ...inp, resize:"none", lineHeight:1.5 }}/>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", gap:10, marginTop:20 }}>
+          <button onClick={onClose} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+            Cancelar
+          </button>
+          <button onClick={handleOk} disabled={!listo||saving}
+            style={{ flex:2, padding:"11px", background:!listo?"#c5cce0":"#3949ab", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:!listo?"not-allowed":"pointer", transition:"all .2s" }}>
+            {saving ? "Creando..." : "📅 Crear Pedido"}
           </button>
         </div>
       </div>
@@ -1919,9 +3663,11 @@ function InsumosView({ setView, showToast }) {
   const [importModal, setImportModal] = useState(false);
   const [importData, setImportData]   = useState([]);
   const [importing, setImporting]     = useState(false);
+  const [modoImport, setModoImport]   = useState("reemplazar");
   const [loadingInsumos, setLoadingInsumos] = useState(true);
   const [editingId, setEditingId]     = useState(null);
   const [editModal, setEditModal]     = useState(null);
+  const [tabActiva, setTabActiva]     = useState("productos"); // productos | materias
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "insumos"), snap => {
@@ -1970,13 +3716,45 @@ function InsumosView({ setView, showToast }) {
 
   const handleImportar = async () => {
     setImporting(true);
-    const batch = importData.slice(0, 500); // Firebase limit safety
-    for (const ins of batch) {
-      await addDoc(collection(db, "insumos"), ins);
+    try {
+      // Si es reemplazar: borrar todos los insumos existentes primero
+      if (modoImport === "reemplazar") {
+        const snap = await getDocs(collection(db, "insumos"));
+        // Borrar en lotes para no sobrecargar Firebase
+        const borrar = snap.docs.map(d => deleteDoc(doc(db, "insumos", d.id)));
+        await Promise.all(borrar);
+      }
+      // Agregar los nuevos — respetar stock existente si es modo agregar
+      const snapActual = modoImport === "agregar" ? await getDocs(collection(db, "insumos")) : null;
+      const mapaActual = {};
+      if (snapActual) {
+        snapActual.docs.forEach(d => {
+          const data = d.data();
+          if (data.codigo) mapaActual[data.codigo] = { fireId: d.id, ...data };
+        });
+      }
+      const batch = importData.slice(0, 500);
+      for (const ins of batch) {
+        if (modoImport === "agregar" && ins.codigo && mapaActual[ins.codigo]) {
+          // Actualizar precios pero conservar stock
+          await updateDoc(doc(db, "insumos", mapaActual[ins.codigo].fireId), {
+            nombre:       ins.nombre,
+            precioCompra: ins.precioCompra,
+            precioVenta:  ins.precioVenta,
+            precioGremio: ins.precioGremio,
+            categoria:    ins.categoria,
+          });
+        } else {
+          await addDoc(collection(db, "insumos"), ins);
+        }
+      }
+      setImportModal(false);
+      showToast(`✅ ${batch.length} insumos ${modoImport === "reemplazar" ? "reemplazados" : "actualizados"} correctamente`);
+    } catch(e) {
+      showToast("Error al importar", "error");
+      console.error(e);
     }
-    setImportModal(false);
     setImporting(false);
-    showToast(`✅ ${batch.length} insumos importados correctamente`);
   };
 
   const handleDelete = async (ins) => {
@@ -2010,20 +3788,48 @@ function InsumosView({ setView, showToast }) {
 
   return (
     <div>
-      {/* Header */}
+      {/* Tabs */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+        <button onClick={()=>setTabActiva("productos")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="productos"?"#e65100":"#fff", color:tabActiva==="productos"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="productos"?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          🏷️ Servicios y Productos
+          <span style={{ marginLeft:6, background:tabActiva==="productos"?"rgba(255,255,255,.25)":"#f0f3f9", color:tabActiva==="productos"?"#fff":"#a09080", borderRadius:20, padding:"1px 7px", fontSize:12, fontWeight:700 }}>{insumos.length}</span>
+        </button>
+        <button onClick={()=>setTabActiva("materias")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="materias"?"#1a2340":"#fff", color:tabActiva==="materias"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="materias"?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+          🧪 Materias Primas
+        </button>
+      </div>
+
+      {/* ── TAB MATERIAS PRIMAS ── */}
+      {tabActiva==="materias" && <MateriasPrimasView showToast={showToast}/>}
+
+      {tabActiva==="productos" && (
+      <div>
+
+      {/* Header productos */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
-        <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>📦 Insumos</h2>
-          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{insumos.length} insumos · {filtrados.length} mostrados</p>
-        </div>
+        <p style={{ fontSize:14, color:"#a09080" }}>{insumos.length} productos · {filtrados.length} mostrados</p>
         <div style={{ display:"flex", gap:10 }}>
+          <button onClick={async () => {
+            if (!window.confirm(`⚠️ ¿Seguro que querés borrar los ${insumos.length} insumos? Esta acción no se puede deshacer.`)) return;
+            const snap = await getDocs(collection(db, "insumos"));
+            await Promise.all(snap.docs.map(d => deleteDoc(doc(db, "insumos", d.id))));
+            showToast("Todos los insumos fueron eliminados", "error");
+          }} style={{ background:"transparent", border:"1.5px solid #ef5350", color:"#ef5350", padding:"9px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            🗑 Borrar todos
+          </button>
           <label style={{ background:"#fff", border:"1.5px solid #e65100", color:"#e65100", padding:"9px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             📥 Importar Excel
             <input type="file" accept=".xlsx,.xls" onChange={handleExcel} style={{ display:"none" }}/>
           </label>
           <button onClick={() => setView("nuevoInsumo")}
             style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            ➕ Nuevo Insumo
+            ➕ Nuevo Producto
           </button>
         </div>
       </div>
@@ -2058,7 +3864,7 @@ function InsumosView({ setView, showToast }) {
       ) : filtrados.length === 0 ? (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
           <div style={{ fontSize:40, marginBottom:14 }}>📦</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq||filtroCat!=="Todas"?"Sin resultados":"No hay insumos aún"}</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq||filtroCat!=="Todas"?"Sin resultados":"No hay insumos aún"}</div>
           <div style={{ color:"#a09080", fontSize:14 }}>Importá tu lista desde Excel o agregá insumos uno a uno</div>
         </div>
       ) : (
@@ -2114,9 +3920,30 @@ function InsumosView({ setView, showToast }) {
       {importModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={() => setImportModal(false)}>
           <div style={{ background:"#fff", borderRadius:16, padding:"32px 36px", width:"100%", maxWidth:680, maxHeight:"80vh", overflow:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>📥 Vista previa de importación</div>
-            <div style={{ fontSize:13, color:"#a09080", marginBottom:20 }}>{importData.length} productos encontrados en la pestaña "Precios final"</div>
-            <div style={{ maxHeight:320, overflowY:"auto", borderRadius:8, border:"1px solid #f0d5c0", marginBottom:20 }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>📥 Vista previa de importación</div>
+            <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>{importData.length} productos encontrados en la pestaña "Precios final"</div>
+
+            {/* Selector modo importación */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
+              <div onClick={()=>setModoImport("reemplazar")}
+                style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${modoImport==="reemplazar"?"#e65100":"#f0d5c0"}`, background:modoImport==="reemplazar"?"#fff8f5":"#fff", cursor:"pointer", transition:"all .15s" }}>
+                <div style={{ fontWeight:700, fontSize:14, color:modoImport==="reemplazar"?"#e65100":"#1a2340", marginBottom:4 }}>🔄 Reemplazar todo</div>
+                <div style={{ fontSize:12, color:"#a09080", lineHeight:1.4 }}>Borra los insumos actuales y carga los del Excel. <strong>Conserva el stock que ya tenías cargado.</strong></div>
+              </div>
+              <div onClick={()=>setModoImport("agregar")}
+                style={{ padding:"14px 16px", borderRadius:10, border:`2px solid ${modoImport==="agregar"?"#e65100":"#f0d5c0"}`, background:modoImport==="agregar"?"#fff8f5":"#fff", cursor:"pointer", transition:"all .15s" }}>
+                <div style={{ fontWeight:700, fontSize:14, color:modoImport==="agregar"?"#e65100":"#1a2340", marginBottom:4 }}>➕ Actualizar precios</div>
+                <div style={{ fontSize:12, color:"#a09080", lineHeight:1.4 }}>Actualiza precios de los existentes por código. Agrega los nuevos. Conserva todo el stock.</div>
+              </div>
+            </div>
+
+            {modoImport==="reemplazar" && (
+              <div style={{ background:"#fff3e0", border:"1.5px solid #ffb74d", borderRadius:8, padding:"10px 14px", marginBottom:16, fontSize:12, color:"#e65100", fontWeight:600 }}>
+                ⚠️ Se borrarán todos los insumos actuales y se cargarán los del Excel. El stock actual se perderá.
+              </div>
+            )}
+
+            <div style={{ maxHeight:280, overflowY:"auto", borderRadius:8, border:"1px solid #f0d5c0", marginBottom:20 }}>
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
                 <thead>
                   <tr style={{ background:"#fffaf7", position:"sticky", top:0 }}>
@@ -2144,7 +3971,12 @@ function InsumosView({ setView, showToast }) {
               <button onClick={() => setImportModal(false)} style={{ padding:"10px 20px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
               <button onClick={handleImportar} disabled={importing}
                 style={{ padding:"10px 28px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer", opacity:importing?.7:1 }}>
-                {importing ? "Importando..." : `✅ Importar ${importData.length} insumos`}
+                {importing
+                  ? "Procesando..."
+                  : modoImport==="reemplazar"
+                    ? `🔄 Reemplazar con ${importData.length} insumos`
+                    : `➕ Actualizar ${importData.length} insumos`
+                }
               </button>
             </div>
           </div>
@@ -2155,7 +3987,7 @@ function InsumosView({ setView, showToast }) {
       {editModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={() => setEditModal(null)}>
           <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:"100%", maxWidth:500, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>✏️ Editar Insumo</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>✏️ Editar Insumo</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
               {[["Nombre","nombre","1 / -1"],["Código","codigo"],["Categoría","categoria"],["Precio Compra","precioCompra"],["Precio Venta","precioVenta"],["Precio Gremio","precioGremio"],["Stock Mínimo","stockMinimo"]].map(([label,key,col]) => (
                 <div key={key} style={{ gridColumn:col||"auto" }}>
@@ -2172,6 +4004,383 @@ function InsumosView({ setView, showToast }) {
           </div>
         </div>
       )}
+      </div>
+      )}
+    </div>
+  );
+}
+
+// ── Componente: Materias Primas ───────────────────────────────────────────
+function MateriasPrimasView({ showToast }) {
+  const [materias, setMaterias]         = useState([]);
+  const [proveedores, setProveedores]   = useState([]);
+  const [busq, setBusq]                 = useState("");
+  const [modal, setModal]               = useState(null);
+  const [filtroProv, setFiltroProv]     = useState("todos");
+  const [importData, setImportData]     = useState([]);
+  const [importModal, setImportModal]   = useState(false);
+  const [importing, setImporting]       = useState(false);
+  const [modoImport, setModoImport]     = useState("reemplazar");
+
+  useEffect(() => {
+    const u1 = onSnapshot(collection(db,"materiasPrimas"), snap =>
+      setMaterias(snap.docs.map(d=>({...d.data(),fireId:d.id})).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")))
+    );
+    const u2 = onSnapshot(collection(db,"proveedores"), snap =>
+      setProveedores(snap.docs.map(d=>({...d.data(),fireId:d.id})))
+    );
+    return () => { u1(); u2(); };
+  }, []);
+
+  const filtradas = materias.filter(m => {
+    const palabras = busq.toLowerCase().split(/\s+/).filter(Boolean);
+    const texto = `${m.nombre||""} ${m.descripcion||""} ${m.categoria||""}`.toLowerCase();
+    const matchBusq = !busq || palabras.every(p=>texto.includes(p));
+    const matchProv = filtroProv==="todos" || m.proveedorId===filtroProv;
+    return matchBusq && matchProv;
+  });
+
+  const eliminar = async (m) => {
+    if (!window.confirm(`¿Eliminar "${m.nombre}"?`)) return;
+    await deleteDoc(doc(db,"materiasPrimas",m.fireId));
+    showToast("Materia prima eliminada","error");
+  };
+
+  const UNIDADES = ["unidad","kg","g","m","m²","cm","rollo","litro","ml","resma","caja","paq."];
+
+  const handleExcelMP = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+    const buf  = await file.arrayBuffer();
+    const wb   = XLSX.read(buf);
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    if (!ws) { showToast("No se pudo leer el Excel","error"); return; }
+    const rows = XLSX.utils.sheet_to_json(ws, { defval:"" });
+    const parsed = rows.filter(r=>r.nombre||r.Nombre).map(r=>({
+      nombre:      String(r.nombre||r.Nombre||"").trim(),
+      descripcion: String(r.descripcion||r.Descripcion||r.descripción||"").trim(),
+      precioCosto: parseFloat(r.precioCosto||r.precio||r.Precio||0)||0,
+      unidad:      String(r.unidad||r.Unidad||"unidad").trim(),
+      categoria:   String(r.categoria||r.Categoria||r.categoría||"General").trim(),
+      proveedor:   String(r.proveedor||r.Proveedor||"").trim(),
+      stock:       parseFloat(r.stock||r.Stock||0)||0,
+    }));
+    if (!parsed.length) { showToast("No encontré datos en el Excel","error"); return; }
+    setImportData(parsed);
+    setImportModal(true);
+    e.target.value = "";
+  };
+
+  const handleImportarMP = async () => {
+    setImporting(true);
+    try {
+      if (modoImport==="reemplazar") {
+        const snap = await getDocs(collection(db,"materiasPrimas"));
+        await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"materiasPrimas",d.id))));
+      }
+      for (const m of importData) {
+        // Buscar proveedor por nombre si viene en el Excel
+        let proveedorId = "";
+        if (m.proveedor) {
+          const prov = proveedores.find(p=>(p.empresa||p.titular||"").toLowerCase()===m.proveedor.toLowerCase());
+          if (prov) proveedorId = prov.fireId;
+        }
+        const data = { nombre:m.nombre, descripcion:m.descripcion, precioCosto:m.precioCosto, unidad:m.unidad, categoria:m.categoria, stock:m.stock, proveedorId };
+        if (modoImport==="agregar") {
+          const exist = materias.find(x=>x.nombre.toLowerCase()===m.nombre.toLowerCase());
+          if (exist) { await updateDoc(doc(db,"materiasPrimas",exist.fireId),{precioCosto:m.precioCosto,unidad:m.unidad,categoria:m.categoria}); continue; }
+        }
+        await addDoc(collection(db,"materiasPrimas"), data);
+      }
+      setImportModal(false);
+      showToast(`✅ ${importData.length} materias primas ${modoImport==="reemplazar"?"importadas":"actualizadas"}`);
+    } catch(e) { showToast("Error al importar","error"); console.error(e); }
+    setImporting(false);
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+        <p style={{ fontSize:14, color:"#a09080" }}>{materias.length} materia{materias.length!==1?"s":""} prima{materias.length!==1?"s":""}</p>
+        <div style={{ display:"flex", gap:10 }}>
+          <label style={{ background:"#fff", border:"1.5px solid #1a2340", color:"#1a2340", padding:"9px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            📥 Importar Excel
+            <input type="file" accept=".xlsx,.xls" onChange={handleExcelMP} style={{ display:"none" }}/>
+          </label>
+          <button onClick={()=>setModal({})}
+            style={{ background:"#1a2340", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            ➕ Nueva Materia Prima
+          </button>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        <div style={{ position:"relative", flex:"1 1 200px" }}>
+          <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
+          <input placeholder="Buscar materia prima..." value={busq} onChange={e=>setBusq(e.target.value)}
+            style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+        </div>
+        <select value={filtroProv} onChange={e=>setFiltroProv(e.target.value)}
+          style={{ padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer" }}>
+          <option value="todos">Todos los proveedores</option>
+          {proveedores.map(p=><option key={p.fireId} value={p.fireId}>{p.empresa||p.titular}</option>)}
+        </select>
+      </div>
+
+      {filtradas.length===0 ? (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
+          <div style={{ fontSize:40, marginBottom:14 }}>🧪</div>
+          <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>{materias.length===0?"Sin materias primas cargadas":"Sin resultados"}</div>
+          <div style={{ color:"#a09080", fontSize:14 }}>Cargá tus materias primas para usarlas en las calculadoras</div>
+        </div>
+      ) : (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
+            <thead><tr style={{ background:"#f0f3f9" }}>
+              {["Nombre","Descripción","Unidad","Precio costo","Proveedor","Stock",""].map(h=>(
+                <th key={h} style={{ padding:"11px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#4a5568", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"2px solid #e8eaf0" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {filtradas.map(m=>{
+                const prov = proveedores.find(p=>p.fireId===m.proveedorId);
+                return (
+                  <tr key={m.fireId} style={{ borderBottom:"1px solid #f0f3f9" }}
+                    onMouseOver={e=>e.currentTarget.style.background="#fafbff"}
+                    onMouseOut={e=>e.currentTarget.style.background="#fff"}>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1a2340" }}>{m.nombre}</td>
+                    <td style={{ padding:"12px 14px", color:"#4a5568", maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.descripcion||"—"}</td>
+                    <td style={{ padding:"12px 14px" }}>
+                      <span style={{ background:"#e8eaf6", color:"#3949ab", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{m.unidad||"unidad"}</span>
+                    </td>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1a2340" }}>${parseFloat(m.precioCosto||0).toLocaleString("es-AR")}</td>
+                    <td style={{ padding:"12px 14px" }}>
+                      {prov
+                        ? <span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{prov.empresa||prov.titular}</span>
+                        : <span style={{ color:"#a09080", fontSize:12 }}>Sin asignar</span>}
+                    </td>
+                    <td style={{ padding:"12px 14px", fontWeight:600, color: parseFloat(m.stock||0)<=0?"#c62828":"#2e7d32" }}>
+                      {parseFloat(m.stock||0)} {m.unidad||""}
+                    </td>
+                    <td style={{ padding:"12px 12px" }}>
+                      <div style={{ display:"flex", gap:6 }}>
+                        <button onClick={()=>setModal(m)}
+                          style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>✏️</button>
+                        <button onClick={()=>eliminar(m)}
+                          style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Modal nueva/editar materia prima */}
+      {modal && (
+        <ModalMateriaPrima
+          materia={modal.fireId ? modal : null}
+          proveedores={proveedores}
+          unidades={UNIDADES}
+          onClose={()=>setModal(null)}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Modal importar Excel */}
+      {importModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={()=>setImportModal(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:"100%", maxWidth:600, maxHeight:"85vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:6 }}>📥 Importar Materias Primas</div>
+            <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>{importData.length} materias primas encontradas</div>
+
+            {/* Modo */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+              {[["reemplazar","🔄 Reemplazar todo","Borra las actuales y carga las del Excel"],["agregar","➕ Actualizar precios","Actualiza existentes, agrega nuevas"]].map(([val,lbl,sub])=>(
+                <div key={val} onClick={()=>setModoImport(val)}
+                  style={{ padding:"12px 14px", borderRadius:10, border:`2px solid ${modoImport===val?"#1a2340":"#f0d5c0"}`, background:modoImport===val?"#f0f3f9":"#fff", cursor:"pointer" }}>
+                  <div style={{ fontWeight:700, fontSize:13, color:modoImport===val?"#1a2340":"#4a5568" }}>{lbl}</div>
+                  <div style={{ fontSize:11, color:"#a09080", marginTop:3 }}>{sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {modoImport==="reemplazar" && (
+              <div style={{ background:"#fff3e0", border:"1.5px solid #ffb74d", borderRadius:8, padding:"9px 14px", marginBottom:14, fontSize:12, color:"#e65100", fontWeight:600 }}>
+                ⚠️ Se eliminarán todas las materias primas actuales
+              </div>
+            )}
+
+            {/* Preview tabla */}
+            <div style={{ maxHeight:260, overflowY:"auto", borderRadius:8, border:"1px solid #f0d5c0", marginBottom:18 }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                <thead>
+                  <tr style={{ background:"#f0f3f9", position:"sticky", top:0 }}>
+                    {["Nombre","Descripción","Precio Costo","Unidad","Categoría","Proveedor"].map(h=>(
+                      <th key={h} style={{ padding:"8px 10px", textAlign:"left", fontWeight:700, color:"#4a5568", fontSize:10, textTransform:"uppercase", borderBottom:"1px solid #e0e4f0" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {importData.slice(0,50).map((m,i)=>(
+                    <tr key={i} style={{ borderBottom:"1px solid #f0f3f9" }}>
+                      <td style={{ padding:"7px 10px", fontWeight:600, color:"#1a2340" }}>{m.nombre}</td>
+                      <td style={{ padding:"7px 10px", color:"#4a5568", maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.descripcion||"—"}</td>
+                      <td style={{ padding:"7px 10px", fontWeight:700, color:"#1a2340" }}>{m.precioCosto?`$${m.precioCosto.toLocaleString("es-AR")}`:"—"}</td>
+                      <td style={{ padding:"7px 10px" }}><span style={{ background:"#e8eaf6", color:"#3949ab", padding:"1px 7px", borderRadius:10, fontSize:10, fontWeight:600 }}>{m.unidad}</span></td>
+                      <td style={{ padding:"7px 10px", color:"#4a5568" }}>{m.categoria}</td>
+                      <td style={{ padding:"7px 10px", color:"#a09080" }}>{m.proveedor||"—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {importData.length>50 && <div style={{ padding:"8px 10px", fontSize:11, color:"#a09080", textAlign:"center" }}>...y {importData.length-50} más</div>}
+            </div>
+
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button onClick={()=>setImportModal(false)} style={{ padding:"10px 18px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={handleImportarMP} disabled={importing}
+                style={{ padding:"10px 24px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", opacity:importing?.7:1 }}>
+                {importing?"Importando...":`${modoImport==="reemplazar"?"🔄 Reemplazar":"➕ Actualizar"} ${importData.length} materias primas`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModalMateriaPrima({ materia, proveedores, unidades, onClose, showToast }) {
+  const [form, setForm] = useState(materia || { nombre:"", descripcion:"", precioCosto:"", unidad:"unidad", proveedorId:"", stock:"", categoria:"", categoriaKey:"", rendimiento:"" });
+  const [saving, setSaving] = useState(false);
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  const handleSave = async () => {
+    if (!form.nombre.trim()) { showToast("El nombre es obligatorio","error"); return; }
+    setSaving(true);
+    const data = { ...form, precioCosto: parseFloat(form.precioCosto)||0, stock: parseFloat(form.stock)||0, rendimiento: parseFloat(form.rendimiento)||0 };
+    if (materia?.fireId) {
+      await updateDoc(doc(db,"materiasPrimas",materia.fireId), data);
+      showToast("Materia prima actualizada ✅");
+    } else {
+      await addDoc(collection(db,"materiasPrimas"), data);
+      showToast("Materia prima creada ✅");
+    }
+    setSaving(false);
+    onClose();
+  };
+
+  // Categorías fijas para las calculadoras
+  const CAT_OPCIONES = [
+    { key:"",                    label:"— Sin vincular a calculadora —" },
+    { key:"vinilo_imprimible",   label:"🖨️ Vinilo imprimible (rollo plotter)" },
+    { key:"tinta_plotter",       label:"🎨 Tinta plotter" },
+    { key:"lona_frontlight",     label:"🚩 Lona frontlight" },
+    { key:"lona_backlight",      label:"🚩 Lona backlight" },
+    { key:"vinilo_transparente", label:"🔲 Vinilo transparente" },
+    { key:"vinilo_corte",        label:"✂️ Vinilo de corte (calado)" },
+    { key:"cinta_posicionadora", label:"📏 Cinta posicionadora" },
+    { key:"plastico_corrugado",  label:"🪟 Plástico corrugado" },
+    { key:"plastico_bicapa",     label:"🪟 Plástico bicapa / PAI / PVC" },
+    { key:"polifan",             label:"🟡 Polyfan / foam" },
+    { key:"filamento_pla",       label:"🧵 Filamento PLA (3D)" },
+  ];
+
+  const necesitaRendimiento = ["vinilo_imprimible","tinta_plotter","lona_frontlight","lona_backlight","vinilo_transparente","vinilo_corte","cinta_posicionadora","filamento_pla"].includes(form.categoriaKey);
+
+  const labelRendimiento = form.categoriaKey==="filamento_pla"
+    ? "Rendimiento (gramos por unidad de compra)"
+    : "Rendimiento (m² o metros que rinde el rollo)";
+
+  const precioCalculado = form.categoriaKey && parseFloat(form.rendimiento)>0
+    ? parseFloat(form.precioCosto||0) / parseFloat(form.rendimiento)
+    : null;
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:540, boxShadow:"0 20px 60px rgba(0,0,0,.2)", maxHeight:"92vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>
+          {materia?"✏️ Editar Materia Prima":"🧪 Nueva Materia Prima"}
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+          <div style={{ gridColumn:"1/-1" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nombre *</label>
+            <input value={form.nombre} onChange={e=>setForm(f=>({...f,nombre:e.target.value}))} placeholder="Ej: Vinilo Arlon base blanca" style={inp}/>
+          </div>
+          <div style={{ gridColumn:"1/-1" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Descripción</label>
+            <input value={form.descripcion||""} onChange={e=>setForm(f=>({...f,descripcion:e.target.value}))} placeholder="Ej: Rollo 1.52m × 50m" style={inp}/>
+          </div>
+
+          {/* Categoría calculadora — campo clave */}
+          <div style={{ gridColumn:"1/-1" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#1a2340", marginBottom:6 }}>
+              🔗 Categoría para calculadoras
+            </label>
+            <select value={form.categoriaKey||""} onChange={e=>setForm(f=>({...f,categoriaKey:e.target.value}))}
+              style={{ ...inp, cursor:"pointer", borderColor:form.categoriaKey?"#e65100":"#f0d5c0",
+                background:form.categoriaKey?"#fff8f5":"#fff", fontWeight:form.categoriaKey?600:400 }}>
+              {CAT_OPCIONES.map(o=><option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+            {form.categoriaKey && <div style={{ fontSize:11, color:"#e65100", marginTop:4, fontWeight:600 }}>✅ Esta materia prima se usará automáticamente en las calculadoras</div>}
+          </div>
+
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio de costo ($)</label>
+            <input type="number" value={form.precioCosto} onChange={e=>setForm(f=>({...f,precioCosto:e.target.value}))} placeholder="0" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Unidad de compra</label>
+            <select value={form.unidad} onChange={e=>setForm(f=>({...f,unidad:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+              {unidades.map(u=><option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+
+          {/* Rendimiento — solo para materiales con rollo/kg */}
+          {necesitaRendimiento && (
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>
+                {labelRendimiento}
+              </label>
+              <input type="number" step="0.01" value={form.rendimiento||""} onChange={e=>setForm(f=>({...f,rendimiento:e.target.value}))}
+                placeholder={form.categoriaKey==="filamento_pla"?"1000":"50"} style={{ ...inp, borderColor:"#e65100" }}/>
+              {precioCalculado!==null && precioCalculado>0 && (
+                <div style={{ marginTop:6, background:"#fff8f5", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#e65100", fontWeight:700 }}>
+                  💡 Precio calculado: ${Math.round(precioCalculado).toLocaleString("es-AR")} por {form.categoriaKey==="filamento_pla"?"gramo":"m²"}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Stock disponible</label>
+            <input type="number" value={form.stock} onChange={e=>setForm(f=>({...f,stock:e.target.value}))} placeholder="0" style={inp}/>
+          </div>
+          <div>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Categoría (libre)</label>
+            <input value={form.categoria||""} onChange={e=>setForm(f=>({...f,categoria:e.target.value}))} placeholder="Vinilo, Tinta..." style={inp}/>
+          </div>
+          <div style={{ gridColumn:"1/-1" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Proveedor</label>
+            <select value={form.proveedorId||""} onChange={e=>setForm(f=>({...f,proveedorId:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+              <option value="">Sin asignar</option>
+              {proveedores.map(p=><option key={p.fireId} value={p.fireId}>{p.empresa||p.titular}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:22 }}>
+          <button onClick={onClose} style={{ padding:"9px 18px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding:"9px 24px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            {saving?"Guardando...":"✅ Guardar"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2217,10 +4426,10 @@ function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
   });
 
   return (
-    <div style={{ maxWidth:680, margin:"0 auto" }}>
+    <div>
       <button onClick={() => setView("insumos")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
-        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>➕ Nuevo Insumo</h2>
+        <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>➕ Nuevo Insumo</h2>
         <p style={{ fontSize:14, color:"#a09080", marginBottom:24 }}>Completá los datos del insumo.</p>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
           <div style={{ gridColumn:"1 / -1" }}>
@@ -2313,14 +4522,14 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
     const historial = pedidosCliente(cl).sort((a,b) => b.fechaPedido?.localeCompare(a.fechaPedido||"")||0);
     const saldo = parseFloat(cl.saldoCuenta)||0;
     return (
-      <div style={{ maxWidth:900, margin:"0 auto" }}>
+      <div>
         <button onClick={() => setSelected(null)} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver a clientes</button>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:20 }}>
           {/* Ficha */}
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
               <div>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{cl.nombre} {cl.apellido}</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{cl.nombre} {cl.apellido}</div>
                 {cl.empresa && <div style={{ fontSize:13, color:"#a09080", marginTop:2 }}>🏢 {cl.empresa}</div>}
               </div>
               <button onClick={() => { setEditingClienteId(cl.fireId); setView("editarCliente"); }}
@@ -2338,7 +4547,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
           {/* Cuenta corriente */}
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px" }}>
             <div style={{ fontSize:12, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:8 }}>Cuenta Corriente</div>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:700, color:saldo>0?"#c62828":"#2e7d32", marginBottom:16 }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:36, fontWeight:700, color:saldo>0?"#c62828":"#2e7d32", marginBottom:16 }}>
               ${Math.abs(saldo).toLocaleString("es-AR")}
             </div>
             <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>{saldo>0?"Saldo deudor":"Sin deuda pendiente"}</div>
@@ -2354,7 +4563,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
         {/* Historial pedidos */}
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
           <div style={{ padding:"16px 20px", borderBottom:"1px solid #f5e8e0" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#1a2340" }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#1a2340" }}>
               📋 Historial de Pedidos ({historial.length})
             </div>
           </div>
@@ -2398,7 +4607,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
         {pagoModal && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200 }} onClick={() => setPagoModal(null)}>
             <div style={{ background:"#fff", borderRadius:16, padding:"32px 36px", width:360, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:6 }}>💵 Registrar Pago</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:6 }}>💵 Registrar Pago</div>
               <div style={{ fontSize:13, color:"#a09080", marginBottom:20 }}>Saldo actual: <strong style={{color:"#c62828"}}>${(parseFloat(pagoModal.cliente.saldoCuenta)||0).toLocaleString("es-AR")}</strong></div>
               <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Monto del pago</label>
               <input type="number" value={montoPago} onChange={e=>setMontoPago(e.target.value)}
@@ -2419,7 +4628,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
         <div>
-          <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>👥 Clientes</h2>
+          <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>👥 Clientes</h2>
           <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>{clientes.length} cliente{clientes.length!==1?"s":""} registrado{clientes.length!==1?"s":""}</p>
         </div>
         <button onClick={() => setView("nuevoCliente")}
@@ -2439,7 +4648,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
       {filtrados.length === 0 ? (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px 24px", textAlign:"center" }}>
           <div style={{ fontSize:40, marginBottom:14 }}>👥</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay clientes aún"}</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay clientes aún"}</div>
           <div style={{ color:"#a09080", fontSize:14 }}>Agregá tu primer cliente con el botón de arriba</div>
         </div>
       ) : (
@@ -2543,10 +4752,10 @@ function FormularioCliente({ view, editingClienteId, clientes, setView, setSelec
   });
 
   return (
-    <div style={{ maxWidth:700, margin:"0 auto" }}>
+    <div>
       <button onClick={() => setView(esEdicion?"clientes":"clientes")} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>← Volver</button>
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"32px 36px" }}>
-        <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
+        <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:24, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
           {esEdicion ? "✏️ Editar Cliente" : "➕ Nuevo Cliente"}
         </h2>
         <p style={{ fontSize:14, color:"#a09080", marginBottom:24 }}>Completá los datos del cliente.</p>
@@ -2595,6 +4804,882 @@ function FormularioCliente({ view, editingClienteId, clientes, setView, setSelec
   );
 }
 
+// ── Buscador Global ───────────────────────────────────────────────────────
+function BuscadorGlobal({ pedidos, clientes, busqueda, setBusqueda, onClose, onSelectPedido, onSelectCliente, ESTADO_COLOR, CATEGORIA_COLOR, CATEGORIA_ICON }) {
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const palabras = busqueda.toLowerCase().split(/\s+/).filter(Boolean);
+
+  const matchTexto = (texto) => {
+    if (!palabras.length) return false;
+    const t = texto.toLowerCase();
+    return palabras.every(p => t.includes(p));
+  };
+
+  const pedidosFiltrados = busqueda.length >= 2 ? pedidos.filter(p =>
+    p.estado !== "Entregado" &&
+    matchTexto(`${p.nombre} ${p.cliente} ${p.telefono||""} ${p.categoria} ${p.estado}`)
+  ).slice(0, 6) : [];
+
+  const clientesFiltrados = busqueda.length >= 2 ? clientes.filter(c =>
+    matchTexto(`${c.nombre} ${c.apellido||""} ${c.empresa||""} ${c.telefono||""} ${c.mail||""}`)
+  ).slice(0, 4) : [];
+
+  const total = pedidosFiltrados.length + clientesFiltrados.length;
+
+  return (
+    <>
+      <div className="busq-global-overlay" onClick={onClose}/>
+      <div className="busq-global-box">
+        <div style={{ display:"flex", alignItems:"center", borderBottom:"1px solid #f0d5c0", padding:"0 16px" }}>
+          <span style={{ fontSize:20, marginRight:10, color:"#e65100" }}>🔍</span>
+          <input
+            ref={inputRef}
+            className="busq-global-input"
+            placeholder="Buscar pedidos, clientes, teléfonos..."
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            onKeyDown={e => e.key==="Escape" && onClose()}
+          />
+          <button onClick={onClose} style={{ background:"transparent", border:"none", color:"#a09080", fontSize:20, cursor:"pointer", padding:"4px 8px" }}>✕</button>
+        </div>
+
+        {busqueda.length < 2 ? (
+          <div style={{ padding:"24px 20px", textAlign:"center", color:"#a09080", fontSize:14 }}>
+            Escribí al menos 2 caracteres para buscar
+          </div>
+        ) : total === 0 ? (
+          <div style={{ padding:"24px 20px", textAlign:"center", color:"#a09080", fontSize:14 }}>
+            Sin resultados para "<strong>{busqueda}</strong>"
+          </div>
+        ) : (
+          <div style={{ maxHeight:420, overflowY:"auto" }}>
+            {pedidosFiltrados.length > 0 && (
+              <>
+                <div style={{ padding:"8px 20px 4px", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", background:"#fffaf7" }}>
+                  📋 Pedidos ({pedidosFiltrados.length})
+                </div>
+                {pedidosFiltrados.map(p => {
+                  const ec = ESTADO_COLOR[p.estado] || {bg:"#f5f5f5",text:"#616161"};
+                  const cc = CATEGORIA_COLOR[p.categoria] || {bg:"#f5f5f5",text:"#424242",accent:"#9e9e9e"};
+                  return (
+                    <div key={p.fireId||p.id} className="busq-global-result" onClick={() => onSelectPedido(p)}>
+                      <span style={{ fontSize:20 }}>{CATEGORIA_ICON[p.categoria]||"📦"}</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:600, fontSize:14, color:"#1a2340" }}>{p.nombre}</div>
+                        <div style={{ fontSize:12, color:"#a09080" }}>👤 {p.cliente} {p.telefono && `· 📞 ${p.telefono}`}</div>
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+                        <span style={{ background:ec.bg, color:ec.text, padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{p.estado}</span>
+                        {p.fechaEntrega && <span style={{ fontSize:11, color:"#a09080" }}>{p.fechaEntrega}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            {clientesFiltrados.length > 0 && (
+              <>
+                <div style={{ padding:"8px 20px 4px", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", background:"#fffaf7" }}>
+                  👥 Clientes ({clientesFiltrados.length})
+                </div>
+                {clientesFiltrados.map(c => (
+                  <div key={c.fireId} className="busq-global-result" onClick={() => { onSelectCliente(c); }}>
+                    <span style={{ fontSize:20 }}>👤</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:600, fontSize:14, color:"#1a2340" }}>{c.nombre} {c.apellido}</div>
+                      <div style={{ fontSize:12, color:"#a09080" }}>
+                        {c.empresa && `🏢 ${c.empresa} · `}
+                        {c.telefono && `📞 ${c.telefono}`}
+                      </div>
+                    </div>
+                    {parseFloat(c.saldoCuenta||0) > 0 && (
+                      <span style={{ background:"#ffebee", color:"#c62828", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700 }}>
+                        Debe ${parseFloat(c.saldoCuenta).toLocaleString("es-AR")}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+        <div style={{ padding:"8px 20px", background:"#fffaf7", borderTop:"1px solid #f0d5c0", fontSize:11, color:"#a09080", display:"flex", justifyContent:"space-between" }}>
+          <span>↵ para abrir · Esc para cerrar</span>
+          {total > 0 && <span>{total} resultado{total!==1?"s":""}</span>}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Componente: Finanzas ─────────────────────────────────────────────────
+function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showToast }) {
+  const [pin, setPin]               = useState("");
+  const [pinError, setPinError]     = useState(false);
+  const [tabActiva, setTabActiva]   = useState("resumen");
+  const [ventas, setVentas]         = useState([]);
+  const [gastos, setGastos]         = useState([]);
+  const [movCaja, setMovCaja]       = useState([]);
+  const [empleados, setEmpleados]   = useState([]);
+  const [pinConfig, setPinConfig]   = useState("1234");
+  const [periodoFin, setPeriodoFin] = useState("mes");
+
+  // Modales
+  const [modalGasto, setModalGasto]       = useState(false);
+  const [modalCaja, setModalCaja]         = useState(null); // "ingreso" | "egreso"
+  const [modalEmpleado, setModalEmpleado] = useState(null);
+  const [modalPago, setModalPago]         = useState(null);
+  const [selectedEmp, setSelectedEmp]     = useState(null);
+
+  useEffect(() => {
+    if (!desbloqueado) return;
+    const u1 = onSnapshot(collection(db,"ventas"), snap => setVentas(snap.docs.map(d=>({...d.data(),fireId:d.id}))));
+    const u2 = onSnapshot(collection(db,"gastos"), snap => setGastos(snap.docs.map(d=>({...d.data(),fireId:d.id}))));
+    const u3 = onSnapshot(collection(db,"movCaja"), snap => setMovCaja(snap.docs.map(d=>({...d.data(),fireId:d.id}))));
+    const u4 = onSnapshot(collection(db,"empleados"), snap => setEmpleados(snap.docs.map(d=>({...d.data(),fireId:d.id}))));
+    getDoc(doc(db,"config","finanzas")).then(snap => { if(snap.exists()) setPinConfig(snap.data().pin||"1234"); });
+    return () => { u1();u2();u3();u4(); };
+  }, [desbloqueado]);
+
+  const hoy    = new Date().toISOString().split("T")[0];
+  const mesAct = hoy.slice(0,7);
+  const semAct = (() => { const d=new Date(); d.setDate(d.getDate()-7); return d.toISOString().split("T")[0]; })();
+
+  const filtrarPeriodo = (arr, campo="fecha") => {
+    if (periodoFin==="hoy")   return arr.filter(x=>x[campo]===hoy);
+    if (periodoFin==="semana") return arr.filter(x=>x[campo]>=semAct);
+    if (periodoFin==="mes")   return arr.filter(x=>x[campo]?.startsWith(mesAct));
+    return arr;
+  };
+
+  const ventasFilt  = filtrarPeriodo(ventas);
+  const gastosFilt  = filtrarPeriodo(gastos);
+
+  const totalVentas    = ventasFilt.reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalGastos    = gastosFilt.reduce((s,g)=>s+parseFloat(g.monto||0),0);
+  const totalEfectivo  = ventasFilt.filter(v=>v.metodoPago==="Efectivo").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalTransfer  = ventasFilt.filter(v=>v.metodoPago==="Transferencia").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalTarjeta   = ventasFilt.filter(v=>v.metodoPago==="Tarjeta de Crédito").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalCtaCte    = ventasFilt.filter(v=>v.metodoPago==="Cuenta Corriente").reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const saldoCaja      = movCaja.reduce((s,m)=>s+(m.tipo==="ingreso"?parseFloat(m.monto||0):-parseFloat(m.monto||0)),0) + totalEfectivo;
+  const ganancia       = totalVentas - totalGastos;
+
+  // Datos para gráfico de barras (últimos 7 días)
+  const ultimos7 = Array.from({length:7},(_,i)=>{
+    const d=new Date(); d.setDate(d.getDate()-6+i);
+    const f=d.toISOString().split("T")[0];
+    const total=ventas.filter(v=>v.fecha===f).reduce((s,v)=>s+parseFloat(v.total||0),0);
+    const gastoD=gastos.filter(g=>g.fecha===f).reduce((s,g)=>s+parseFloat(g.monto||0),0);
+    return { fecha:f, dia:d.toLocaleDateString("es-AR",{weekday:"short",day:"numeric"}), total, gasto:gastoD };
+  });
+  const maxBar = Math.max(...ultimos7.map(d=>Math.max(d.total,d.gasto)),1);
+
+  // ── PIN screen ──
+  if (!desbloqueado) {
+    const handlePin = async () => {
+      const snap = await getDoc(doc(db,"config","finanzas")).catch(()=>null);
+      const savedPin = snap?.exists() ? snap.data().pin : "1234";
+      if (pin === savedPin) { setDesbloqueado(true); setPinError(false); }
+      else { setPinError(true); setPin(""); }
+    };
+    return (
+      <div style={{ minHeight:"60vh", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <div style={{ background:"#fff", borderRadius:20, padding:"48px 44px", width:340, boxShadow:"0 8px 32px rgba(230,81,0,.12)", textAlign:"center" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>💼</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>Finanzas</div>
+          <div style={{ fontSize:14, color:"#a09080", marginBottom:28 }}>Ingresá tu PIN para continuar</div>
+          <div style={{ display:"flex", gap:12, justifyContent:"center", marginBottom:24 }}>
+            {[0,1,2,3].map(i=>(
+              <div key={i} style={{ width:48, height:56, border:`2px solid ${pinError?"#ef5350":pin.length>i?"#e65100":"#f0d5c0"}`, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, fontWeight:700, color:"#e65100", background:pin.length>i?"#fff8f5":"#fff", transition:"all .15s" }}>
+                {pin.length>i?"●":""}
+              </div>
+            ))}
+          </div>
+          {pinError && <div style={{ color:"#ef5350", fontSize:13, marginBottom:14, fontWeight:600 }}>PIN incorrecto. Intentá de nuevo.</div>}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:12 }}>
+            {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((n,i)=>(
+              <button key={i} onClick={()=>{
+                if(n==="⌫") setPin(p=>p.slice(0,-1));
+                else if(n!=="" && pin.length<4) { const np=pin+n; setPin(np); if(np.length===4) setTimeout(()=>{ /* auto check */ },100); }
+              }}
+              style={{ padding:"14px 0", borderRadius:10, border:"1.5px solid #f0d5c0", background:n===""?"transparent":"#fff", fontSize:18, fontWeight:700, color:"#1a2340", cursor:n===""?"default":"pointer", transition:"all .15s" }}
+              onMouseOver={e=>{ if(n!=="") e.currentTarget.style.background="#fff8f5"; }}
+              onMouseOut={e=>{ e.currentTarget.style.background=n===""?"transparent":"#fff"; }}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <button onClick={handlePin} disabled={pin.length<4}
+            style={{ width:"100%", padding:"13px", background:pin.length<4?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:10, fontSize:15, fontWeight:700, cursor:pin.length<4?"not-allowed":"pointer", transition:"all .2s" }}>
+            Ingresar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const TABS = [
+    {id:"resumen",   label:"📊 Resumen"},
+    {id:"caja",      label:"🏦 Caja"},
+    {id:"gastos",    label:"💸 Gastos"},
+    {id:"ventas",    label:"🧾 Ventas"},
+    {id:"empleados", label:"👷 RRHH"},
+    {id:"config",    label:"⚙️ Config"},
+  ];
+
+  return (
+    <div>
+      {/* Header Finanzas */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div>
+          <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>💼 Finanzas</h2>
+          <p style={{ fontSize:14, color:"#a09080", marginTop:4 }}>Panel financiero privado</p>
+        </div>
+        <button onClick={()=>setDesbloqueado(false)}
+          style={{ background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", padding:"7px 14px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+          🔒 Bloquear
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:6, marginBottom:20, flexWrap:"wrap" }}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTabActiva(t.id)}
+            style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:tabActiva===t.id?"#e65100":"#fff", color:tabActiva===t.id?"#fff":"#4a5568",
+              boxShadow:tabActiva===t.id?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+            {t.label}
+          </button>
+        ))}
+        {/* Selector período */}
+        <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
+          {["hoy","semana","mes","total"].map(p=>(
+            <button key={p} onClick={()=>setPeriodoFin(p)}
+              style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer", border:"none",
+                background:periodoFin===p?"#1a2340":"#fff", color:periodoFin===p?"#fff":"#4a5568" }}>
+              {p==="hoy"?"Hoy":p==="semana"?"Semana":p==="mes"?"Mes":"Total"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── TAB: RESUMEN ── */}
+      {tabActiva==="resumen" && (
+        <div>
+          {/* KPIs */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>
+            {[
+              {label:"Ventas",    value:`$${totalVentas.toLocaleString("es-AR")}`,   color:"#e65100", icon:"💰"},
+              {label:"Gastos",    value:`$${totalGastos.toLocaleString("es-AR")}`,   color:"#c62828", icon:"💸"},
+              {label:"Ganancia",  value:`$${ganancia.toLocaleString("es-AR")}`,      color:ganancia>=0?"#2e7d32":"#c62828", icon:"📈"},
+              {label:"Saldo Caja",value:`$${saldoCaja.toLocaleString("es-AR")}`,     color:"#1565c0", icon:"🏦"},
+            ].map((k,i)=>(
+              <div key={i} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"18px 20px" }}>
+                <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:8 }}>{k.label}</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:k.color }}>{k.value}</div>
+                  <span style={{ fontSize:24 }}>{k.icon}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Métodos de pago */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:24 }}>
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:16 }}>💳 Ventas por método de pago</div>
+              {[
+                {label:"Efectivo",       value:totalEfectivo, color:"#2e7d32", bg:"#e8f5e9"},
+                {label:"Transferencia",  value:totalTransfer, color:"#1565c0", bg:"#e3f2fd"},
+                {label:"Tarjeta",        value:totalTarjeta,  color:"#6a1b9a", bg:"#f3e5f5"},
+                {label:"Cta. Corriente", value:totalCtaCte,   color:"#e65100", bg:"#fff3e0"},
+              ].map((m,i)=>(
+                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid #fef0e8" }}>
+                  <span style={{ background:m.bg, color:m.color, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{m.label}</span>
+                  <span style={{ fontWeight:700, color:m.color, fontSize:15 }}>${m.value.toLocaleString("es-AR")}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Resumen por día — últimos 7 días */}
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:4 }}>📅 Resumen por día</div>
+              <div style={{ fontSize:12, color:"#a09080", marginBottom:14 }}>Últimos 7 días — se reinicia cada día automáticamente</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+                {ultimos7.slice().reverse().map((d,i)=>{
+                  const esHoy = d.fecha === hoy;
+                  const ef  = ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago==="Efectivo").reduce((s,v)=>s+parseFloat(v.total||0),0);
+                  const tr  = ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago==="Transferencia").reduce((s,v)=>s+parseFloat(v.total||0),0);
+                  const tj  = ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago==="Tarjeta de Crédito").reduce((s,v)=>s+parseFloat(v.total||0),0);
+                  const cc  = ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago==="Cuenta Corriente").reduce((s,v)=>s+parseFloat(v.total||0),0);
+                  return (
+                    <div key={d.fecha} style={{ borderBottom:i<6?"1px solid #fef0e8":"none", padding:"10px 0" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: d.total>0?6:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          {esHoy && <span style={{ background:"#e65100", color:"#fff", padding:"1px 7px", borderRadius:20, fontSize:10, fontWeight:700 }}>HOY</span>}
+                          <span style={{ fontSize:13, fontWeight:esHoy?700:500, color:esHoy?"#1a2340":"#4a5568" }}>{d.dia}</span>
+                        </div>
+                        <span style={{ fontWeight:700, fontSize:14, color:d.total>0?"#e65100":"#a09080" }}>
+                          {d.total>0?`$${d.total.toLocaleString("es-AR")}`:"—"}
+                        </span>
+                      </div>
+                      {d.total>0 && (
+                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                          {ef>0 && <span style={{ background:"#e8f5e9", color:"#2e7d32", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>💵 ${ef.toLocaleString("es-AR")}</span>}
+                          {tr>0 && <span style={{ background:"#e3f2fd", color:"#1565c0", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>📲 ${tr.toLocaleString("es-AR")}</span>}
+                          {tj>0 && <span style={{ background:"#f3e5f5", color:"#6a1b9a", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>💳 ${tj.toLocaleString("es-AR")}</span>}
+                          {cc>0 && <span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>📒 ${cc.toLocaleString("es-AR")}</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Ventas recientes */}
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 24px" }}>
+            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>🧾 Últimas ventas</div>
+            {ventasFilt.length===0 ? <div style={{ color:"#a09080", fontSize:14, textAlign:"center", padding:"20px 0" }}>Sin ventas en este período</div> :
+              ventasFilt.slice(0,8).map(v=>(
+                <div key={v.fireId} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 0", borderBottom:"1px solid #fef0e8" }}>
+                  <div>
+                    <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</div>
+                    <div style={{ fontSize:11, color:"#a09080" }}>{v.fecha} · {v.items?.length||0} producto{v.items?.length!==1?"s":""} · {v.metodoPago}</div>
+                  </div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:"#e65100" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: CAJA ── */}
+      {tabActiva==="caja" && (
+        <div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"24px 28px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>Saldo en caja</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:36, fontWeight:700, color:saldoCaja>=0?"#2e7d32":"#c62828" }}>${saldoCaja.toLocaleString("es-AR")}</div>
+              <div style={{ fontSize:12, color:"#a09080", marginTop:4 }}>Incluye ventas en efectivo + movimientos manuales</div>
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setModalCaja("ingreso")} style={{ background:"#e8f5e9", border:"1.5px solid #2e7d32", color:"#2e7d32", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Ingreso</button>
+              <button onClick={()=>setModalCaja("egreso")}  style={{ background:"#ffebee", border:"1.5px solid #c62828", color:"#c62828", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>− Egreso</button>
+            </div>
+          </div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr style={{ background:"#fffaf7" }}>
+                {["Fecha","Tipo","Descripción","Monto"].map(h=><th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {[...movCaja,...ventasFilt.filter(v=>v.metodoPago==="Efectivo").map(v=>({tipo:"ingreso",descripcion:`Venta - ${v.clienteNombre||"Consumidor Final"}`,monto:v.total,fecha:v.fecha,fireId:v.fireId+"_v"}))].sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).slice(0,30).map((m,i)=>(
+                  <tr key={i} style={{ borderBottom:"1px solid #fef0e8" }}>
+                    <td style={{ padding:"10px 16px", color:"#a09080" }}>{m.fecha}</td>
+                    <td style={{ padding:"10px 16px" }}><span style={{ background:m.tipo==="ingreso"?"#e8f5e9":"#ffebee", color:m.tipo==="ingreso"?"#2e7d32":"#c62828", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700 }}>{m.tipo==="ingreso"?"↑ Ingreso":"↓ Egreso"}</span></td>
+                    <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{m.descripcion||"—"}</td>
+                    <td style={{ padding:"10px 16px", fontWeight:700, color:m.tipo==="ingreso"?"#2e7d32":"#c62828" }}>${parseFloat(m.monto||0).toLocaleString("es-AR")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: GASTOS ── */}
+      {tabActiva==="gastos" && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>
+              💸 Gastos — <span style={{ color:"#c62828" }}>${totalGastos.toLocaleString("es-AR")}</span>
+            </div>
+            <button onClick={()=>setModalGasto(true)} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Cargar Gasto</button>
+          </div>
+          {gastosFilt.length===0 ? (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center", color:"#a09080" }}>Sin gastos en este período</div>
+          ) : (
+            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr style={{ background:"#fffaf7" }}>
+                  {["Fecha","Categoría","Descripción","Monto",""].map(h=><th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {gastosFilt.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(g=>(
+                    <tr key={g.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                      <td style={{ padding:"10px 16px", color:"#a09080" }}>{g.fecha}</td>
+                      <td style={{ padding:"10px 16px" }}><span style={{ background:"#ffebee", color:"#c62828", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{g.categoria||"Varios"}</span></td>
+                      <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{g.descripcion}</td>
+                      <td style={{ padding:"10px 16px", fontWeight:700, color:"#c62828" }}>${parseFloat(g.monto||0).toLocaleString("es-AR")}</td>
+                      <td style={{ padding:"10px 14px" }}><button onClick={async()=>{ await deleteDoc(doc(db,"gastos",g.fireId)); showToast("Gasto eliminado","error"); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, cursor:"pointer", fontSize:12 }}>🗑</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: VENTAS DETALLE ── */}
+      {tabActiva==="ventas" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <div style={{ padding:"16px 20px", borderBottom:"1px solid #f5e8e0", fontWeight:700, fontSize:15, color:"#1a2340" }}>
+            🧾 Detalle de ventas — {ventasFilt.length} venta{ventasFilt.length!==1?"s":""} · ${totalVentas.toLocaleString("es-AR")}
+          </div>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+            <thead><tr style={{ background:"#fffaf7" }}>
+              {["N°","Fecha","Cliente","Items","Método","Total"].map(h=><th key={h} style={{ padding:"10px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {ventasFilt.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(v=>(
+                <tr key={v.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                  <td style={{ padding:"10px 16px", color:"#a09080", fontFamily:"monospace", fontSize:12 }}>X-{String(v.numero||1).padStart(5,"0")}</td>
+                  <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.fecha}</td>
+                  <td style={{ padding:"10px 16px", fontWeight:600, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</td>
+                  <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.items?.map(i=>`${i.cantidad}x ${i.nombre}`).join(", ").slice(0,50)||"—"}</td>
+                  <td style={{ padding:"10px 16px" }}><span style={{ background:"#fff3e0", color:"#e65100", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.metodoPago}</span></td>
+                  <td style={{ padding:"10px 16px" }}>
+                    <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, color:"#e65100", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</span>
+                      {v.origen==="pedido" && <span style={{ background:"#e8eaf6", color:"#3949ab", padding:"2px 7px", borderRadius:10, fontSize:10, fontWeight:700 }}>PEDIDO</span>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── TAB: EMPLEADOS / RRHH ── */}
+      {tabActiva==="empleados" && (
+        <div>
+          {!selectedEmp ? (
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>👷 Empleados ({empleados.length})</div>
+                <button onClick={()=>setModalEmpleado({})} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Nuevo Empleado</button>
+              </div>
+              {empleados.length===0 ? (
+                <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"52px", textAlign:"center", color:"#a09080" }}>Sin empleados cargados</div>
+              ) : (
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:16 }}>
+                  {empleados.map(e=>(
+                    <div key={e.fireId} onClick={()=>setSelectedEmp(e.fireId)}
+                      style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"20px 22px", cursor:"pointer", borderTop:"3px solid #e65100" }}
+                      onMouseOver={ev=>ev.currentTarget.style.boxShadow="0 6px 24px rgba(230,81,0,.15)"}
+                      onMouseOut={ev=>ev.currentTarget.style.boxShadow="0 2px 14px rgba(230,81,0,.07)"}>
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{e.nombre}</div>
+                      <div style={{ fontSize:13, color:"#a09080", marginBottom:10 }}>{e.cargo||"Sin cargo"}</div>
+                      <div style={{ fontSize:13, color:"#e65100", fontWeight:700 }}>Sueldo: ${parseFloat(e.sueldo||0).toLocaleString("es-AR")}</div>
+                      {e.ingreso && <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>Desde: {e.ingreso}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <EmpleadoDetalle
+              empId={selectedEmp}
+              empleados={empleados}
+              setSelectedEmp={setSelectedEmp}
+              showToast={showToast}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: CONFIG PIN ── */}
+      {tabActiva==="config" && (
+        <div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"28px 32px" }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#1a2340", marginBottom:6 }}>🔐 Cambiar PIN de Finanzas</div>
+            <p style={{ fontSize:14, color:"#a09080", marginBottom:20 }}>El PIN actual es de 4 dígitos. Solo vos debés conocerlo.</p>
+            <CambiarPin showToast={showToast} />
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: GASTO ── */}
+      {modalGasto && <ModalGasto onClose={()=>setModalGasto(false)} showToast={showToast}/>}
+
+      {/* ── MODAL: MOVIMIENTO CAJA ── */}
+      {modalCaja && <ModalCaja tipo={modalCaja} onClose={()=>setModalCaja(null)} showToast={showToast}/>}
+
+      {/* ── MODAL: NUEVO EMPLEADO ── */}
+      {modalEmpleado && <ModalEmpleado emp={modalEmpleado} onClose={()=>setModalEmpleado(null)} showToast={showToast}/>}
+    </div>
+  );
+}
+
+// ── Detalle Empleado ──────────────────────────────────────────────────────
+function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
+  const emp = empleados.find(e=>e.fireId===empId);
+  const [pagos, setPagos]       = useState([]);
+  const [vacas, setVacas]       = useState([]);
+  const [notas, setNotas]       = useState([]);
+  const [tab, setTab]           = useState("pagos");
+  const [modalPago, setModalPago] = useState(false);
+  const [modalVaca, setModalVaca] = useState(false);
+  const [nuevaNota, setNuevaNota] = useState("");
+
+  useEffect(() => {
+    if (!emp) return;
+    const u1 = onSnapshot(collection(db,"pagosSueldo"), snap => setPagos(snap.docs.map(d=>({...d.data(),fireId:d.id})).filter(p=>p.empId===empId)));
+    const u2 = onSnapshot(collection(db,"vacaciones"), snap => setVacas(snap.docs.map(d=>({...d.data(),fireId:d.id})).filter(v=>v.empId===empId)));
+    const u3 = onSnapshot(collection(db,"notasEmp"), snap => setNotas(snap.docs.map(d=>({...d.data(),fireId:d.id})).filter(n=>n.empId===empId)));
+    return () => { u1();u2();u3(); };
+  }, [empId]);
+
+  if (!emp) return null;
+
+  const totalPagado = pagos.reduce((s,p)=>s+parseFloat(p.monto||0),0);
+  const diasTomados = vacas.filter(v=>v.tipo==="tomado").reduce((s,v)=>s+parseInt(v.dias||0),0);
+  const diasDisp    = (parseFloat(emp.diasVacaciones||14)) - diasTomados;
+
+  const agregarNota = async () => {
+    if (!nuevaNota.trim()) return;
+    await addDoc(collection(db,"notasEmp"), { empId, texto:nuevaNota.trim(), fecha:new Date().toISOString().split("T")[0] });
+    setNuevaNota("");
+    showToast("Nota guardada ✅");
+  };
+
+  return (
+    <div>
+      <button onClick={()=>setSelectedEmp(null)} style={{ background:"transparent", border:"none", color:"#e65100", fontWeight:600, fontSize:14, cursor:"pointer", marginBottom:16 }}>← Volver</button>
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 26px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:16 }}>
+        <div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{emp.nombre}</div>
+          <div style={{ fontSize:13, color:"#a09080", marginTop:2 }}>{emp.cargo||"Sin cargo"} · Desde {emp.ingreso||"—"}</div>
+          {emp.telefono && <div style={{ fontSize:13, color:"#e65100", fontWeight:700, marginTop:6 }}>📞 {emp.telefono}</div>}
+        </div>
+        <div style={{ display:"flex", gap:12 }}>
+          <div style={{ background:"#fff8f5", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Sueldo</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#e65100" }}>${parseFloat(emp.sueldo||0).toLocaleString("es-AR")}</div>
+          </div>
+          <div style={{ background:"#f1f8e9", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Días vac.</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#2e7d32" }}>{diasDisp}</div>
+          </div>
+          <div style={{ background:"#e3f2fd", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:10, color:"#a09080", fontWeight:600, textTransform:"uppercase" }}>Total pagado</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:18, fontWeight:700, color:"#1565c0" }}>${totalPagado.toLocaleString("es-AR")}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs empleado */}
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {[["pagos","💵 Pagos"],["vacaciones","🏖️ Vacaciones"],["notas","📝 Notas"]].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)}
+            style={{ padding:"7px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
+              background:tab===t?"#e65100":"#fff", color:tab===t?"#fff":"#4a5568",
+              boxShadow:tab===t?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(230,81,0,.07)" }}>
+            {l}
+          </button>
+        ))}
+        <button onClick={()=>setModalPago(true)} style={{ marginLeft:"auto", background:"#2e7d32", color:"#fff", border:"none", padding:"7px 16px", borderRadius:20, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Registrar Pago</button>
+      </div>
+
+      {tab==="pagos" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          {pagos.length===0 ? <div style={{ padding:"32px", textAlign:"center", color:"#a09080" }}>Sin pagos registrados</div> :
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr style={{ background:"#fffaf7" }}>
+                {["Fecha","Concepto","Monto",""].map(h=><th key={h} style={{ padding:"10px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {pagos.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(p=>(
+                  <tr key={p.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                    <td style={{ padding:"10px 16px", color:"#a09080" }}>{p.fecha}</td>
+                    <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{p.concepto||"Sueldo"}</td>
+                    <td style={{ padding:"10px 16px", fontWeight:700, color:"#2e7d32" }}>${parseFloat(p.monto||0).toLocaleString("es-AR")}</td>
+                    <td style={{ padding:"10px 14px" }}><button onClick={async()=>{ await deleteDoc(doc(db,"pagosSueldo",p.fireId)); showToast("Eliminado","error"); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"3px 7px", borderRadius:5, cursor:"pointer", fontSize:11 }}>🗑</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          }
+        </div>
+      )}
+
+      {tab==="vacaciones" && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+            <button onClick={()=>setModalVaca(true)} style={{ background:"#e65100", color:"#fff", border:"none", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Registrar Vacaciones</button>
+          </div>
+          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+            {vacas.length===0 ? <div style={{ padding:"32px", textAlign:"center", color:"#a09080" }}>Sin registros de vacaciones</div> :
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr style={{ background:"#fffaf7" }}>
+                  {["Fecha","Tipo","Días","Nota",""].map(h=><th key={h} style={{ padding:"10px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", borderBottom:"1px solid #f5e8e0" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {vacas.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(v=>(
+                    <tr key={v.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                      <td style={{ padding:"10px 16px", color:"#a09080" }}>{v.fecha}</td>
+                      <td style={{ padding:"10px 16px" }}><span style={{ background:v.tipo==="tomado"?"#fff3e0":"#e8f5e9", color:v.tipo==="tomado"?"#e65100":"#2e7d32", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.tipo==="tomado"?"Tomado":"Acreditado"}</span></td>
+                      <td style={{ padding:"10px 16px", fontWeight:700 }}>{v.dias}</td>
+                      <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.nota||"—"}</td>
+                      <td style={{ padding:"10px 14px" }}><button onClick={async()=>{ await deleteDoc(doc(db,"vacaciones",v.fireId)); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"3px 7px", borderRadius:5, cursor:"pointer", fontSize:11 }}>🗑</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            }
+          </div>
+        </div>
+      )}
+
+      {tab==="notas" && (
+        <div>
+          <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+            <input value={nuevaNota} onChange={e=>setNuevaNota(e.target.value)} onKeyDown={e=>e.key==="Enter"&&agregarNota()}
+              placeholder="Escribí una nota sobre el empleado..."
+              style={{ flex:1, padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
+            <button onClick={agregarNota} style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>Agregar</button>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {notas.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(n=>(
+              <div key={n.fireId} style={{ background:"#fff", borderRadius:10, padding:"14px 18px", boxShadow:"0 1px 6px rgba(230,81,0,.07)", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                <div>
+                  <div style={{ fontSize:14, color:"#1a2340", lineHeight:1.5 }}>{n.texto}</div>
+                  <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>{n.fecha}</div>
+                </div>
+                <button onClick={async()=>{ await deleteDoc(doc(db,"notasEmp",n.fireId)); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"3px 7px", borderRadius:5, cursor:"pointer", fontSize:11 }}>🗑</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {modalPago && (
+        <ModalSimple titulo="💵 Registrar Pago de Sueldo" onClose={()=>setModalPago(false)} onSave={async(form)=>{
+          await addDoc(collection(db,"pagosSueldo"),{empId,...form,fecha:form.fecha||new Date().toISOString().split("T")[0]});
+          showToast("Pago registrado ✅"); setModalPago(false);
+        }} campos={[{key:"monto",label:"Monto",type:"number",placeholder:"0"},{key:"concepto",label:"Concepto",placeholder:"Sueldo quincenal..."},{key:"fecha",label:"Fecha",type:"date"}]}/>
+      )}
+      {modalVaca && (
+        <ModalSimple titulo="🏖️ Registrar Vacaciones" onClose={()=>setModalVaca(false)} onSave={async(form)=>{
+          await addDoc(collection(db,"vacaciones"),{empId,...form,fecha:form.fecha||new Date().toISOString().split("T")[0]});
+          showToast("Vacaciones registradas ✅"); setModalVaca(false);
+        }} campos={[{key:"dias",label:"Días",type:"number",placeholder:"0"},{key:"tipo",label:"Tipo",type:"select",options:["tomado","acreditado"]},{key:"nota",label:"Nota",placeholder:"Opcional..."},{key:"fecha",label:"Fecha",type:"date"}]}/>
+      )}
+    </div>
+  );
+}
+
+// ── Modal Simple reutilizable ─────────────────────────────────────────────
+function ModalSimple({ titulo, campos, onClose, onSave }) {
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+  const handleSave = async () => { setSaving(true); await onSave(form); setSaving(false); };
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>{titulo}</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {campos.map(c=>(
+            <div key={c.key}>
+              <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>{c.label}</label>
+              {c.type==="select"
+                ? <select value={form[c.key]||""} onChange={e=>setForm(f=>({...f,[c.key]:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+                    <option value="">Seleccionar...</option>
+                    {c.options.map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}
+                  </select>
+                : <input type={c.type||"text"} value={form[c.key]||""} onChange={e=>setForm(f=>({...f,[c.key]:e.target.value}))} placeholder={c.placeholder||""} style={inp}/>
+              }
+            </div>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:20 }}>
+          <button onClick={onClose} style={{ padding:"9px 18px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving} style={{ padding:"9px 22px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            {saving?"Guardando...":"✅ Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modales Finanzas ──────────────────────────────────────────────────────
+function ModalGasto({ onClose, showToast }) {
+  return <ModalSimple titulo="💸 Cargar Gasto" onClose={onClose} onSave={async(form)=>{
+    await addDoc(collection(db,"gastos"),{...form,fecha:form.fecha||new Date().toISOString().split("T")[0],monto:parseFloat(form.monto)||0});
+    showToast("Gasto cargado ✅"); onClose();
+  }} campos={[{key:"descripcion",label:"Descripción",placeholder:"Ej: Compra de insumos"},{key:"monto",label:"Monto",type:"number",placeholder:"0"},{key:"categoria",label:"Categoría",placeholder:"Insumos, Servicios, Personal..."},{key:"fecha",label:"Fecha",type:"date"}]}/>;
+}
+
+function ModalCaja({ tipo, onClose, showToast }) {
+  return <ModalSimple titulo={tipo==="ingreso"?"+ Ingreso Manual a Caja":"− Egreso Manual de Caja"} onClose={onClose} onSave={async(form)=>{
+    await addDoc(collection(db,"movCaja"),{...form,tipo,fecha:form.fecha||new Date().toISOString().split("T")[0],monto:parseFloat(form.monto)||0});
+    showToast(`${tipo==="ingreso"?"Ingreso":"Egreso"} registrado ✅`); onClose();
+  }} campos={[{key:"monto",label:"Monto",type:"number",placeholder:"0"},{key:"descripcion",label:"Descripción",placeholder:"Motivo..."},{key:"fecha",label:"Fecha",type:"date"}]}/>;
+}
+
+function ModalEmpleado({ emp, onClose, showToast }) {
+  return <ModalSimple titulo={emp.fireId?"✏️ Editar Empleado":"👷 Nuevo Empleado"} onClose={onClose} onSave={async(form)=>{
+    if(emp.fireId) { await updateDoc(doc(db,"empleados",emp.fireId),form); showToast("Empleado actualizado ✅"); }
+    else { await addDoc(collection(db,"empleados"),form); showToast("Empleado creado ✅"); }
+    onClose();
+  }} campos={[{key:"nombre",label:"Nombre completo",placeholder:"Nombre y apellido"},{key:"cargo",label:"Cargo",placeholder:"Cajero, Operario..."},{key:"sueldo",label:"Sueldo base",type:"number",placeholder:"0"},{key:"ingreso",label:"Fecha de ingreso",type:"date"},{key:"telefono",label:"Teléfono",placeholder:"11-xxxx-xxxx"},{key:"diasVacaciones",label:"Días de vacaciones/año",type:"number",placeholder:"14"}]}/>;
+}
+
+function CambiarPin({ showToast }) {
+  const [pinActual, setPinActual] = useState("");
+  const [pinNuevo, setPinNuevo]   = useState("");
+  const [pinConf, setPinConf]     = useState("");
+  const [saving, setSaving]       = useState(false);
+  const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+  const handleSave = async () => {
+    if (pinNuevo.length!==4||!/^\d{4}$/.test(pinNuevo)) { showToast("El PIN debe ser exactamente 4 dígitos","error"); return; }
+    if (pinNuevo!==pinConf) { showToast("Los PINs no coinciden","error"); return; }
+    setSaving(true);
+    const snap = await getDoc(doc(db,"config","finanzas")).catch(()=>null);
+    const savedPin = snap?.exists() ? snap.data().pin : "1234";
+    if (pinActual!==savedPin) { showToast("PIN actual incorrecto","error"); setSaving(false); return; }
+    await setDoc(doc(db,"config","finanzas"),{pin:pinNuevo});
+    showToast("PIN actualizado ✅"); setPinActual(""); setPinNuevo(""); setPinConf(""); setSaving(false);
+  };
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div><label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>PIN actual</label><input type="password" maxLength={4} value={pinActual} onChange={e=>setPinActual(e.target.value)} placeholder="••••" style={inp}/></div>
+      <div><label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>PIN nuevo (4 dígitos)</label><input type="password" maxLength={4} value={pinNuevo} onChange={e=>setPinNuevo(e.target.value)} placeholder="••••" style={inp}/></div>
+      <div><label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Confirmar PIN nuevo</label><input type="password" maxLength={4} value={pinConf} onChange={e=>setPinConf(e.target.value)} placeholder="••••" style={inp}/></div>
+      <button onClick={handleSave} disabled={saving} style={{ padding:"11px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:4 }}>
+        {saving?"Guardando...":"🔐 Cambiar PIN"}
+      </button>
+      <p style={{ fontSize:12, color:"#a09080" }}>El PIN por defecto es <strong>1234</strong>. Cambialo antes de usar.</p>
+    </div>
+  );
+}
+
+// ── Modal Confirmar Entrega ───────────────────────────────────────────────
+function EntregaModal({ pedido, onConfirmar, onClose }) {
+  const [metodoPago, setMetodoPago] = useState("Efectivo");
+  const saldo = parseFloat(pedido.precio||0) - parseFloat(pedido.seña||0);
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:600 }} onClick={onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"32px 36px", width:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ textAlign:"center", marginBottom:20 }}>
+          <div style={{ fontSize:48, marginBottom:10 }}>📦</div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:6 }}>Confirmar Entrega</div>
+          <div style={{ fontSize:14, color:"#4a5568", fontWeight:600 }}>{pedido.nombre}</div>
+          <div style={{ fontSize:13, color:"#a09080", marginTop:4 }}>Cliente: {pedido.cliente}</div>
+        </div>
+
+        {/* Resumen de cobro */}
+        <div style={{ background:"#fff8f5", borderRadius:10, padding:"14px 18px", marginBottom:20 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6, fontSize:13 }}>
+            <span style={{ color:"#a09080" }}>Total del pedido:</span>
+            <span style={{ fontWeight:700 }}>${parseFloat(pedido.precio||0).toLocaleString("es-AR")}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6, fontSize:13 }}>
+            <span style={{ color:"#a09080" }}>Seña cobrada:</span>
+            <span style={{ fontWeight:700, color:"#2e7d32" }}>${parseFloat(pedido.seña||0).toLocaleString("es-AR")}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", borderTop:"1.5px solid #f0d5c0", paddingTop:8, marginTop:4 }}>
+            <span style={{ fontWeight:700, color:"#1a2340" }}>Saldo a cobrar:</span>
+            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:saldo>0?"#c62828":"#2e7d32" }}>
+              ${saldo.toLocaleString("es-AR")}
+            </span>
+          </div>
+        </div>
+
+        {/* Método de pago */}
+        <div style={{ marginBottom:22 }}>
+          <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:10 }}>Método de pago del saldo:</label>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {["Efectivo","Transferencia","Tarjeta de Crédito","Cuenta Corriente"].map(m=>(
+              <button key={m} onClick={()=>setMetodoPago(m)}
+                style={{ padding:"10px 8px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer",
+                  border:`2px solid ${metodoPago===m?"#e65100":"#f0d5c0"}`,
+                  background:metodoPago===m?"#e65100":"#fff",
+                  color:metodoPago===m?"#fff":"#4a5568", transition:"all .15s" }}>
+                {m==="Efectivo"?"💵 Efectivo":m==="Transferencia"?"📲 Transferencia":m==="Tarjeta de Crédito"?"💳 Tarjeta":"📒 Cta. Corriente"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onClose}
+            style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>
+            Cancelar
+          </button>
+          <button onClick={()=>onConfirmar(pedido, metodoPago)}
+            style={{ flex:2, padding:"11px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+            ✅ Confirmar Entrega
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Componente: Modal Mensaje WhatsApp ───────────────────────────────────
+function MsgModal({ pedido, copied, setCopied, onClose }) {
+  const p   = pedido;
+  const tot = parseFloat(p.precio||0).toLocaleString("es-AR");
+  const sal = (parseFloat(p.precio||0) - parseFloat(p.seña||0)).toLocaleString("es-AR");
+  const msg = `¡Hola ${p.cliente}! 👋\nTu pedido *${p.nombre}* ya está listo 🎉\nEl monto total es $${tot} y resta abonar $${sal}.\nPodés transferir al alias *mafaldagrafica*.\n¡Muchas gracias por tu compra!`;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(msg).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  return (
+    <div className="modal-ov" onClick={onClose}>
+      <div className="msg-bx" onClick={e => e.stopPropagation()}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
+          <div style={{ fontSize:36 }}>💬</div>
+          <div>
+            <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>Mensaje para el cliente</h3>
+            <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>Copiá el mensaje y enviáselo por WhatsApp</p>
+          </div>
+        </div>
+        <div style={{ background:"#e8f5e9", borderRadius:8, padding:"8px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8, fontSize:13 }}>
+          <span>🏢</span>
+          <span style={{ fontWeight:600, color:"#1b5e20" }}>{p.cliente}</span>
+          {p.telefono && <span style={{ color:"#4a5568" }}>· {p.telefono}</span>}
+        </div>
+        <textarea className="msg-textarea" rows={6} defaultValue={msg} id="msg-cliente-textarea"/>
+        <div style={{ display:"flex", gap:10, marginTop:16, justifyContent:"flex-end" }}>
+          <button className="btn-g" style={{ padding:"10px 20px" }} onClick={onClose}>Cerrar</button>
+          <button className={`btn-copy${copied?" copied":""}`} onClick={handleCopy}>
+            {copied ? "✅ ¡Copiado!" : "📋 Copiar mensaje"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Helper para imprimir con config lista ────────────────────────────────
+function imprimirConConfig(fn, empresa, configCargada) {
+  if (!configCargada) {
+    alert("Cargando datos del local, intentá en un momento...");
+    return;
+  }
+  fn(empresa);
+}
+
 export default function App() {
   const [pedidos, setPedidos]             = useState([]);
   const [loading, setLoading]             = useState(true);
@@ -2615,6 +5700,7 @@ export default function App() {
   const [copied, setCopied]               = useState(false);
   const [empresa, setEmpresa]             = useState(EMPTY_EMPRESA);
   const [empresaSaved, setEmpresaSaved]   = useState(false);
+  const [configCargada, setConfigCargada] = useState(false);
   const [vistaLista, setVistaLista]       = useState("categorias");
   const [showStats, setShowStats]         = useState(true);
   const [clientes, setClientes]           = useState([]);
@@ -2624,6 +5710,11 @@ export default function App() {
   const [editingClienteId, setEditingClienteId]   = useState(null);
   const [editingInsumoId, setEditingInsumoId]     = useState(null);
   const [nuevoEventoModal, setNuevoEventoModal]   = useState(false);
+  const [menuAbierto, setMenuAbierto] = useState(typeof window !== "undefined" ? window.innerWidth > 900 : true);
+  const [finanzasDesbloqueado, setFinanzasDesbloqueado] = useState(false);
+  const [entregaModal, setEntregaModal]               = useState(null); // { pedido }
+  const [busquedaGlobal, setBusquedaGlobal]       = useState("");
+  const [busqGlobalOpen, setBusqGlobalOpen]       = useState(false);
 
   // ── Firebase: verificar sesión ──
   useEffect(() => {
@@ -2657,7 +5748,8 @@ export default function App() {
   useEffect(() => {
     getDoc(doc(db, "config", "empresa")).then(snap => {
       if (snap.exists()) setEmpresa(snap.data());
-    });
+      setConfigCargada(true);
+    }).catch(() => setConfigCargada(true));
   }, []);
 
   const handleLogout = () => signOut(auth);
@@ -2668,7 +5760,8 @@ export default function App() {
   };
 
   const filtered = useMemo(() => pedidos.filter(p => {
-    if (p.estado === "Listo") return false; // van a la página de Listos
+    if (p.estado === "Listo") return false;     // van a Pedidos Listos
+    if (p.estado === "Entregado") return false; // van al Historial
     const q = busqueda.toLowerCase();
     return (!busqueda || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q) || p.telefono?.includes(busqueda))
       && (filtroEstado    === "Todos"  || p.estado    === filtroEstado)
@@ -2715,9 +5808,13 @@ export default function App() {
 
   const handleSubmit = async () => {
     if (!validate()) return;
+    // Limpiar campos undefined que Firebase no acepta
+    const limpiar = (obj) => Object.fromEntries(
+      Object.entries(obj).filter(([_, v]) => v !== undefined)
+    );
     if (editingId !== null) {
       const prev    = pedidos.find(p => p.id === editingId);
-      const updated = { ...formData, id: editingId, clienteId: selectedClienteId||prev.clienteId||null };
+      const updated = limpiar({ ...formData, id: editingId, clienteId: selectedClienteId||prev.clienteId||null });
       const fireId  = prev.fireId;
       await updateDoc(doc(db, "pedidos", fireId), updated);
       showToast("Pedido actualizado correctamente");
@@ -2725,7 +5822,7 @@ export default function App() {
       triggerMsgIfNeeded(prev, updated);
     } else {
       const newId = Math.max(...pedidos.map(p => p.id), 0) + 1;
-      const nuevo = { ...formData, id: newId, clienteId: selectedClienteId||null };
+      const nuevo = limpiar({ ...formData, id: newId, clienteId: selectedClienteId||null });
       await addDoc(collection(db, "pedidos"), nuevo);
       showToast("Pedido cargado exitosamente 🎉");
       triggerPrintIfNeeded(null, nuevo);
@@ -2735,11 +5832,46 @@ export default function App() {
   };
 
   const handleEstadoChange = async (id, nuevoEstado) => {
-    const prev    = pedidos.find(p => p.id === id);
+    const prev = pedidos.find(p => p.id === id);
+    if (nuevoEstado === "Entregado" && prev.estado !== "Entregado") {
+      // Mostrar modal para elegir método de pago antes de marcar entregado
+      setEntregaModal({ pedido: prev });
+      return;
+    }
     const updated = { ...prev, estado: nuevoEstado };
     await updateDoc(doc(db, "pedidos", prev.fireId), { estado: nuevoEstado });
     triggerPrintIfNeeded(prev, updated);
     triggerMsgIfNeeded(prev, updated);
+  };
+
+  const confirmarEntrega = async (pedido, metodoPago) => {
+    // 1. Marcar pedido como entregado
+    await updateDoc(doc(db, "pedidos", pedido.fireId), { estado: "Entregado" });
+    // 2. Registrar en ventas de finanzas
+    const ventasSnap = await getDocs(collection(db, "ventas"));
+    const numero = ventasSnap.size + 1;
+    await addDoc(collection(db, "ventas"), {
+      numero,
+      fecha:         new Date().toISOString().split("T")[0],
+      clienteId:     pedido.clienteId || null,
+      clienteNombre: pedido.cliente || "Sin cliente",
+      metodoPago,
+      origen:        "pedido",
+      pedidoId:      pedido.fireId,
+      items:         [{ nombre: pedido.nombre, cantidad: 1, precio: parseFloat(pedido.precio||0) }],
+      total:         parseFloat(pedido.precio||0),
+      creadoEn:      new Date().toISOString(),
+    });
+    // 3. Si es cuenta corriente, sumar al saldo del cliente
+    if (metodoPago === "Cuenta Corriente" && pedido.clienteId) {
+      const clSnap = await getDoc(doc(db, "clientes", pedido.clienteId));
+      if (clSnap.exists()) {
+        const nuevoSaldo = (parseFloat(clSnap.data().saldoCuenta)||0) + parseFloat(pedido.precio||0);
+        await updateDoc(doc(db, "clientes", pedido.clienteId), { saldoCuenta: nuevoSaldo });
+      }
+    }
+    setEntregaModal(null);
+    showToast(`Pedido entregado · $${parseFloat(pedido.precio||0).toLocaleString("es-AR")} registrado en Finanzas ✅`);
   };
 
   const handleEdit   = (p) => { setFormData({...p}); setEditingId(p.id); setErrors({}); setView("formulario"); };
@@ -2766,7 +5898,7 @@ export default function App() {
 
   if (!authChecked) return (
     <div style={{ minHeight:"100vh", background:"#fff8f5", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
-      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:"#e65100", marginBottom:12 }}>Mafalda Gráfica</div>
+      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:28, fontWeight:700, color:"#e65100", marginBottom:12 }}>Mafalda Gráfica</div>
       <div style={{ fontSize:14, color:"#a09080" }}>Iniciando...</div>
     </div>
   );
@@ -2775,16 +5907,17 @@ export default function App() {
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:"#fff8f5", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
-      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:"#e65100", marginBottom:12 }}>Mafalda Gráfica</div>
+      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:28, fontWeight:700, color:"#e65100", marginBottom:12 }}>Mafalda Gráfica</div>
       <div style={{ fontSize:14, color:"#a09080" }}>Cargando pedidos...</div>
     </div>
   );
 
   return (
-    <div style={{ fontFamily:"'DM Sans',sans-serif", minHeight:"100vh", background:"#fff8f5", color:"#1a2340" }}>
+    <div style={{ fontFamily:"'DM Sans',sans-serif", color:"#1a2340", minHeight:"100vh", width:"100%" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0}
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
+        html,body,#root{margin:0;padding:0;width:100%;min-height:100vh;overflow-x:hidden}body{background:#fff8f5}
         input:focus,select:focus,textarea:focus{border-color:#e65100!important;box-shadow:0 0 0 3px rgba(230,81,0,.1)}
         ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#c5cce0;border-radius:3px}
         .btn-p{background:#e65100;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .18s}
@@ -2800,6 +5933,7 @@ export default function App() {
         .nav-lnk:hover{background:rgba(255,255,255,.15);color:#fff}
         .nav-lnk.act{background:rgba(255,255,255,.2);color:#fff;font-weight:700}
         .row-h:hover{background:#f5f7fd!important;cursor:pointer}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
         .cat-tog:hover{background:#fff8f5}
         .est-sel{padding:4px 8px;border-radius:6px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;border:1.5px solid #f0d5c0;cursor:pointer;background:#fff}
         .modal-ov{position:fixed;inset:0;background:rgba(17,31,107,.45);z-index:600;display:flex;align-items:center;justify-content:center;animation:fIn .2s ease}
@@ -2812,115 +5946,243 @@ export default function App() {
         .btn-copy.copied{background:#2e7d32}
         @keyframes fIn{from{opacity:0}to{opacity:1}}
         @keyframes pIn{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+        /* ── Responsive ── */
+        /* ── Sidebar layout ── */
+        .app-shell{display:flex;min-height:100vh;width:100%;position:relative}
+        .sidebar{width:220px;min-height:100vh;background:linear-gradient(180deg,#bf360c 0%,#e65100 100%);display:flex;flex-direction:column;transition:width .25s cubic-bezier(.4,0,.2,1);flex-shrink:0;position:relative;z-index:100;box-shadow:4px 0 20px rgba(191,54,12,.25)}
+        .sidebar.collapsed{width:64px}
+        .sidebar-logo{display:flex;align-items:center;gap:10px;padding:18px 14px 14px;border-bottom:1px solid rgba(255,255,255,.15);min-height:70px;overflow:hidden}
+        .sidebar-logo img{height:38px;object-fit:contain;border-radius:6px;flex-shrink:0}
+        .sidebar-logo-txt{overflow:hidden;white-space:nowrap}
+        .sidebar-logo-name{font-family:"DM Sans",sans-serif;font-size:16px;font-weight:800;color:#fff;line-height:1.2}
+        .sidebar-logo-sub{font-size:9px;color:rgba(255,255,255,.55);letter-spacing:1px;text-transform:uppercase}
+        .sidebar-toggle{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:14px;flex-shrink:0;transition:background .18s;margin-left:auto}
+        .sidebar-toggle:hover{background:rgba(255,255,255,.25)}
+        .sidebar-nav{flex:1;padding:10px 8px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;overflow-x:hidden}
+        .sidebar-item{display:flex;align-items:center;gap:12px;padding:10px 10px;border-radius:10px;cursor:pointer;transition:all .18s;color:rgba(255,255,255,.75);white-space:nowrap;overflow:hidden;font-size:14px;font-weight:500;font-family:"DM Sans",sans-serif;border:none;background:transparent;width:100%;text-align:left}
+        .sidebar-item:hover{background:rgba(255,255,255,.15);color:#fff}
+        .sidebar-item.act{background:rgba(255,255,255,.22);color:#fff;font-weight:700}
+        .sidebar-item.finanzas-item{background:rgba(255,255,255,.12);margin-top:auto}
+        .sidebar-item.finanzas-item.act{background:rgba(255,255,255,.25)}
+        .sidebar-icon{font-size:18px;flex-shrink:0;width:22px;text-align:center}
+        .sidebar-label{overflow:hidden;transition:opacity .2s,max-width .25s;max-width:160px;opacity:1}
+        .collapsed .sidebar-label{max-width:0;opacity:0}
+        .sidebar-bottom{padding:10px 8px;border-top:1px solid rgba(255,255,255,.15)}
+        .sidebar-badge{background:#f57f17;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-left:auto;flex-shrink:0}
+        .main-area{flex:1;display:flex;flex-direction:column;min-width:0;background:#fff8f5;overflow-x:hidden}
+        .topbar{height:58px;background:#fff;border-bottom:1px solid #f0d5c0;display:flex;align-items:center;padding:0 24px;gap:12px;box-shadow:0 1px 8px rgba(230,81,0,.06);flex-shrink:0}
+        .topbar-title{font-family:"DM Sans",sans-serif;font-size:18px;font-weight:700;color:#1a2340;flex:1}
+        .main-content{padding:24px 28px;flex:1}
+        .grid-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+        .grid-2col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+        .grid-nueva-venta{display:grid;grid-template-columns:1fr 420px;gap:20px;align-items:start}
+        .grid-agenda{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start}
+        .busq-global-overlay{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.4)}
+        .busq-global-box{position:fixed;top:70px;left:50%;transform:translateX(-50%);width:min(600px,92vw);background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.2);z-index:401;overflow:hidden}
+        .busq-global-input{width:100%;padding:16px 20px;font-size:16px;border:none;outline:none;font-family:"DM Sans",sans-serif;color:#1a2340}
+        .busq-global-result{padding:11px 20px;cursor:pointer;border-top:1px solid #fef0e8;display:flex;align-items:center;gap:12px;transition:background .15s}
+        .busq-global-result:hover{background:#fff8f5}
+        .sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199}
+        .mobile-menu-btn{display:none;background:transparent;border:1.5px solid #f0d5c0;color:#e65100;font-size:20px;cursor:pointer;padding:5px 10px;border-radius:8px;font-weight:700;line-height:1}
+        .ctx-btn{background:rgba(230,81,0,.1);color:#e65100;border:1.5px solid rgba(230,81,0,.3);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:"DM Sans",sans-serif;transition:all .18s}
+        .ctx-btn:hover{background:#e65100;color:#fff}
+        @media(max-width:900px){
+          .sidebar{position:fixed;top:0;left:0;height:100vh;z-index:200;transform:translateX(0);transition:width .25s cubic-bezier(.4,0,.2,1)}
+          .sidebar.collapsed{width:0;overflow:hidden}
+          .mobile-menu-btn{display:flex;align-items:center;justify-content:center}
+          .sidebar-overlay{display:block}
+          .sidebar-toggle{display:none}
+          .main-area{margin-left:0}
+          .main-content{padding:16px}
+          .grid-stats{grid-template-columns:repeat(2,1fr)}
+          .grid-2col{grid-template-columns:1fr}
+          .grid-nueva-venta{grid-template-columns:1fr}
+          .grid-agenda{grid-template-columns:1fr}
+        }
+        @media(max-width:480px){
+          .grid-stats{grid-template-columns:1fr 1fr}
+          .main-content{padding:12px}
+        }
       `}</style>
 
-      {/* HEADER */}
-      <div style={{ background:"linear-gradient(135deg,#bf360c 0%,#e65100 55%,#ff6d00 100%)", boxShadow:"0 4px 20px rgba(191,54,12,.35)" }}>
-        <div style={{ padding:"0 28px", display:"flex", alignItems:"center", justifyContent:"space-between", height:70 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer" }} onClick={() => setView("lista")}>
+      {/* ── SIDEBAR + MAIN LAYOUT ── */}
+      <div className="app-shell">
+
+        {/* ── SIDEBAR ── */}
+        <aside className={`sidebar${menuAbierto?"":" collapsed"}`}>
+          {/* Overlay para cerrar en mobile tocando afuera */}
+          {menuAbierto && (
+            <div onClick={()=>setMenuAbierto(false)}
+              style={{ display:"none" }}
+              className="sidebar-overlay"/>
+          )}
+          {/* Logo */}
+          <div className="sidebar-logo">
             {empresa.logo
-              ? <img src={empresa.logo} alt="Logo" style={{ height:46, maxWidth:160, objectFit:"contain", borderRadius:8 }}/>
-              : <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                  <div style={{ width:42, height:42, background:"rgba(255,255,255,.13)", borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>🖨️</div>
-                  <div>
-                    <div style={{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:21, fontWeight:700, color:"#fff", lineHeight:1.1 }}>{empresa.nombre||"Mafalda Gráfica"}</div>
-                    <div style={{ fontSize:11, color:"rgba(255,255,255,.55)", letterSpacing:"1px", textTransform:"uppercase" }}>Sistema de Pedidos</div>
-                  </div>
-                </div>
+              ? <img src={empresa.logo} alt="Logo" style={{ height:38, maxWidth:120, objectFit:"contain", borderRadius:6, flexShrink:0 }}/>
+              : <span className="sidebar-icon" style={{ fontSize:26 }}>🖨️</span>
             }
+            <div className="sidebar-logo-txt">
+              <div className="sidebar-logo-name">{empresa.nombre||"Mafalda"}</div>
+              <div className="sidebar-logo-sub">Gestión</div>
+            </div>
+            <button className="sidebar-toggle" onClick={()=>setMenuAbierto(m=>!m)} title={menuAbierto?"Colapsar menú":"Expandir menú"}>
+              {menuAbierto?"◀":"▶"}
+            </button>
           </div>
-          <nav style={{ display:"flex", alignItems:"center", gap:4 }}>
-            {/* Tabs principales */}
-            <div className={`nav-lnk ${(view==="lista"||view==="listos"||view==="formulario"||view==="detalle")?"act":""}`} onClick={() => setView("lista")}>📋 Pedidos</div>
-            <div className={`nav-lnk ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}`} onClick={() => setView("clientes")}>👥 Clientes</div>
-            <div className={`nav-lnk ${(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo")?"act":""}`} onClick={() => setView("insumos")}>📦 Insumos</div>
-            <div className={`nav-lnk ${(view==="ventas"||view==="nuevaVenta")?"act":""}`} onClick={() => setView("ventas")}>💰 Ventas</div>
-            <div className={`nav-lnk ${(view==="agenda")?"act":""}`} onClick={() => setView("agenda")}>📅 Agenda</div>
-            <div className={`nav-lnk ${(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}`} onClick={() => setView("proveedores")}>🏭 Proveedores</div>
-            <div className={`nav-lnk ${view==="config"?"act":""}`} onClick={() => setView("config")}>⚙️ Configuración</div>
 
-            {/* Separador */}
-            <div style={{ width:1, height:24, background:"rgba(255,255,255,.2)", margin:"0 6px" }}></div>
+          {/* Nav items */}
+          <nav className="sidebar-nav">
+            <button className={`sidebar-item ${(view==="lista"||view==="listos"||view==="formulario"||view==="detalle")?"act":""}` + ""} onClick={()=>{ setView("lista"); }}>
+              <span className="sidebar-icon">📋</span>
+              <span className="sidebar-label">Pedidos</span>
+            </button>
+            <button className={`sidebar-item ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}` + ""} onClick={()=>{ setView("clientes"); }}>
+              <span className="sidebar-icon">👥</span>
+              <span className="sidebar-label">Clientes</span>
+            </button>
+            <button className={`sidebar-item ${(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo")?"act":""}` + ""} onClick={()=>{ setView("insumos"); }}>
+              <span className="sidebar-icon">🏷️</span>
+              <span className="sidebar-label">Servicios y Productos</span>
+            </button>
+            <button className={`sidebar-item ${(view==="ventas"||view==="nuevaVenta")?"act":""}` + ""} onClick={()=>{ setView("ventas"); }}>
+              <span className="sidebar-icon">💰</span>
+              <span className="sidebar-label">Ventas</span>
+            </button>
+            <button className={`sidebar-item ${(view==="agenda")?"act":""}` + ""} onClick={()=>{ setView("agenda"); }}>
+              <span className="sidebar-icon">📅</span>
+              <span className="sidebar-label">Agenda</span>
+            </button>
+            <button className={`sidebar-item ${(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}` + ""} onClick={()=>{ setView("proveedores"); }}>
+              <span className="sidebar-icon">🏭</span>
+              <span className="sidebar-label">Proveedores</span>
+            </button>
+            <button className={`sidebar-item ${view==="calculadora"?"act":""}`} onClick={()=>{ setView("calculadora"); }}>
+              <span className="sidebar-icon">🧮</span>
+              <span className="sidebar-label">Calculadora</span>
+            </button>
+            <button className="sidebar-item" onClick={()=>window.open("https://mafalda-photoprint.vercel.app","_blank")}>
+              <span className="sidebar-icon">📷</span>
+              <span className="sidebar-label">PhotoPrint</span>
+            </button>
+            <button className={`sidebar-item ${(view==="config")?"act":""}` + ""} onClick={()=>{ setView("config"); }}>
+              <span className="sidebar-icon">⚙️</span>
+              <span className="sidebar-label">Configuración</span>
+            </button>
 
-            {/* Botones contextuales — solo visibles en sección Pedidos */}
-            {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && (
-              <>
-                <div className={`nav-lnk ${view==="listos"?"act":""}`} onClick={() => setView("listos")} style={{ position:"relative", fontSize:13 }}>
-                  ✅ Listos
-                  {pedidos.filter(p=>p.estado==="Listo").length > 0 && (
-                    <span style={{ position:"absolute", top:2, right:2, background:"#f57f17", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:10, fontWeight:700, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
-                      {pedidos.filter(p=>p.estado==="Listo").length}
-                    </span>
-                  )}
-                </div>
-                <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", transition:"all .18s" }}
-                  onClick={() => { setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); }}
-                  onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                  onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                  + Nuevo Pedido
-                </div>
-              </>
+            {/* Listos badge */}
+            {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && pedidos.filter(p=>p.estado==="Listo").length > 0 && (
+              <button className={`sidebar-item ${view==="listos"?"act":""}`} onClick={()=>setView("listos")} style={{ marginTop:-2 }}>
+                <span className="sidebar-icon">✅</span>
+                <span className="sidebar-label">Listos</span>
+                <span className="sidebar-badge">{pedidos.filter(p=>p.estado==="Listo").length}</span>
+              </button>
             )}
-
-            {/* Botón Nuevo Cliente — solo visible en sección Clientes */}
-            {(view==="clientes"||view==="nuevoCliente"||view==="editarCliente") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", transition:"all .18s" }}
-                onClick={() => setView("nuevoCliente")}
-                onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                ➕ Nuevo Cliente
-              </div>
-            )}
-
-            {/* Botones Insumos */}
-            {(view==="insumos"||view==="nuevoInsumo"||view==="editarInsumo") && (
-              <>
-                <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                  onClick={() => setView("nuevoInsumo")}
-                  onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                  onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                  ➕ Nuevo Insumo
-                </div>
-              </>
-            )}
-
-            {/* Botones Ventas */}
-            {(view==="ventas"||view==="nuevaVenta") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                onClick={() => setView("nuevaVenta")}
-                onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                ➕ Nueva Venta
-              </div>
-            )}
-
-            {/* Botones Agenda */}
-            {view==="agenda" && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                onClick={() => setNuevoEventoModal(true)}
-                onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                ➕ Nuevo Evento
-              </div>
-            )}
-
-            {/* Botones Proveedores */}
-            {(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor") && (
-              <div style={{ background:"rgba(255,255,255,.9)", color:"#e65100", padding:"8px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}
-                onClick={() => setView("nuevoProveedor")}
-                onMouseOver={e=>e.currentTarget.style.background="#fff"}
-                onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.9)"}>
-                ➕ Nuevo Proveedor
-              </div>
-            )}
-
-            {/* Salir */}
-            <div className="nav-lnk" onClick={handleLogout} style={{ marginLeft:4, background:"rgba(255,255,255,.15)", color:"#fff", fontSize:13 }}>🔒 Salir</div>
           </nav>
-        </div>
-      </div>
 
-      <div style={{ padding:"26px 32px" }}>
+          {/* Finanzas al fondo */}
+          <div className="sidebar-bottom">
+            <button className={`sidebar-item finanzas-item ${view==="finanzas"?"act":""}`} onClick={()=>setView("finanzas")}>
+              <span className="sidebar-icon">💼</span>
+              <span className="sidebar-label">Finanzas</span>
+            </button>
+            <button className="sidebar-item" onClick={()=>window.open("https://mafalda-photoprint.vercel.app","_blank")} style={{ marginTop:4 }}>
+              <span className="sidebar-icon">🖼️</span>
+              <span className="sidebar-label">PhotoPrint</span>
+            </button>
+            <button className="sidebar-item" onClick={handleLogout} style={{ marginTop:4 }}>
+              <span className="sidebar-icon">🔒</span>
+              <span className="sidebar-label">Salir</span>
+            </button>
+          </div>
+        </aside>
+
+        {/* ── MAIN AREA ── */}
+        <div className="main-area">
+
+          {/* Topbar */}
+          <div className="topbar">
+            {/* Toggle en mobile */}
+            <button onClick={()=>setMenuAbierto(m=>!m)}
+              className="mobile-menu-btn">
+              {menuAbierto ? "✕" : "☰"}
+            </button>
+            <div className="topbar-title">
+              {view==="lista" ? "📋 Pedidos" :
+          view==="listos" ? "📋 Pedidos" :
+          view==="formulario" ? "📋 Pedidos" :
+          view==="detalle" ? "📋 Pedidos" :
+          view==="clientes" ? "👥 Clientes" :
+          view==="nuevoCliente" ? "👥 Clientes" :
+          view==="editarCliente" ? "👥 Clientes" :
+          view==="insumos" ? "🏷️ Servicios y Productos" :
+          view==="nuevoInsumo" ? "🏷️ Servicios y Productos" :
+          view==="editarInsumo" ? "🏷️ Servicios y Productos" :
+          view==="ventas" ? "💰 Ventas" :
+          view==="nuevaVenta" ? "💰 Ventas" :
+          view==="agenda" ? "📅 Agenda" :
+          view==="proveedores" ? "🏭 Proveedores" :
+          view==="nuevoProveedor" ? "🏭 Proveedores" :
+          view==="editarProveedor" ? "🏭 Proveedores" :
+          view==="calculadora" ? "🧮 Calculadora de Costos" :
+          view==="config" ? "⚙️ Configuración" :
+          view==="finanzas" ? "💼 Finanzas" :
+          "Sistema"}
+            </div>
+
+            {/* Botones contextuales en topbar */}
+            {(view==="lista"||view==="formulario"||view==="detalle") && (
+              <button className="ctx-btn" onClick={()=>{ setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); }}>
+                + Nuevo Pedido
+              </button>
+            )}
+            {(view==="clientes"||view==="nuevoCliente") && (
+              <button className="ctx-btn" onClick={()=>setView("nuevoCliente")}>➕ Nuevo Cliente</button>
+            )}
+            {(view==="insumos"||view==="nuevoInsumo") && (
+              <button className="ctx-btn" onClick={()=>setView("nuevoInsumo")}>➕ Nuevo Producto</button>
+            )}
+            {(view==="ventas"||view==="nuevaVenta") && (
+              <button className="ctx-btn" onClick={()=>setView("nuevaVenta")}>➕ Nueva Venta</button>
+            )}
+            {view==="agenda" && (
+              <button className="ctx-btn" onClick={()=>setNuevoEventoModal(true)}>➕ Nuevo Evento</button>
+            )}
+            {(view==="proveedores"||view==="nuevoProveedor") && (
+              <button className="ctx-btn" onClick={()=>setView("nuevoProveedor")}>➕ Nuevo Proveedor</button>
+            )}
+
+            {/* Buscador global */}
+            <button onClick={()=>setBusqGlobalOpen(true)}
+              style={{ background:"rgba(230,81,0,.08)", border:"1.5px solid rgba(230,81,0,.2)", color:"#e65100", padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", gap:6, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>
+              🔍 <span style={{ fontSize:13 }}>Buscar</span>
+            </button>
+
+            {!configCargada && (
+              <span style={{ fontSize:11, color:"#a09080", display:"flex", alignItems:"center", gap:4 }}>
+                <span style={{ width:7, height:7, borderRadius:"50%", background:"#ffb74d", display:"inline-block", animation:"pulse 1s infinite" }}></span>
+              </span>
+            )}
+          </div>
+
+          {/* Buscador Global */}
+          {busqGlobalOpen && (
+            <BuscadorGlobal
+              pedidos={pedidos}
+              clientes={clientes}
+              busqueda={busquedaGlobal}
+              setBusqueda={setBusquedaGlobal}
+              onClose={() => { setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+              onSelectPedido={(p) => { setSelectedPedido(p); setView("detalle"); setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+              onSelectCliente={() => { setView("clientes"); setBusqGlobalOpen(false); setBusquedaGlobal(""); }}
+              ESTADO_COLOR={ESTADO_COLOR}
+              CATEGORIA_COLOR={CATEGORIA_COLOR}
+              CATEGORIA_ICON={CATEGORIA_ICON}
+            />
+          )}
+
+          <div className="main-content" onClick={()=>{ if(window.innerWidth<=900) setMenuAbierto(false); }}>
+
 
         {/* STATS — solo en pestaña Pedidos */}
         {(view==="lista"||view==="listos"||view==="formulario"||view==="detalle") && (
@@ -2934,7 +6196,7 @@ export default function App() {
               </button>
             </div>
             {showStats && (
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14 }}>
+              <div className="grid-stats">
                 {[
                   { label:"Activos",            value:stats.total,      icon:"📁", color:"#e65100" },
                   { label:"Pendientes",         value:stats.pendiente,  icon:"⏳", color:"#616161" },
@@ -2944,7 +6206,7 @@ export default function App() {
                   <div key={i} className="card" style={{ padding:"16px 18px" }}>
                     <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:7 }}>{s.label}</div>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:s.color, lineHeight:1 }}>{s.value}</div>
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:28, fontWeight:700, color:s.color, lineHeight:1 }}>{s.value}</div>
                       <div style={{ fontSize:22, opacity:.75 }}>{s.icon}</div>
                     </div>
                   </div>
@@ -3002,7 +6264,7 @@ export default function App() {
               !Object.keys(grouped).length ? (
                 <div className="card" style={{ padding:"52px 24px", textAlign:"center" }}>
                   <div style={{ fontSize:40, marginBottom:14 }}>📭</div>
-                  <div style={{ fontWeight:700, fontSize:18, fontFamily:"'Playfair Display',serif", marginBottom:6 }}>Sin pedidos</div>
+                  <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Sin pedidos</div>
                   <div style={{ color:"#a09080", fontSize:14 }}>Cargá un nuevo pedido con el botón de arriba</div>
                 </div>
               ) : Object.entries(grouped).map(([cat, items]) => {
@@ -3125,9 +6387,9 @@ export default function App() {
 
         {/* ── FORMULARIO ── */}
         {view==="formulario" && (
-          <div className="card" style={{ padding:"32px 36px", maxWidth:840, margin:"0 auto" }}>
+          <div className="card" style={{ padding:"32px 36px" }}>
             <div style={{ marginBottom:26 }}>
-              <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
+              <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
                 {editingId?"✏️ Editar Pedido":"📥 Nuevo Pedido"}
               </h2>
               <p style={{ fontSize:14, color:"#a09080" }}>{editingId?"Modificá los datos del pedido.":"Completá el formulario para registrar el pedido."}</p>
@@ -3136,21 +6398,21 @@ export default function App() {
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
               {/* Categoría */}
               <div style={{ gridColumn:"1 / -1" }}>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:8 }}>Categoría *</label>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-                  {CATEGORIAS.map(cat => {
-                    const cc = CATEGORIA_COLOR[cat]; const sel = formData.categoria===cat;
-                    return (
-                      <button key={cat} onClick={() => setFormData(p=>({...p,categoria:cat}))}
-                        style={{ padding:"7px 14px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", transition:"all .18s",
-                          border:sel?`2px solid ${cc.accent}`:"2px solid #dde3ef",
-                          background:sel?cc.bg:"#f8faff", color:sel?cc.text:"#6b7a9a",
-                          transform:sel?"scale(1.05)":"scale(1)", boxShadow:sel?`0 2px 8px ${cc.accent}33`:"none" }}>
-                        {CATEGORIA_ICON[cat]} {cat}
-                      </button>
-                    );
-                  })}
-                </div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:8 }}>
+                  Categoría *
+                  {errors.categoria && <span style={{ color:"#ef5350", fontSize:12, fontWeight:400, marginLeft:8 }}>{errors.categoria}</span>}
+                </label>
+                <select value={formData.categoria||""} onChange={e=>setFormData(p=>({...p,categoria:e.target.value}))}
+                  style={{ width:"100%", padding:"11px 14px", borderRadius:8, border:`1.5px solid ${errors.categoria?"#ef5350":formData.categoria?"#e65100":"#dde3ef"}`,
+                    fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer",
+                    background: formData.categoria ? (CATEGORIA_COLOR[formData.categoria]?.bg||"#fff8f5") : "#fff",
+                    color: formData.categoria ? (CATEGORIA_COLOR[formData.categoria]?.text||"#1a2340") : "#a09080",
+                    fontWeight: formData.categoria ? 700 : 400 }}>
+                  <option value="">— Seleccioná una categoría —</option>
+                  {CATEGORIAS.map(cat=>(
+                    <option key={cat} value={cat}>{CATEGORIA_ICON[cat]} {cat}</option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ gridColumn:"1 / -1" }}>
@@ -3295,7 +6557,7 @@ export default function App() {
               <button className="btn-g" style={{ marginBottom:22, fontSize:13 }} onClick={() => setView("lista")}>← Volver</button>
               <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:22 }}>
                 <div>
-                  <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:8 }}>{p.nombre}</h2>
+                  <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:8 }}>{p.nombre}</h2>
                   <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                     <span style={{ background:cc.bg, color:cc.text, padding:"5px 12px", borderRadius:20, fontSize:13, fontWeight:700 }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
                     <span style={{ background:ec.bg, color:ec.text, padding:"5px 12px", borderRadius:20, fontSize:13, fontWeight:600 }}>{p.estado}</span>
@@ -3312,14 +6574,23 @@ export default function App() {
 
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:20 }}>
                 {[
-                  { label:"Cliente",          value:p.cliente,          icon:"🏢" },
-                  { label:"Teléfono",         value:p.telefono||"—",    icon:"📞" },
-                  { label:"Fecha de Pedido",  value:p.fechaPedido||"—", icon:"📅" },
-                  { label:"Fecha de Entrega", value:p.fechaEntrega||"—",icon:"🏁" },
+                  { label:"Cliente", value:p.cliente, icon:"🏢", clickable: !!p.clienteId },
+                  { label:"Teléfono", value:p.telefono||"—", icon:"📞" },
+                  { label:"Fecha de Pedido", value:p.fechaPedido||"—", icon:"📅" },
+                  { label:"Fecha de Entrega", value:p.fechaEntrega||"—", icon:"🏁" },
                 ].map(item => (
-                  <div key={item.label} style={{ background:"#fffaf7", borderRadius:10, padding:"13px 16px" }}>
+                  <div key={item.label} style={{ background:"#fffaf7", borderRadius:10, padding:"13px 16px",
+                    cursor: item.clickable ? "pointer" : "default",
+                    border: item.clickable ? "1.5px solid transparent" : "none",
+                    transition:"all .15s" }}
+                    onClick={() => { if(item.clickable) { setView("clientes"); } }}
+                    onMouseOver={e=>{ if(item.clickable) { e.currentTarget.style.borderColor="#e65100"; e.currentTarget.style.background="#fff8f5"; }}}
+                    onMouseOut={e=>{ if(item.clickable) { e.currentTarget.style.borderColor="transparent"; e.currentTarget.style.background="#fffaf7"; }}}>
                     <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:4 }}>{item.icon} {item.label}</div>
-                    <div style={{ fontWeight:600, color:"#1a2340" }}>{item.value}</div>
+                    <div style={{ fontWeight:600, color: item.clickable ? "#e65100" : "#1a2340", display:"flex", alignItems:"center", gap:6 }}>
+                      {item.value}
+                      {item.clickable && <span style={{ fontSize:10, color:"#e65100", fontWeight:700 }}>→ Ver ficha</span>}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3332,7 +6603,7 @@ export default function App() {
                 ].map(f => (
                   <div key={f.label} style={{ textAlign:"center" }}>
                     <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:5 }}>{f.label}</div>
-                    <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:f.color }}>{f.value}</div>
+                    <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:f.color }}>{f.value}</div>
                   </div>
                 ))}
               </div>
@@ -3408,10 +6679,10 @@ export default function App() {
 
         {/* ── VENTAS ── */}
         {view==="ventas" && (
-          <VentasView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} />
+          <VentasView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} configCargada={configCargada} />
         )}
         {view==="nuevaVenta" && (
-          <NuevaVentaView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} />
+          <NuevaVentaView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} configCargada={configCargada} />
         )}
 
         {/* ── AGENDA ── */}
@@ -3432,6 +6703,19 @@ export default function App() {
           />
         )}
 
+        {/* ── FINANZAS ── */}
+        {view==="calculadora" && <CalculadoraCostos/>}
+
+        {view==="finanzas" && (
+          <FinanzasView
+            pedidos={pedidos}
+            clientes={clientes}
+            desbloqueado={finanzasDesbloqueado}
+            setDesbloqueado={setFinanzasDesbloqueado}
+            showToast={showToast}
+          />
+        )}
+
         {/* ── CONFIGURACIÓN ── */}
         {view==="config" && (
           <ConfigView
@@ -3443,61 +6727,29 @@ export default function App() {
         )}
       </div>
 
-      {/* ── MODAL MENSAJE AL CLIENTE ── */}
-      {msgModal && (() => {
-        const p   = msgModal.pedido;
-        const tot = parseFloat(p.precio||0).toLocaleString("es-AR");
-        const sal = (parseFloat(p.precio||0) - parseFloat(p.seña||0)).toLocaleString("es-AR");
-        const msg = `¡Hola ${p.cliente}! 👋\nTu pedido *${p.nombre}* ya está listo 🎉\nEl monto total es $${tot} y resta abonar $${sal}.\nPodés transferir al alias *mafaldagrafica*.\n¡Muchas gracias por tu compra!`;
-        const handleCopy = () => {
-          navigator.clipboard.writeText(msg).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2500);
-          });
-        };
-        return (
-          <div className="modal-ov" onClick={() => setMsgModal(null)}>
-            <div className="msg-bx" onClick={e => e.stopPropagation()}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
-                <div style={{ fontSize:36 }}>💬</div>
-                <div>
-                  <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>Mensaje para el cliente</h3>
-                  <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>Copiá el mensaje y enviáselo por WhatsApp</p>
-                </div>
-              </div>
+      {msgModal && (
+        <MsgModal
+          pedido={msgModal.pedido}
+          copied={copied}
+          setCopied={setCopied}
+          onClose={() => setMsgModal(null)}
+        />
+      )}
 
-              {/* Badge cliente */}
-              <div style={{ background:"#e8f5e9", borderRadius:8, padding:"8px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8, fontSize:13 }}>
-                <span>🏢</span>
-                <span style={{ fontWeight:600, color:"#1b5e20" }}>{p.cliente}</span>
-                {p.telefono && <span style={{ color:"#4a5568" }}>· {p.telefono}</span>}
-              </div>
-
-              {/* Mensaje editable */}
-              <textarea
-                className="msg-textarea"
-                rows={6}
-                defaultValue={msg}
-                id="msg-cliente-textarea"
-              />
-
-              <div style={{ display:"flex", gap:10, marginTop:16, justifyContent:"flex-end" }}>
-                <button className="btn-g" style={{ padding:"10px 20px" }} onClick={() => setMsgModal(null)}>Cerrar</button>
-                <button className={`btn-copy${copied?" copied":""}`} onClick={handleCopy}>
-                  {copied ? "✅ ¡Copiado!" : "📋 Copiar mensaje"}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {entregaModal && (
+        <EntregaModal
+          pedido={entregaModal.pedido}
+          onConfirmar={confirmarEntrega}
+          onClose={() => setEntregaModal(null)}
+        />
+      )}
 
       {/* ── MODAL IMPRESIÓN AUTOMÁTICA ── */}
       {printModal && (
         <div className="modal-ov" onClick={() => setPrintModal(null)}>
           <div className="modal-bx" onClick={e => e.stopPropagation()}>
             <div style={{ fontSize:52, marginBottom:14 }}>🖨️</div>
-            <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:8 }}>
+            <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340", marginBottom:8 }}>
               ¡Pedido en Producción!
             </h3>
             <p style={{ fontSize:15, color:"#1a2340", fontWeight:600, marginBottom:4 }}>{printModal.pedido.nombre}</p>
@@ -3505,7 +6757,7 @@ export default function App() {
             <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
               <button className="btn-g" style={{ padding:"10px 24px" }} onClick={() => setPrintModal(null)}>Ahora no</button>
               <button className="btn-imp" style={{ padding:"11px 24px", fontSize:15, borderRadius:9 }}
-                onClick={() => { imprimirOrden(printModal.pedido, empresa); setPrintModal(null); }}>
+                onClick={() => { if(!configCargada){alert("Cargando datos del local...");return;} imprimirOrden(printModal.pedido, empresa); setPrintModal(null); }}>
                 🖨️ Imprimir orden
               </button>
             </div>
@@ -3513,7 +6765,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Toast */}
       {toast && (
         <div style={{ position:"fixed", bottom:26, right:26, padding:"13px 20px",
           background:toast.type==="error"?"#ef5350":"#1b5e20",
@@ -3522,6 +6773,8 @@ export default function App() {
           {toast.type==="error"?"🗑 ":"✅ "}{toast.msg}
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }
