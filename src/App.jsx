@@ -439,10 +439,11 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
 }
 
 
-function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp }) {
-  const [busqL, setBusqL]       = useState("");
-  const [busqH, setBusqH]       = useState("");
+function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp, empresa, setView, clientes, setClienteInicialId }) {
+  const [busqL, setBusqL]         = useState("");
+  const [busqH, setBusqH]         = useState("");
   const [tabActiva, setTabActiva] = useState("listos");
+  const [pedidoDetalle, setPedidoDetalle] = useState(null); // para ver orden vieja
 
   const listos = pedidos
     .filter(p => p.estado === "Listo")
@@ -463,6 +464,28 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
     const q = busqH.toLowerCase();
     return !busqH || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q) || p.telefono?.includes(busqH);
   });
+
+  // Navegar a ficha de cliente
+  const irACliente = (p) => {
+    if (!p.clienteId) return;
+    if (setClienteInicialId) setClienteInicialId(p.clienteId);
+    if (setView) setView("clientes");
+  };
+
+  // Botón de cliente clickeable
+  const ClienteLink = ({ p }) => (
+    <div
+      onClick={() => irACliente(p)}
+      style={{ cursor: p.clienteId?"pointer":"default", display:"inline-block" }}
+      title={p.clienteId?"Ver ficha del cliente":""}>
+      <div style={{ fontWeight:600, color: p.clienteId?"#e65100":"#1a2340",
+        textDecoration: p.clienteId?"underline":"none" }}>
+        {p.cliente}
+        {p.clienteId && <span style={{ fontSize:10, marginLeft:4 }}>→</span>}
+      </div>
+      {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100", marginTop:2 }}>📞 {p.telefono}</div>}
+    </div>
+  );
 
   return (
     <div>
@@ -487,7 +510,6 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
       {/* ── TAB: LISTOS ── */}
       {tabActiva === "listos" && (
         <div>
-          {/* Stats */}
           <div style={{ display:"flex", gap:12, marginBottom:18, flexWrap:"wrap" }}>
             <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
               <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Pedidos listos</div>
@@ -499,7 +521,6 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
             </div>
           </div>
 
-          {/* Buscador */}
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
@@ -541,9 +562,8 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                         <td style={{ padding:"13px 16px" }}>
                           <span style={{ background:cc.bg, color:cc.text, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
                         </td>
-                        <td style={{ padding:"13px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>
-                          <div style={{ fontWeight:600 }}>{p.cliente}</div>
-                          {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100", marginTop:2 }}>📞 {p.telefono}</div>}
+                        <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
+                          <ClienteLink p={p}/>
                         </td>
                         <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
                           <span style={{ fontWeight:600, color:hf?"#f57f17":"#1a2340" }}>{hf&&"📍 "}{p.fechaEntrega||"—"}</span>
@@ -554,10 +574,18 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                           <span style={{ fontWeight:700, color:saldo(p)>0?"#c62828":"#2e7d32", fontSize:14 }}>{p.precio?`$${saldo(p).toLocaleString("es-AR")}`:"—"}</span>
                         </td>
                         <td style={{ padding:"13px 16px" }}>
-                          <div style={{ display:"flex", gap:6 }}>
-                            <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setMsgModal({ pedido: p })}>💬</button>
-                            <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }} onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
-                            <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 12px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }} onClick={() => handleDelete(p.id)}>🗑</button>
+                          <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                            <button title="Reimprimir orden de trabajo"
+                              onClick={() => imprimirOrden(p, empresa)}
+                              style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"6px 9px", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              🖨️
+                            </button>
+                            <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                              onClick={() => setMsgModal({ pedido: p })}>💬</button>
+                            <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+                              onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
+                            <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 10px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }}
+                              onClick={() => handleDelete(p.id)}>🗑</button>
                           </div>
                         </td>
                       </tr>
@@ -577,7 +605,6 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
             <p style={{ fontSize:14, color:"#a09080" }}>{entregados.length} pedido{entregados.length!==1?"s":""} entregado{entregados.length!==1?"s":""}</p>
           </div>
 
-          {/* Buscador propio */}
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
@@ -598,7 +625,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
                 <thead>
                   <tr style={{ background:"#fffaf7" }}>
-                    {["Pedido","Categoría","Cliente","Teléfono","Fecha Entrega","Total",""].map(h=>(
+                    {["Pedido","Categoría","Cliente","Fecha Entrega","Total",""].map(h=>(
                       <th key={h} style={{ padding:"10px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #f5e8e0" }}>{h}</th>
                     ))}
                   </tr>
@@ -607,17 +634,33 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                   {entregadosFiltrados.map(p => {
                     const cc = CATEGORIA_COLOR[p.categoria] || {bg:"#f5f5f5",text:"#424242"};
                     return (
-                      <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid #fef0e8", opacity:.9 }}>
-                        <td style={{ padding:"11px 16px", fontWeight:600, color:"#4a5568" }}>{p.nombre}</td>
+                      <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid #fef0e8" }}>
+                        <td style={{ padding:"11px 16px" }}>
+                          <div style={{ fontWeight:600, color:"#4a5568" }}>{p.nombre}</div>
+                          {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
+                        </td>
                         <td style={{ padding:"11px 16px" }}>
                           <span style={{ background:cc.bg, color:cc.text, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:600 }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
                         </td>
-                        <td style={{ padding:"11px 16px", fontWeight:600, color:"#1a2340" }}>{p.cliente}</td>
-                        <td style={{ padding:"11px 16px", fontWeight:700, color:"#e65100", fontSize:12 }}>{p.telefono?`📞 ${p.telefono}`:"—"}</td>
+                        <td style={{ padding:"11px 16px", whiteSpace:"nowrap" }}>
+                          <ClienteLink p={p}/>
+                        </td>
                         <td style={{ padding:"11px 16px", color:"#4a5568" }}>{p.fechaEntrega||"—"}</td>
                         <td style={{ padding:"11px 16px", fontWeight:700, color:"#1a2340" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
                         <td style={{ padding:"11px 16px" }}>
-                          <span style={{ background:"#e8f5e9", color:"#1b5e20", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>✅ Entregado</span>
+                          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                            <button title="Reimprimir orden de trabajo"
+                              onClick={() => imprimirOrden(p, empresa)}
+                              style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"5px 9px", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              🖨️ Orden
+                            </button>
+                            <button title="Ver detalle del pedido"
+                              onClick={() => setPedidoDetalle(p)}
+                              style={{ background:"#f0f3f9", border:"1.5px solid #c5cce0", color:"#3949ab", padding:"5px 9px", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              🔍 Ver
+                            </button>
+                            <span style={{ background:"#e8f5e9", color:"#1b5e20", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>✅ Entregado</span>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -628,9 +671,63 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
           )}
         </div>
       )}
+
+      {/* ── Modal: Ver orden vieja ── */}
+      {pedidoDetalle && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:16 }}
+          onClick={()=>setPedidoDetalle(null)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 30px", width:"100%", maxWidth:560, boxShadow:"0 20px 60px rgba(0,0,0,.25)", maxHeight:"88vh", overflowY:"auto" }}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+              <div>
+                <div style={{ fontWeight:800, fontSize:20, color:"#1a2340" }}>{pedidoDetalle.nombre}</div>
+                <div style={{ fontSize:13, color:"#a09080", marginTop:3 }}>
+                  {CATEGORIA_ICON[pedidoDetalle.categoria]} {pedidoDetalle.categoria}
+                  <span style={{ marginLeft:10, background:"#e8f5e9", color:"#1b5e20", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700 }}>✅ Entregado</span>
+                </div>
+              </div>
+              <button onClick={()=>setPedidoDetalle(null)} style={{ background:"transparent", border:"none", fontSize:22, color:"#a09080", cursor:"pointer" }}>✕</button>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
+              {[
+                { label:"👤 Cliente",       val: pedidoDetalle.cliente||"—" },
+                { label:"📞 Teléfono",      val: pedidoDetalle.telefono||"—" },
+                { label:"📅 Fecha pedido",  val: pedidoDetalle.fechaPedido||"—" },
+                { label:"🏁 Fecha entrega", val: pedidoDetalle.fechaEntrega||"—" },
+                { label:"💰 Precio total",  val: pedidoDetalle.precio?`$${parseFloat(pedidoDetalle.precio).toLocaleString("es-AR")}`:"—" },
+                { label:"💵 Seña",          val: pedidoDetalle.seña?`$${parseFloat(pedidoDetalle.seña).toLocaleString("es-AR")}`:"—" },
+              ].map(item=>(
+                <div key={item.label} style={{ background:"#fffaf7", borderRadius:8, padding:"10px 14px" }}>
+                  <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:3 }}>{item.label}</div>
+                  <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{item.val}</div>
+                </div>
+              ))}
+            </div>
+            {pedidoDetalle.notas && (
+              <div style={{ background:"#fffaf7", borderRadius:8, padding:"12px 16px", marginBottom:18 }}>
+                <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>📝 Notas</div>
+                <div style={{ fontSize:13, color:"#4a5568", lineHeight:1.6, whiteSpace:"pre-line" }}>{pedidoDetalle.notas}</div>
+              </div>
+            )}
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>imprimirOrden(pedidoDetalle, empresa)}
+                style={{ flex:1, padding:"11px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                🖨️ Reimprimir orden de trabajo
+              </button>
+              {pedidoDetalle.clienteId && (
+                <button onClick={()=>{ irACliente(pedidoDetalle); setPedidoDetalle(null); }}
+                  style={{ padding:"11px 16px", background:"#f0f3f9", color:"#3949ab", border:"1.5px solid #c5cce0", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                  👤 Ver cliente
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ── Calculadora de Costos ────────────────────────────────────────────────
 
@@ -4475,11 +4572,19 @@ function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
 }
 
 
-function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClienteId, showToast }) {
+function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClienteId, showToast, clienteInicialId, setClienteInicialId }) {
   const [busq, setBusq]           = useState("");
-  const [selected, setSelected]   = useState(null); // cliente seleccionado para ver detalle
-  const [pagoModal, setPagoModal] = useState(null); // { cliente }
+  const [selected, setSelected]   = useState(null);
+  const [pagoModal, setPagoModal] = useState(null);
   const [montoPago, setMontoPago] = useState("");
+
+  useEffect(() => {
+    if (clienteInicialId) {
+      const cl = clientes.find(c => c.fireId === clienteInicialId);
+      if (cl) setSelected(cl);
+      if (setClienteInicialId) setClienteInicialId(null);
+    }
+  }, [clienteInicialId, clientes]);
 
   const filtrados = clientes.filter(c => {
     const q = busq.toLowerCase();
@@ -5708,6 +5813,7 @@ export default function App() {
   const [clienteDropdown, setClienteDropdown] = useState(false);
   const [selectedClienteId, setSelectedClienteId] = useState(null);
   const [editingClienteId, setEditingClienteId]   = useState(null);
+  const [clienteInicialId, setClienteInicialId]   = useState(null); // ID del cliente a abrir directo
   const [editingInsumoId, setEditingInsumoId]     = useState(null);
   const [nuevoEventoModal, setNuevoEventoModal]   = useState(false);
   const [menuAbierto, setMenuAbierto] = useState(typeof window !== "undefined" ? window.innerWidth > 900 : true);
@@ -6583,7 +6689,7 @@ export default function App() {
                     cursor: item.clickable ? "pointer" : "default",
                     border: item.clickable ? "1.5px solid transparent" : "none",
                     transition:"all .15s" }}
-                    onClick={() => { if(item.clickable) { setView("clientes"); } }}
+                    onClick={() => { if(item.clickable) { setClienteInicialId(p.clienteId); setView("clientes"); } }}
                     onMouseOver={e=>{ if(item.clickable) { e.currentTarget.style.borderColor="#e65100"; e.currentTarget.style.background="#fff8f5"; }}}
                     onMouseOut={e=>{ if(item.clickable) { e.currentTarget.style.borderColor="transparent"; e.currentTarget.style.background="#fffaf7"; }}}>
                     <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:4 }}>{item.icon} {item.label}</div>
@@ -6630,6 +6736,10 @@ export default function App() {
             CATEGORIA_COLOR={CATEGORIA_COLOR}
             CATEGORIA_ICON={CATEGORIA_ICON}
             inp={inp}
+            empresa={empresa}
+            setView={setView}
+            clientes={clientes}
+            setClienteInicialId={setClienteInicialId}
           />
         )}
 
@@ -6642,6 +6752,8 @@ export default function App() {
             setFormData={setFormData}
             setEditingClienteId={setEditingClienteId}
             showToast={showToast}
+            clienteInicialId={clienteInicialId}
+            setClienteInicialId={setClienteInicialId}
           />
         )}
 
