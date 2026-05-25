@@ -439,10 +439,11 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
 }
 
 
-function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp }) {
-  const [busqL, setBusqL]       = useState("");
-  const [busqH, setBusqH]       = useState("");
+function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp, empresa, setView, clientes, setClienteDestacado }) {
+  const [busqL, setBusqL]         = useState("");
+  const [busqH, setBusqH]         = useState("");
   const [tabActiva, setTabActiva] = useState("listos");
+  const [pedidoDetalle, setPedidoDetalle] = useState(null); // para ver orden vieja
 
   const listos = pedidos
     .filter(p => p.estado === "Listo")
@@ -463,6 +464,29 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
     const q = busqH.toLowerCase();
     return !busqH || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q) || p.telefono?.includes(busqH);
   });
+
+  // Navegar a ficha de cliente
+  const irACliente = (p) => {
+    if (!p.clienteId) return;
+    const cl = clientes.find(c => c.fireId === p.clienteId);
+    if (cl && setClienteDestacado) setClienteDestacado(cl);
+    if (setView) setView("clientes");
+  };
+
+  // Botón de cliente clickeable
+  const ClienteLink = ({ p }) => (
+    <div
+      onClick={() => irACliente(p)}
+      style={{ cursor: p.clienteId?"pointer":"default", display:"inline-block" }}
+      title={p.clienteId?"Ver ficha del cliente":""}>
+      <div style={{ fontWeight:600, color: p.clienteId?"#e65100":"#1a2340",
+        textDecoration: p.clienteId?"underline":"none" }}>
+        {p.cliente}
+        {p.clienteId && <span style={{ fontSize:10, marginLeft:4 }}>→</span>}
+      </div>
+      {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100", marginTop:2 }}>📞 {p.telefono}</div>}
+    </div>
+  );
 
   return (
     <div>
@@ -487,7 +511,6 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
       {/* ── TAB: LISTOS ── */}
       {tabActiva === "listos" && (
         <div>
-          {/* Stats */}
           <div style={{ display:"flex", gap:12, marginBottom:18, flexWrap:"wrap" }}>
             <div style={{ background:"#fff", borderRadius:12, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"12px 20px", textAlign:"center" }}>
               <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Pedidos listos</div>
@@ -499,7 +522,6 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
             </div>
           </div>
 
-          {/* Buscador */}
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
@@ -541,9 +563,8 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                         <td style={{ padding:"13px 16px" }}>
                           <span style={{ background:cc.bg, color:cc.text, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
                         </td>
-                        <td style={{ padding:"13px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>
-                          <div style={{ fontWeight:600 }}>{p.cliente}</div>
-                          {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"#e65100", marginTop:2 }}>📞 {p.telefono}</div>}
+                        <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
+                          <ClienteLink p={p}/>
                         </td>
                         <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
                           <span style={{ fontWeight:600, color:hf?"#f57f17":"#1a2340" }}>{hf&&"📍 "}{p.fechaEntrega||"—"}</span>
@@ -554,10 +575,18 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                           <span style={{ fontWeight:700, color:saldo(p)>0?"#c62828":"#2e7d32", fontSize:14 }}>{p.precio?`$${saldo(p).toLocaleString("es-AR")}`:"—"}</span>
                         </td>
                         <td style={{ padding:"13px 16px" }}>
-                          <div style={{ display:"flex", gap:6 }}>
-                            <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }} onClick={() => setMsgModal({ pedido: p })}>💬</button>
-                            <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 12px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }} onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
-                            <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 12px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }} onClick={() => handleDelete(p.id)}>🗑</button>
+                          <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                            <button title="Reimprimir orden de trabajo"
+                              onClick={() => imprimirOrden(p, empresa)}
+                              style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"6px 9px", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              🖨️
+                            </button>
+                            <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                              onClick={() => setMsgModal({ pedido: p })}>💬</button>
+                            <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+                              onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
+                            <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 10px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }}
+                              onClick={() => handleDelete(p.id)}>🗑</button>
                           </div>
                         </td>
                       </tr>
@@ -577,7 +606,6 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
             <p style={{ fontSize:14, color:"#a09080" }}>{entregados.length} pedido{entregados.length!==1?"s":""} entregado{entregados.length!==1?"s":""}</p>
           </div>
 
-          {/* Buscador propio */}
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px", marginBottom:18 }}>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
@@ -598,7 +626,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
                 <thead>
                   <tr style={{ background:"#fffaf7" }}>
-                    {["Pedido","Categoría","Cliente","Teléfono","Fecha Entrega","Total",""].map(h=>(
+                    {["Pedido","Categoría","Cliente","Fecha Entrega","Total",""].map(h=>(
                       <th key={h} style={{ padding:"10px 16px", textAlign:"left", fontWeight:600, fontSize:11, color:"#8a7060", textTransform:"uppercase", letterSpacing:".6px", whiteSpace:"nowrap", borderBottom:"1px solid #f5e8e0" }}>{h}</th>
                     ))}
                   </tr>
@@ -607,17 +635,33 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                   {entregadosFiltrados.map(p => {
                     const cc = CATEGORIA_COLOR[p.categoria] || {bg:"#f5f5f5",text:"#424242"};
                     return (
-                      <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid #fef0e8", opacity:.9 }}>
-                        <td style={{ padding:"11px 16px", fontWeight:600, color:"#4a5568" }}>{p.nombre}</td>
+                      <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid #fef0e8" }}>
+                        <td style={{ padding:"11px 16px" }}>
+                          <div style={{ fontWeight:600, color:"#4a5568" }}>{p.nombre}</div>
+                          {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
+                        </td>
                         <td style={{ padding:"11px 16px" }}>
                           <span style={{ background:cc.bg, color:cc.text, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:600 }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
                         </td>
-                        <td style={{ padding:"11px 16px", fontWeight:600, color:"#1a2340" }}>{p.cliente}</td>
-                        <td style={{ padding:"11px 16px", fontWeight:700, color:"#e65100", fontSize:12 }}>{p.telefono?`📞 ${p.telefono}`:"—"}</td>
+                        <td style={{ padding:"11px 16px", whiteSpace:"nowrap" }}>
+                          <ClienteLink p={p}/>
+                        </td>
                         <td style={{ padding:"11px 16px", color:"#4a5568" }}>{p.fechaEntrega||"—"}</td>
                         <td style={{ padding:"11px 16px", fontWeight:700, color:"#1a2340" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
                         <td style={{ padding:"11px 16px" }}>
-                          <span style={{ background:"#e8f5e9", color:"#1b5e20", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>✅ Entregado</span>
+                          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                            <button title="Reimprimir orden de trabajo"
+                              onClick={() => imprimirOrden(p, empresa)}
+                              style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"5px 9px", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              🖨️ Orden
+                            </button>
+                            <button title="Ver detalle del pedido"
+                              onClick={() => setPedidoDetalle(p)}
+                              style={{ background:"#f0f3f9", border:"1.5px solid #c5cce0", color:"#3949ab", padding:"5px 9px", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              🔍 Ver
+                            </button>
+                            <span style={{ background:"#e8f5e9", color:"#1b5e20", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>✅ Entregado</span>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -628,9 +672,63 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
           )}
         </div>
       )}
+
+      {/* ── Modal: Ver orden vieja ── */}
+      {pedidoDetalle && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:16 }}
+          onClick={()=>setPedidoDetalle(null)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 30px", width:"100%", maxWidth:560, boxShadow:"0 20px 60px rgba(0,0,0,.25)", maxHeight:"88vh", overflowY:"auto" }}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+              <div>
+                <div style={{ fontWeight:800, fontSize:20, color:"#1a2340" }}>{pedidoDetalle.nombre}</div>
+                <div style={{ fontSize:13, color:"#a09080", marginTop:3 }}>
+                  {CATEGORIA_ICON[pedidoDetalle.categoria]} {pedidoDetalle.categoria}
+                  <span style={{ marginLeft:10, background:"#e8f5e9", color:"#1b5e20", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700 }}>✅ Entregado</span>
+                </div>
+              </div>
+              <button onClick={()=>setPedidoDetalle(null)} style={{ background:"transparent", border:"none", fontSize:22, color:"#a09080", cursor:"pointer" }}>✕</button>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
+              {[
+                { label:"👤 Cliente",       val: pedidoDetalle.cliente||"—" },
+                { label:"📞 Teléfono",      val: pedidoDetalle.telefono||"—" },
+                { label:"📅 Fecha pedido",  val: pedidoDetalle.fechaPedido||"—" },
+                { label:"🏁 Fecha entrega", val: pedidoDetalle.fechaEntrega||"—" },
+                { label:"💰 Precio total",  val: pedidoDetalle.precio?`$${parseFloat(pedidoDetalle.precio).toLocaleString("es-AR")}`:"—" },
+                { label:"💵 Seña",          val: pedidoDetalle.seña?`$${parseFloat(pedidoDetalle.seña).toLocaleString("es-AR")}`:"—" },
+              ].map(item=>(
+                <div key={item.label} style={{ background:"#fffaf7", borderRadius:8, padding:"10px 14px" }}>
+                  <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:3 }}>{item.label}</div>
+                  <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{item.val}</div>
+                </div>
+              ))}
+            </div>
+            {pedidoDetalle.notas && (
+              <div style={{ background:"#fffaf7", borderRadius:8, padding:"12px 16px", marginBottom:18 }}>
+                <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>📝 Notas</div>
+                <div style={{ fontSize:13, color:"#4a5568", lineHeight:1.6, whiteSpace:"pre-line" }}>{pedidoDetalle.notas}</div>
+              </div>
+            )}
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>imprimirOrden(pedidoDetalle, empresa)}
+                style={{ flex:1, padding:"11px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                🖨️ Reimprimir orden de trabajo
+              </button>
+              {pedidoDetalle.clienteId && (
+                <button onClick={()=>{ irACliente(pedidoDetalle); setPedidoDetalle(null); }}
+                  style={{ padding:"11px 16px", background:"#f0f3f9", color:"#3949ab", border:"1.5px solid #c5cce0", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                  👤 Ver cliente
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ── Calculadora de Costos ────────────────────────────────────────────────
 
@@ -1536,6 +1634,234 @@ function CalcConfigFijos({ fijos, onGuardar, materias, getPrecioM2 }) {
   );
 }
 
+
+// ── Componente: Control de Producción ────────────────────────────────────
+const SQ_FT_TO_M2 = 0.092903;
+const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+function ProduccionView({ showToast }) {
+  const [registros, setRegistros] = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [modal, setModal]         = useState(false);
+  const [anioVer, setAnioVer]     = useState(new Date().getFullYear());
+
+  // Form
+  const [mes,   setMes]   = useState(new Date().getMonth());
+  const [anio,  setAnio]  = useState(new Date().getFullYear());
+  const [sqft,  setSqft]  = useState("");
+  const [nota,  setNota]  = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db,"produccion"), snap => {
+      setRegistros(snap.docs.map(d=>({...d.data(),fireId:d.id}))
+        .sort((a,b)=>a.anio!==b.anio?a.anio-b.anio:a.mes-b.mes));
+      setLoading(false);
+    });
+    return ()=>unsub();
+  }, []);
+
+  const handleGuardar = async () => {
+    if (!sqft || parseFloat(sqft)<=0) { showToast("Ingresá los sq ft","error"); return; }
+    setSaving(true);
+    const m2 = parseFloat(sqft) * SQ_FT_TO_M2;
+    // Si ya existe ese mes/año, actualizar
+    const existe = registros.find(r=>r.mes===parseInt(mes)&&r.anio===parseInt(anio));
+    if (existe) {
+      await updateDoc(doc(db,"produccion",existe.fireId), { sqft:parseFloat(sqft), m2, nota });
+      showToast("Registro actualizado ✅");
+    } else {
+      await addDoc(collection(db,"produccion"), { mes:parseInt(mes), anio:parseInt(anio), sqft:parseFloat(sqft), m2, nota, cargadoEn:new Date().toISOString() });
+      showToast("Registro guardado ✅");
+    }
+    setSaving(false);
+    setModal(false);
+    setSqft(""); setNota("");
+  };
+
+  const handleEliminar = async (r) => {
+    if (!window.confirm("¿Eliminar este registro?")) return;
+    await deleteDoc(doc(db,"produccion",r.fireId));
+    showToast("Eliminado","error");
+  };
+
+  // Datos del año seleccionado para el gráfico
+  const delAnio = registros.filter(r=>r.anio===anioVer);
+  const anios   = [...new Set(registros.map(r=>r.anio))].sort();
+  const totalAnio = delAnio.reduce((s,r)=>s+r.m2,0);
+  const maxM2     = Math.max(...delAnio.map(r=>r.m2), 1);
+
+  // Acumulado histórico para línea de crecimiento
+  let acum = 0;
+  const acumulado = registros.map(r=>{ acum+=r.m2; return {...r, acum}; });
+
+  const fmt = n => n>=1000 ? `${(n/1000).toFixed(1)}k` : Math.round(n).toString();
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {anios.map(a=>(
+            <button key={a} onClick={()=>setAnioVer(a)}
+              style={{ padding:"7px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
+                background:anioVer===a?"#e65100":"#fff", color:anioVer===a?"#fff":"#4a5568",
+                boxShadow:anioVer===a?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(0,0,0,.06)" }}>
+              {a}
+            </button>
+          ))}
+        </div>
+        <button onClick={()=>setModal(true)}
+          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+          ➕ Cargar mes
+        </button>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:20 }}>
+        {[
+          { label:`Total ${anioVer}`, valor:`${totalAnio.toLocaleString("es-AR",{maximumFractionDigits:1})} m²`, sub:`${(totalAnio/SQ_FT_TO_M2).toLocaleString("es-AR",{maximumFractionDigits:0})} sq ft` },
+          { label:"Promedio mensual", valor:`${(delAnio.length>0?totalAnio/delAnio.length:0).toLocaleString("es-AR",{maximumFractionDigits:1})} m²`, sub:`${delAnio.length} meses cargados` },
+          { label:"Total histórico", valor:`${registros.reduce((s,r)=>s+r.m2,0).toLocaleString("es-AR",{maximumFractionDigits:1})} m²`, sub:"desde el inicio" },
+        ].map((k,i)=>(
+          <div key={i} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"16px 20px" }}>
+            <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>{k.label}</div>
+            <div style={{ fontSize:22, fontWeight:800, color:"#e65100" }}>{k.valor}</div>
+            <div style={{ fontSize:11, color:"#a09080", marginTop:3 }}>{k.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Gráfico de barras mensual */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 24px", marginBottom:20 }}>
+        <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:4 }}>📊 m² impresos por mes — {anioVer}</div>
+        <div style={{ fontSize:12, color:"#a09080", marginBottom:18 }}>1 sq ft = 0.0929 m²</div>
+        {delAnio.length===0 ? (
+          <div style={{ textAlign:"center", padding:"32px 0", color:"#a09080", fontSize:13 }}>Sin datos para {anioVer} — cargá el primer mes</div>
+        ) : (
+          <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:180 }}>
+            {MESES.map((m,i)=>{
+              const r = delAnio.find(x=>x.mes===i);
+              const h = r ? Math.max((r.m2/maxM2)*160, 4) : 0;
+              return (
+                <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                  {r && <div style={{ fontSize:9, fontWeight:700, color:"#e65100" }}>{fmt(r.m2)}</div>}
+                  <div style={{ width:"100%", borderRadius:"4px 4px 0 0", transition:"height .4s",
+                    height:h, background:r?"#e65100":"#f5e8e0",
+                    minHeight: r?4:0 }}/>
+                  <div style={{ fontSize:10, color:r?"#1a2340":"#c0b0a0", fontWeight:r?700:400 }}>{m}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Gráfico acumulado histórico */}
+      {registros.length>1 && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 24px", marginBottom:20 }}>
+          <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:16 }}>📈 Crecimiento acumulado histórico</div>
+          <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:120 }}>
+            {acumulado.map((r,i)=>{
+              const h = Math.max((r.acum/acumulado[acumulado.length-1].acum)*100,4);
+              return (
+                <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                  <div style={{ width:"100%", borderRadius:"3px 3px 0 0", background:"#1a2340",
+                    height:`${h}%`, minHeight:4, transition:"height .4s" }}/>
+                  <div style={{ fontSize:9, color:"#a09080", textAlign:"center", lineHeight:1.2 }}>
+                    {MESES[r.mes]}<br/>{r.anio}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop:12, textAlign:"right", fontSize:13, color:"#a09080" }}>
+            Total acumulado: <strong style={{color:"#1a2340"}}>{Math.round(acumulado[acumulado.length-1]?.acum||0).toLocaleString("es-AR")} m²</strong>
+          </div>
+        </div>
+      )}
+
+      {/* Tabla detalle */}
+      {registros.length>0 && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+            <thead><tr style={{ background:"#fff8f5" }}>
+              {["Período","Sq Ft","m²","Notas",""].map(h=>(
+                <th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid #f0d5c0" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {[...registros].reverse().map(r=>(
+                <tr key={r.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                  <td style={{ padding:"11px 16px", fontWeight:700, color:"#1a2340" }}>{MESES[r.mes]} {r.anio}</td>
+                  <td style={{ padding:"11px 16px", color:"#4a5568" }}>{r.sqft.toLocaleString("es-AR",{maximumFractionDigits:1})}</td>
+                  <td style={{ padding:"11px 16px", fontWeight:700, color:"#e65100" }}>{r.m2.toLocaleString("es-AR",{maximumFractionDigits:2})} m²</td>
+                  <td style={{ padding:"11px 16px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
+                  <td style={{ padding:"11px 14px" }}>
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={()=>{ setMes(r.mes); setAnio(r.anio); setSqft(r.sqft); setNota(r.nota||""); setModal(true); }}
+                        style={{ background:"#fff8f5", border:"1.5px solid #e65100", color:"#e65100", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>✏️</button>
+                      <button onClick={()=>handleEliminar(r)}
+                        style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Modal cargar mes */}
+      {modal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setModal(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>📥 Cargar producción mensual</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Mes</label>
+                  <select value={mes} onChange={e=>setMes(parseInt(e.target.value))}
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none" }}>
+                    {MESES.map((m,i)=><option key={i} value={i}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Año</label>
+                  <input type="number" value={anio} onChange={e=>setAnio(parseInt(e.target.value))}
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                </div>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Sq Ft impresos (del sistema)</label>
+                <input type="number" step="0.1" value={sqft} onChange={e=>setSqft(e.target.value)} placeholder="Ej: 1250.5" autoFocus
+                  style={{ width:"100%", padding:"11px 14px", borderRadius:8, border:"1.5px solid #e65100", fontSize:16, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", fontWeight:700 }}/>
+                {sqft>0 && (
+                  <div style={{ marginTop:8, background:"#fff8f5", borderRadius:8, padding:"8px 14px", display:"flex", justifyContent:"space-between" }}>
+                    <span style={{ fontSize:13, color:"#a09080" }}>{parseFloat(sqft).toLocaleString("es-AR",{maximumFractionDigits:1})} sq ft =</span>
+                    <span style={{ fontWeight:800, fontSize:16, color:"#e65100" }}>{(parseFloat(sqft)*SQ_FT_TO_M2).toLocaleString("es-AR",{maximumFractionDigits:2})} m²</span>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nota (opcional)</label>
+                <input value={nota} onChange={e=>setNota(e.target.value)} placeholder="Ej: mes con trabajo de lona grande"
+                  style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10, marginTop:22 }}>
+              <button onClick={()=>setModal(false)} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={handleGuardar} disabled={saving||!sqft}
+                style={{ flex:2, padding:"11px", background:!sqft?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:!sqft?"not-allowed":"pointer" }}>
+                {saving?"Guardando...":"💾 Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Componente: Configuración ─────────────────────────────────────────────
 function ConfigView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved }) {
@@ -4475,11 +4801,16 @@ function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
 }
 
 
-function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClienteId, showToast }) {
+function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClienteId, showToast, clienteDestacado, setClienteDestacado }) {
   const [busq, setBusq]           = useState("");
-  const [selected, setSelected]   = useState(null); // cliente seleccionado para ver detalle
-  const [pagoModal, setPagoModal] = useState(null); // { cliente }
+  const [selected, setSelected]   = useState(clienteDestacado || null);
+  const [pagoModal, setPagoModal] = useState(null);
   const [montoPago, setMontoPago] = useState("");
+
+  // Limpiar el destacado una vez usado
+  useEffect(() => {
+    if (clienteDestacado && setClienteDestacado) setClienteDestacado(null);
+  }, []);
 
   const filtrados = clientes.filter(c => {
     const q = busq.toLowerCase();
@@ -5708,6 +6039,7 @@ export default function App() {
   const [clienteDropdown, setClienteDropdown] = useState(false);
   const [selectedClienteId, setSelectedClienteId] = useState(null);
   const [editingClienteId, setEditingClienteId]   = useState(null);
+  const [clienteDestacado, setClienteDestacado]   = useState(null); // objeto cliente a abrir directo
   const [editingInsumoId, setEditingInsumoId]     = useState(null);
   const [nuevoEventoModal, setNuevoEventoModal]   = useState(false);
   const [menuAbierto, setMenuAbierto] = useState(typeof window !== "undefined" ? window.innerWidth > 900 : true);
@@ -6061,6 +6393,10 @@ export default function App() {
               <span className="sidebar-icon">🧮</span>
               <span className="sidebar-label">Calculadora</span>
             </button>
+            <button className={`sidebar-item ${view==="produccion"?"act":""}`} onClick={()=>{ setView("produccion"); }}>
+              <span className="sidebar-icon">📊</span>
+              <span className="sidebar-label">Producción</span>
+            </button>
             <button className="sidebar-item" onClick={()=>window.open("https://mafalda-photoprint.vercel.app","_blank")}>
               <span className="sidebar-icon">📷</span>
               <span className="sidebar-label">PhotoPrint</span>
@@ -6125,6 +6461,7 @@ export default function App() {
           view==="nuevoProveedor" ? "🏭 Proveedores" :
           view==="editarProveedor" ? "🏭 Proveedores" :
           view==="calculadora" ? "🧮 Calculadora de Costos" :
+          view==="produccion"  ? "📊 Control de Producción" :
           view==="config" ? "⚙️ Configuración" :
           view==="finanzas" ? "💼 Finanzas" :
           "Sistema"}
@@ -6583,7 +6920,7 @@ export default function App() {
                     cursor: item.clickable ? "pointer" : "default",
                     border: item.clickable ? "1.5px solid transparent" : "none",
                     transition:"all .15s" }}
-                    onClick={() => { if(item.clickable) { setView("clientes"); } }}
+                    onClick={() => { if(item.clickable) { const cl = clientes.find(c=>c.fireId===p.clienteId); if(cl) setClienteDestacado(cl); setView("clientes"); } }}
                     onMouseOver={e=>{ if(item.clickable) { e.currentTarget.style.borderColor="#e65100"; e.currentTarget.style.background="#fff8f5"; }}}
                     onMouseOut={e=>{ if(item.clickable) { e.currentTarget.style.borderColor="transparent"; e.currentTarget.style.background="#fffaf7"; }}}>
                     <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:4 }}>{item.icon} {item.label}</div>
@@ -6630,18 +6967,25 @@ export default function App() {
             CATEGORIA_COLOR={CATEGORIA_COLOR}
             CATEGORIA_ICON={CATEGORIA_ICON}
             inp={inp}
+            empresa={empresa}
+            setView={setView}
+            clientes={clientes}
+            setClienteDestacado={setClienteDestacado}
           />
         )}
 
         {/* ── CLIENTES ── */}
         {view==="clientes" && (
           <ClientesView
+            key={clienteDestacado?.fireId || "lista"}
             clientes={clientes}
             pedidos={pedidos}
             setView={setView}
             setFormData={setFormData}
             setEditingClienteId={setEditingClienteId}
             showToast={showToast}
+            clienteDestacado={clienteDestacado}
+            setClienteDestacado={setClienteDestacado}
           />
         )}
 
@@ -6705,6 +7049,7 @@ export default function App() {
 
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
+        {view==="produccion"  && <ProduccionView showToast={showToast}/>}
 
         {view==="finanzas" && (
           <FinanzasView
