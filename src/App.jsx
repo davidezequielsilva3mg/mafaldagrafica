@@ -1636,16 +1636,33 @@ function CalcConfigFijos({ fijos, onGuardar, materias, getPrecioM2 }) {
 
 
 // ── Componente: Pedidos Online ────────────────────────────────────────────
-const CATS_ONLINE = [
-  { id:"impresiones", label:"IMPRESIONES",    color:"#1565c0", bg:"#e3f2fd" },
-  { id:"vinilo",      label:"VINILO",         color:"#1b5e20", bg:"#e8f5e9" },
-  { id:"lona",        label:"LONA",           color:"#4a148c", bg:"#f3e5f5" },
-  { id:"dtf",         label:"DTF / SUBLIMADO",color:"#bf360c", bg:"#fbe9e7" },
-  { id:"talonarios",  label:"TALONARIOS",     color:"#e65100", bg:"#fff3e0" },
-  { id:"otros",       label:"OTROS",          color:"#37474f", bg:"#eceff1" },
-];
+const LOCALES = {
+  grafica: {
+    label: "🖨️ Gráfica",
+    coleccion: "pedidosOnlineGrafica",
+    cats: [
+      { id:"impresiones", label:"IMPRESIONES",    color:"#1565c0", bg:"#e3f2fd" },
+      { id:"vinilo",      label:"VINILO",         color:"#1b5e20", bg:"#e8f5e9" },
+      { id:"lona",        label:"LONA",           color:"#4a148c", bg:"#f3e5f5" },
+      { id:"dtf",         label:"DTF / SUBLIMADO",color:"#bf360c", bg:"#fbe9e7" },
+      { id:"talonarios",  label:"TALONARIOS",     color:"#e65100", bg:"#fff3e0" },
+      { id:"otros",       label:"OTROS",          color:"#37474f", bg:"#eceff1" },
+    ],
+  },
+  libreria: {
+    label: "📚 Librería",
+    coleccion: "pedidosOnlineLibreria",
+    cats: [
+      { id:"impresiones", label:"IMPRESIONES", color:"#1565c0", bg:"#e3f2fd" },
+      { id:"anillados",   label:"ANILLADOS",   color:"#6a1b9a", bg:"#f3e5f5" },
+      { id:"libros",      label:"LIBROS",      color:"#1b5e20", bg:"#e8f5e9" },
+      { id:"libreria",    label:"LIBRERÍA",    color:"#e65100", bg:"#fff3e0" },
+      { id:"otros",       label:"OTROS",       color:"#37474f", bg:"#eceff1" },
+    ],
+  },
+};
+
 const DIAS_SEMANA = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
-const SLOTS_POR_CAT = 1; // slot inicial, se agregan con +
 
 function getLunes(fecha) {
   const d = new Date(fecha);
@@ -1658,11 +1675,13 @@ function getLunes(fecha) {
 function semanaKey(lunes) { return lunes.toISOString().split("T")[0]; }
 
 function PedidosOnlineView({ showToast }) {
+  const [local, setLocal]               = useState("grafica");
   const [semanaInicio, setSemanaInicio] = useState(()=>getLunes(new Date()));
   const [grilla, setGrilla]             = useState({});
   const [loading, setLoading]           = useState(true);
   const [docId, setDocId]               = useState(null);
 
+  const cfg = LOCALES[local];
   const key = semanaKey(semanaInicio);
 
   const dias = DIAS_SEMANA.map((nombre, i) => {
@@ -1673,19 +1692,19 @@ function PedidosOnlineView({ showToast }) {
 
   useEffect(() => {
     setLoading(true);
-    getDocs(collection(db,"pedidosOnline")).then(snap => {
+    getDocs(collection(db, cfg.coleccion)).then(snap => {
       const found = snap.docs.find(d => d.data().semana === key);
       if (found) { setGrilla(found.data().grilla||{}); setDocId(found.id); }
       else { setGrilla({}); setDocId(null); }
       setLoading(false);
     });
-  }, [key]);
+  }, [key, local]);
 
   const guardar = async (g) => {
     if (docId) {
-      await updateDoc(doc(db,"pedidosOnline",docId), { grilla:g });
+      await updateDoc(doc(db, cfg.coleccion, docId), { grilla:g });
     } else {
-      const ref = await addDoc(collection(db,"pedidosOnline"), { semana:key, grilla:g });
+      const ref = await addDoc(collection(db, cfg.coleccion), { semana:key, grilla:g });
       setDocId(ref.id);
     }
   };
@@ -1741,6 +1760,20 @@ function PedidosOnlineView({ showToast }) {
 
   return (
     <div>
+      {/* Selector de local */}
+      <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+        {Object.entries(LOCALES).map(([id,l])=>(
+          <button key={id} onClick={()=>{ setLocal(id); setGrilla({}); setDocId(null); }}
+            style={{ padding:"10px 24px", borderRadius:20, fontSize:14, fontWeight:700,
+              cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:local===id?"#1a2340":"#fff",
+              color:local===id?"#fff":"#4a5568",
+              boxShadow:local===id?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(0,0,0,.06)" }}>
+            {l.label}
+          </button>
+        ))}
+      </div>
+
       {/* Nav semanas */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18, flexWrap:"wrap", gap:10 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -1783,7 +1816,7 @@ function PedidosOnlineView({ showToast }) {
               </tr>
             </thead>
             <tbody>
-              {CATS_ONLINE.map((cat,ci)=>(
+              {cfg.cats.map((cat,ci)=>(
                 <tr key={cat.id}>
                   {/* Label categoría */}
                   <td style={{ background:cat.bg, padding:"6px 10px", borderRight:"1px solid #ddd", borderTop:"1px solid #ddd", verticalAlign:"middle" }}>
@@ -1850,7 +1883,7 @@ function PedidosOnlineView({ showToast }) {
 
       {/* Leyenda */}
       <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginTop:12 }}>
-        {CATS_ONLINE.map(c=>(
+        {cfg.cats.map(c=>(
           <div key={c.id} style={{ display:"flex", alignItems:"center", gap:5, fontSize:11 }}>
             <div style={{ width:10, height:10, borderRadius:2, background:c.bg, border:`1.5px solid ${c.color}` }}/>
             <span style={{ color:"#4a5568", fontWeight:600 }}>{c.label}</span>
