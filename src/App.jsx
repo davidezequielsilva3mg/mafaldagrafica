@@ -6307,6 +6307,7 @@ export default function App() {
   const [entregaModal, setEntregaModal]               = useState(null); // { pedido }
   const [busquedaGlobal, setBusquedaGlobal]       = useState("");
   const [busqGlobalOpen, setBusqGlobalOpen]       = useState(false);
+  const [empleados, setEmpleados]                 = useState([]);
 
   // ── Firebase: verificar sesión ──
   useEffect(() => {
@@ -6333,6 +6334,14 @@ export default function App() {
     const unsub = onSnapshot(collection(db, "clientes"), (snap) => {
       setClientes(snap.docs.map(d => ({ ...d.data(), fireId: d.id })));
     });
+    return () => unsub();
+  }, []);
+
+  // ── Firebase: escuchar empleados ──
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "empleados"), snap =>
+      setEmpleados(snap.docs.map(d => ({ ...d.data(), fireId: d.id })))
+    );
     return () => unsub();
   }, []);
 
