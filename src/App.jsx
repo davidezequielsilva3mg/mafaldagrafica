@@ -1635,6 +1635,186 @@ function CalcConfigFijos({ fijos, onGuardar, materias, getPrecioM2 }) {
 }
 
 
+// ── Componente: Pedidos Online ────────────────────────────────────────────
+const CATS_ONLINE = [
+  { id:"impresiones", label:"IMPRESIONES",    color:"#1565c0", bg:"#e3f2fd" },
+  { id:"vinilo",      label:"VINILO",         color:"#1b5e20", bg:"#e8f5e9" },
+  { id:"lona",        label:"LONA",           color:"#4a148c", bg:"#f3e5f5" },
+  { id:"dtf",         label:"DTF / SUBLIMADO",color:"#bf360c", bg:"#fbe9e7" },
+  { id:"talonarios",  label:"TALONARIOS",     color:"#e65100", bg:"#fff3e0" },
+  { id:"otros",       label:"OTROS",          color:"#37474f", bg:"#eceff1" },
+];
+const DIAS_SEMANA = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+const SLOTS_POR_CAT = 2;
+
+function getLunes(fecha) {
+  const d = new Date(fecha);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0,0,0,0);
+  return d;
+}
+function semanaKey(lunes) { return lunes.toISOString().split("T")[0]; }
+
+function PedidosOnlineView({ showToast }) {
+  const [semanaInicio, setSemanaInicio] = useState(()=>getLunes(new Date()));
+  const [grilla, setGrilla]             = useState({});
+  const [loading, setLoading]           = useState(true);
+  const [docId, setDocId]               = useState(null);
+
+  const key = semanaKey(semanaInicio);
+
+  const dias = DIAS_SEMANA.map((nombre, i) => {
+    const d = new Date(semanaInicio);
+    d.setDate(d.getDate() + i);
+    return { nombre, fecha: d.toISOString().split("T")[0], d };
+  });
+
+  useEffect(() => {
+    setLoading(true);
+    getDocs(collection(db,"pedidosOnline")).then(snap => {
+      const found = snap.docs.find(d => d.data().semana === key);
+      if (found) { setGrilla(found.data().grilla||{}); setDocId(found.id); }
+      else { setGrilla({}); setDocId(null); }
+      setLoading(false);
+    });
+  }, [key]);
+
+  const guardar = async (g) => {
+    if (docId) {
+      await updateDoc(doc(db,"pedidosOnline",docId), { grilla:g });
+    } else {
+      const ref = await addDoc(collection(db,"pedidosOnline"), { semana:key, grilla:g });
+      setDocId(ref.id);
+    }
+  };
+
+  const updateSlot = (fecha, catId, idx, campo, valor) => {
+    const g = JSON.parse(JSON.stringify(grilla));
+    if (!g[fecha]) g[fecha] = {};
+    if (!g[fecha][catId]) g[fecha][catId] = [];
+    if (!g[fecha][catId][idx]) g[fecha][catId][idx] = {tel:"",desc:""};
+    g[fecha][catId][idx][campo] = valor;
+    setGrilla(g);
+    guardar(g);
+  };
+
+  const limpiarDia = async (fecha) => {
+    if (!window.confirm("¿Limpiar todos los slots de este día?")) return;
+    const g = JSON.parse(JSON.stringify(grilla));
+    delete g[fecha];
+    setGrilla(g);
+    await guardar(g);
+    showToast("Día limpiado");
+  };
+
+  const irSemana = (delta) => {
+    const n = new Date(semanaInicio);
+    n.setDate(n.getDate() + delta*7);
+    setSemanaInicio(getLunes(n));
+  };
+
+  const esHoy = f => f === new Date().toISOString().split("T")[0];
+  const esSemanaActual = semanaKey(getLunes(new Date())) === key;
+  const countDia = f => Object.values(grilla[f]||{}).flat().filter(s=>s?.tel||s?.desc).length;
+
+  const inp = { width:"100%", padding:"4px 7px", borderRadius:5, border:"1px solid #ddd",
+    fontSize:11, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", background:"#fff" };
+
+  return (
+    <div>
+      {/* Nav semanas */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18, flexWrap:"wrap", gap:10 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={()=>irSemana(-1)} style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#e65100", padding:"8px 14px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>← Ant.</button>
+          <div style={{ textAlign:"center" }}>
+            <div style={{ fontWeight:700, fontSize:14, color:"#1a2340" }}>
+              {dias[0].d.toLocaleDateString("es-AR",{day:"numeric",month:"long"})} — {dias[5].d.toLocaleDateString("es-AR",{day:"numeric",month:"long",year:"numeric"})}
+            </div>
+            {esSemanaActual && <div style={{ fontSize:11, color:"#e65100", fontWeight:600 }}>📅 Semana actual</div>}
+          </div>
+          <button onClick={()=>irSemana(1)} style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#e65100", padding:"8px 14px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>Sig. →</button>
+        </div>
+        <button onClick={()=>setSemanaInicio(getLunes(new Date()))}
+          style={{ background:"#e65100", color:"#fff", border:"none", padding:"9px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          Hoy
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign:"center", padding:40, color:"#a09080" }}>Cargando...</div>
+      ) : (
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", minWidth:900 }}>
+            {/* Header días */}
+            <thead>
+              <tr>
+                <th style={{ width:110, background:"#1a2340", padding:"10px 12px", borderRight:"1px solid rgba(255,255,255,.15)", borderBottom:"none" }}/>
+                {dias.map(d=>(
+                  <th key={d.fecha} style={{ background:esHoy(d.fecha)?"#e65100":"#1a2340", padding:"10px 10px", borderRight:"1px solid rgba(255,255,255,.1)", borderBottom:"none", textAlign:"left", minWidth:130 }}>
+                    <div style={{ fontWeight:700, fontSize:12, color:"#fff" }}>{d.nombre}</div>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.65)" }}>{d.d.toLocaleDateString("es-AR",{day:"numeric",month:"long"})}</div>
+                    {countDia(d.fecha)>0 && (
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:3 }}>
+                        <span style={{ fontSize:9, color:"#ffcc80", fontWeight:600 }}>{countDia(d.fecha)} anotado{countDia(d.fecha)!==1?"s":""}</span>
+                        <button onClick={()=>limpiarDia(d.fecha)} style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:4, padding:"1px 5px", fontSize:9, cursor:"pointer" }}>🗑</button>
+                      </div>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {CATS_ONLINE.map((cat,ci)=>(
+                <tr key={cat.id}>
+                  {/* Label categoría */}
+                  <td style={{ background:cat.bg, padding:"6px 10px", borderRight:"1px solid #ddd", borderTop:"1px solid #ddd", verticalAlign:"middle" }}>
+                    <span style={{ fontSize:10, fontWeight:800, color:cat.color, textTransform:"uppercase", letterSpacing:".4px", writingMode:"horizontal-tb" }}>{cat.label}</span>
+                  </td>
+                  {/* Slots por día */}
+                  {dias.map(d=>{
+                    const slots = grilla[d.fecha]?.[cat.id] || [];
+                    return (
+                      <td key={d.fecha} style={{ padding:"5px 6px", borderRight:"1px solid #e8e8e8", borderTop:"1px solid #e8e8e8", verticalAlign:"top", background:"#fff" }}>
+                        {Array.from({length:SLOTS_POR_CAT}).map((_,si)=>{
+                          const sl = slots[si]||{tel:"",desc:""};
+                          const ok = sl.tel||sl.desc;
+                          return (
+                            <div key={si} style={{ display:"flex", gap:3, marginBottom:si<SLOTS_POR_CAT-1?4:0,
+                              padding:"3px 4px", borderRadius:5,
+                              background:ok?cat.bg:"#f8f9fa",
+                              border:`1px solid ${ok?cat.color+"50":"#ebebeb"}` }}>
+                              <input value={sl.tel} onChange={e=>updateSlot(d.fecha,cat.id,si,"tel",e.target.value)}
+                                placeholder="Tel" style={{ ...inp, width:60, color:cat.color, fontWeight:ok?600:400 }}/>
+                              <input value={sl.desc} onChange={e=>updateSlot(d.fecha,cat.id,si,"desc",e.target.value)}
+                                placeholder="Detalle" style={{ ...inp, flex:1 }}/>
+                            </div>
+                          );
+                        })}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Leyenda */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginTop:12 }}>
+        {CATS_ONLINE.map(c=>(
+          <div key={c.id} style={{ display:"flex", alignItems:"center", gap:5, fontSize:11 }}>
+            <div style={{ width:10, height:10, borderRadius:2, background:c.bg, border:`1.5px solid ${c.color}` }}/>
+            <span style={{ color:"#4a5568", fontWeight:600 }}>{c.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Componente: Control de Producción ────────────────────────────────────
 const SQ_FT_TO_M2 = 0.092903;
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -6369,6 +6549,10 @@ export default function App() {
               <span className="sidebar-icon">📋</span>
               <span className="sidebar-label">Pedidos</span>
             </button>
+            <button className={`sidebar-item ${view==="pedidosOnline"?"act":""}`} onClick={()=>{ setView("pedidosOnline"); }}>
+              <span className="sidebar-icon">📱</span>
+              <span className="sidebar-label">Pedidos Online</span>
+            </button>
             <button className={`sidebar-item ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}` + ""} onClick={()=>{ setView("clientes"); }}>
               <span className="sidebar-icon">👥</span>
               <span className="sidebar-label">Clientes</span>
@@ -6462,6 +6646,7 @@ export default function App() {
           view==="editarProveedor" ? "🏭 Proveedores" :
           view==="calculadora" ? "🧮 Calculadora de Costos" :
           view==="produccion"  ? "📊 Control de Producción" :
+          view==="pedidosOnline" ? "📱 Pedidos Online" :
           view==="config" ? "⚙️ Configuración" :
           view==="finanzas" ? "💼 Finanzas" :
           "Sistema"}
@@ -7049,7 +7234,8 @@ export default function App() {
 
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
-        {view==="produccion"  && <ProduccionView showToast={showToast}/>}
+        {view==="produccion"   && <ProduccionView showToast={showToast}/>}
+        {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast}/>}
 
         {view==="finanzas" && (
           <FinanzasView
