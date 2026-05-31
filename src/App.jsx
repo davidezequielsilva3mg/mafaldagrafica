@@ -61,6 +61,13 @@ const EMPTY_EMPRESA = {
   direccion: "", telefono: "", logo: ""
 };
 
+// Formatear fecha YYYY-MM-DD → DD/MM/YYYY
+const fmtFecha = (f) => {
+  if (!f) return "—";
+  const [y,m,d] = f.split("-");
+  return `${d}/${m}/${y}`;
+};
+
 // ── HTML de la orden de trabajo para imprimir ──────────────────────────────
 function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
   const saldo = parseFloat(p.precio || 0) - parseFloat(p.seña || 0);
@@ -141,7 +148,7 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
     <div class="ibox"><div class="ilbl">🏢 Cliente</div><div class="ival">${p.cliente}</div></div>
     <div class="ibox"><div class="ilbl">📞 Teléfono</div><div class="ival">${p.telefono || "—"}</div></div>
     <div class="ibox"><div class="ilbl">📅 Fecha de Pedido</div><div class="ival">${p.fechaPedido || "—"}</div></div>
-    <div class="ibox"><div class="ilbl">🏁 Fecha de Entrega</div><div class="ival" style="color:${p.fechaEntrega < new Date().toISOString().split('T')[0] ? '#c62828':'#1a2340'}">${p.fechaEntrega || "—"}</div></div>
+    <div class="ibox"><div class="ilbl">🏁 Fecha de Entrega</div><div class="ival" style="color:${p.fechaEntrega < new Date().toISOString().split('T')[0] ? '#c62828':'#1a2340'}">${p.fechaEntrega ? p.fechaEntrega.split("-").reverse().join("/") : "—"}</div></div>
     ${p.tomadoPor ? `<div class="ibox" style="grid-column:1/-1"><div class="ilbl">👤 Tomado por</div><div class="ival">${p.tomadoPor}</div></div>` : ""}
   </div>
   <div class="notas">
@@ -212,7 +219,7 @@ function KanbanView({ pedidos, handleEstadoChange, handleEdit, handleDelete, set
                     {/* Fecha entrega */}
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <span style={{ fontSize:11, fontWeight:600, color:ven?"#c62828":hf?"#f57f17":"#8a93a8", background:ven?"#ffebee":hf?"#fff8e1":"#f8faff", padding:"3px 8px", borderRadius:6 }}>
-                        {ven?"⚠️ ":hf?"📍 ":"📅 "}{p.fechaEntrega||"S/F"}
+                        {ven?"⚠️ ":hf?"📍 ":"📅 "}{fmtFecha(p.fechaEntrega)||"S/F"}
                       </span>
                       {p.precio && (
                         <span style={{ fontSize:12, fontWeight:700, color:"#1a2340" }}>
@@ -568,7 +575,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                           <ClienteLink p={p}/>
                         </td>
                         <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
-                          <span style={{ fontWeight:600, color:hf?"#f57f17":"#1a2340" }}>{hf&&"📍 "}{p.fechaEntrega||"—"}</span>
+                          <span style={{ fontWeight:600, color:hf?"#f57f17":"#1a2340" }}>{hf&&"📍 "}{fmtFecha(p.fechaEntrega)||"—"}</span>
                           {hf && <div style={{ fontSize:11, color:"#f57f17" }}>Hoy</div>}
                         </td>
                         <td style={{ padding:"13px 16px", fontWeight:600, color:"#1a2340", whiteSpace:"nowrap" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
@@ -647,7 +654,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                         <td style={{ padding:"11px 16px", whiteSpace:"nowrap" }}>
                           <ClienteLink p={p}/>
                         </td>
-                        <td style={{ padding:"11px 16px", color:"#4a5568" }}>{p.fechaEntrega||"—"}</td>
+                        <td style={{ padding:"11px 16px", color:"#4a5568" }}>{fmtFecha(p.fechaEntrega)||"—"}</td>
                         <td style={{ padding:"11px 16px", fontWeight:700, color:"#1a2340" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
                         <td style={{ padding:"11px 16px" }}>
                           <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -5281,7 +5288,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
                       <td style={{ padding:"11px 16px" }}>
                         <span style={{ background:ec.bg, color:ec.text, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 }}>{p.estado}</span>
                       </td>
-                      <td style={{ padding:"11px 16px", color:"#4a5568" }}>{p.fechaEntrega||"—"}</td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568" }}>{fmtFecha(p.fechaEntrega)||"—"}</td>
                       <td style={{ padding:"11px 16px", fontWeight:600 }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
                       <td style={{ padding:"11px 16px", fontWeight:700, color:saldoP>0?"#c62828":"#2e7d32" }}>{p.precio?`$${saldoP.toLocaleString("es-AR")}`:"—"}</td>
                     </tr>
@@ -5568,7 +5575,7 @@ function BuscadorGlobal({ pedidos, clientes, busqueda, setBusqueda, onClose, onS
                       </div>
                       <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
                         <span style={{ background:ec.bg, color:ec.text, padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{p.estado}</span>
-                        {p.fechaEntrega && <span style={{ fontSize:11, color:"#a09080" }}>{p.fechaEntrega}</span>}
+                        {p.fechaEntrega && <span style={{ fontSize:11, color:"#a09080" }}>{fmtFecha(p.fechaEntrega)}</span>}
                       </div>
                     </div>
                   );
@@ -7071,7 +7078,7 @@ export default function App() {
                                   </td>
                                   <td style={{ padding:"12px 16px", whiteSpace:"nowrap" }}>
                                     <span style={{ fontWeight:600, color:ven?"#c62828":hf?"#f57f17":"#1a2340" }}>
-                                      {ven&&"⚠️ "}{hf&&"📍 "}{p.fechaEntrega||"—"}
+                                      {ven&&"⚠️ "}{hf&&"📍 "}{fmtFecha(p.fechaEntrega)||"—"}
                                     </span>
                                     {ven && <div style={{ fontSize:11, color:"#c62828" }}>Vencido</div>}
                                     {hf  && <div style={{ fontSize:11, color:"#f57f17" }}>Hoy</div>}
@@ -7344,7 +7351,7 @@ export default function App() {
                   { label:"Cliente", value:p.cliente, icon:"🏢", clickable: !!p.clienteId },
                   { label:"Teléfono", value:p.telefono||"—", icon:"📞" },
                   { label:"Fecha de Pedido", value:p.fechaPedido||"—", icon:"📅" },
-                  { label:"Fecha de Entrega", value:p.fechaEntrega||"—", icon:"🏁" },
+                  { label:"Fecha de Entrega", value:fmtFecha(p.fechaEntrega)||"—", icon:"🏁" },
                   ...(p.tomadoPor ? [{ label:"Tomado por", value:p.tomadoPor, icon:"👤" }] : []),
                 ].map(item => (
                   <div key={item.label} style={{ background:"#fffaf7", borderRadius:10, padding:"13px 16px",
