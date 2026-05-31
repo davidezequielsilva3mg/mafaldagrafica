@@ -1642,12 +1642,17 @@ const LOCALES = {
     label: "🖨️ Gráfica",
     coleccion: "pedidosOnlineGrafica",
     cats: [
-      { id:"impresiones", label:"IMPRESIONES",    color:"#1565c0", bg:"#e3f2fd" },
-      { id:"vinilo",      label:"VINILO",         color:"#1b5e20", bg:"#e8f5e9" },
-      { id:"lona",        label:"LONA",           color:"#4a148c", bg:"#f3e5f5" },
-      { id:"dtf",         label:"DTF / SUBLIMADO",color:"#bf360c", bg:"#fbe9e7" },
-      { id:"talonarios",  label:"TALONARIOS",     color:"#e65100", bg:"#fff3e0" },
-      { id:"otros",       label:"OTROS",          color:"#37474f", bg:"#eceff1" },
+      { id:"Vinilo Impreso",  label:"VINILO IMPRESO",  color:"#1565c0", bg:"#e3f2fd" },
+      { id:"Vinilo Calado",   label:"VINILO CALADO",   color:"#1b5e20", bg:"#e8f5e9" },
+      { id:"Lona",            label:"LONA",            color:"#4a148c", bg:"#f3e5f5" },
+      { id:"Impresiones",     label:"IMPRESIONES",     color:"#0d47a1", bg:"#e8eaf6" },
+      { id:"DTF",             label:"DTF",             color:"#bf360c", bg:"#fbe9e7" },
+      { id:"Sublimado",       label:"SUBLIMADO",       color:"#e65100", bg:"#fff3e0" },
+      { id:"Estampado",       label:"ESTAMPADO",       color:"#4e342e", bg:"#efebe9" },
+      { id:"Talonarios",      label:"TALONARIOS",      color:"#558b2f", bg:"#f1f8e9" },
+      { id:"3D",              label:"3D",              color:"#6a1b9a", bg:"#f3e5f5" },
+      { id:"Diseño",          label:"DISEÑO",          color:"#00695c", bg:"#e0f2f1" },
+      { id:"Otros",           label:"OTROS",           color:"#37474f", bg:"#eceff1" },
     ],
   },
   libreria: {
@@ -1663,6 +1668,21 @@ const LOCALES = {
   },
 };
 
+// Mapa categoría presencial → id de cat en la grilla de gráfica
+const CAT_PRESENCIAL_MAP = {
+  "Vinilo Impreso": "Vinilo Impreso",
+  "Vinilo Calado":  "Vinilo Calado",
+  "Lona":           "Lona",
+  "Impresiones":    "Impresiones",
+  "DTF":            "DTF",
+  "Sublimado":      "Sublimado",
+  "Estampado":      "Estampado",
+  "Talonarios":     "Talonarios",
+  "3D":             "3D",
+  "Diseño":         "Diseño",
+  "Otros":          "Otros",
+};
+
 const DIAS_SEMANA = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
 
 function getLunes(fecha) {
@@ -1675,12 +1695,13 @@ function getLunes(fecha) {
 }
 function semanaKey(lunes) { return lunes.toISOString().split("T")[0]; }
 
-function PedidosOnlineView({ showToast }) {
+function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }) {
   const [local, setLocal]               = useState("grafica");
   const [semanaInicio, setSemanaInicio] = useState(()=>getLunes(new Date()));
   const [grilla, setGrilla]             = useState({});
   const [loading, setLoading]           = useState(true);
   const [docId, setDocId]               = useState(null);
+  const [pedidosDB, setPedidosDB]       = useState([]);
 
   const cfg = LOCALES[local];
   const key = semanaKey(semanaInicio);
@@ -1690,6 +1711,14 @@ function PedidosOnlineView({ showToast }) {
     d.setDate(d.getDate() + i);
     return { nombre, fecha: d.toISOString().split("T")[0], d };
   });
+
+  // Cargar pedidos presenciales en tiempo real
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db,"pedidos"), snap =>
+      setPedidosDB(snap.docs.map(d=>({...d.data(),fireId:d.id})))
+    );
+    return ()=>unsub();
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -1710,6 +1739,16 @@ function PedidosOnlineView({ showToast }) {
     }
   };
 
+  // Pedidos presenciales del día para una categoría (solo Gráfica)
+  const pedidosDelDia = (fecha, catId) => {
+    if (local !== "grafica") return [];
+    return pedidosDB.filter(p =>
+      p.fechaEntrega === fecha &&
+      p.estado !== "Entregado" &&
+      CAT_PRESENCIAL_MAP[p.categoria] === catId
+    );
+  };
+
   const updateSlot = (fecha, catId, idx, campo, valor) => {
     const g = JSON.parse(JSON.stringify(grilla));
     if (!g[fecha]) g[fecha] = {};
@@ -1721,7 +1760,7 @@ function PedidosOnlineView({ showToast }) {
   };
 
   const limpiarDia = async (fecha) => {
-    if (!window.confirm("¿Limpiar todos los slots de este día?")) return;
+    if (!window.confirm("¿Limpiar los slots manuales de este día?")) return;
     const g = JSON.parse(JSON.stringify(grilla));
     delete g[fecha];
     setGrilla(g);
@@ -1737,7 +1776,14 @@ function PedidosOnlineView({ showToast }) {
 
   const esHoy = f => f === new Date().toISOString().split("T")[0];
   const esSemanaActual = semanaKey(getLunes(new Date())) === key;
-  const countDia = f => Object.values(grilla[f]||{}).flat().filter(s=>s?.tel||s?.desc).length;
+
+  const countDia = f => {
+    const manuales = Object.values(grilla[f]||{}).flat().filter(s=>s?.tel||s?.desc).length;
+    const presenciales = local==="grafica"
+      ? pedidosDB.filter(p=>p.fechaEntrega===f&&p.estado!=="Entregado").length
+      : 0;
+    return manuales + presenciales;
+  };
 
   const agregarSlot = (fecha, catId) => {
     const g = JSON.parse(JSON.stringify(grilla));
@@ -1803,13 +1849,13 @@ function PedidosOnlineView({ showToast }) {
               <tr>
                 <th style={{ width:110, background:"#1a2340", padding:"10px 12px", borderRight:"1px solid rgba(255,255,255,.15)", borderBottom:"none" }}/>
                 {dias.map(d=>(
-                  <th key={d.fecha} style={{ background:esHoy(d.fecha)?"#e65100":"#1a2340", padding:"10px 10px", borderRight:"1px solid rgba(255,255,255,.1)", borderBottom:"none", textAlign:"left", minWidth:130 }}>
+                  <th key={d.fecha} style={{ background:esHoy(d.fecha)?"#e65100":"#1a2340", padding:"10px 10px", borderRight:"1px solid rgba(255,255,255,.1)", borderBottom:"none", textAlign:"left", minWidth:150 }}>
                     <div style={{ fontWeight:700, fontSize:12, color:"#fff" }}>{d.nombre}</div>
                     <div style={{ fontSize:10, color:"rgba(255,255,255,.65)" }}>{d.d.toLocaleDateString("es-AR",{day:"numeric",month:"long"})}</div>
                     {countDia(d.fecha)>0 && (
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:3 }}>
-                        <span style={{ fontSize:9, color:"#ffcc80", fontWeight:600 }}>{countDia(d.fecha)} anotado{countDia(d.fecha)!==1?"s":""}</span>
-                        <button onClick={()=>limpiarDia(d.fecha)} style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:4, padding:"1px 5px", fontSize:9, cursor:"pointer" }}>🗑</button>
+                        <span style={{ fontSize:9, color:"#ffcc80", fontWeight:600 }}>{countDia(d.fecha)} trabajo{countDia(d.fecha)!==1?"s":""}</span>
+                        <button onClick={()=>limpiarDia(d.fecha)} style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:4, padding:"1px 5px", fontSize:9, cursor:"pointer" }} title="Limpiar slots manuales">🗑</button>
                       </div>
                     )}
                   </th>
@@ -1821,13 +1867,42 @@ function PedidosOnlineView({ showToast }) {
                 <tr key={cat.id}>
                   {/* Label categoría */}
                   <td style={{ background:cat.bg, padding:"6px 10px", borderRight:"1px solid #ddd", borderTop:"1px solid #ddd", verticalAlign:"middle" }}>
-                    <span style={{ fontSize:10, fontWeight:800, color:cat.color, textTransform:"uppercase", letterSpacing:".4px", writingMode:"horizontal-tb" }}>{cat.label}</span>
+                    <span style={{ fontSize:10, fontWeight:800, color:cat.color, textTransform:"uppercase", letterSpacing:".4px" }}>{cat.label}</span>
                   </td>
                   {/* Slots por día */}
                   {dias.map(d=>{
                     const slots = grilla[d.fecha]?.[cat.id] || [{tel:"",desc:""}];
+                    const presenciales = pedidosDelDia(d.fecha, cat.id);
                     return (
                       <td key={d.fecha} style={{ padding:"5px 6px", borderRight:"1px solid #e8e8e8", borderTop:"1px solid #e8e8e8", verticalAlign:"top", background:"#fff" }}>
+
+                        {/* Pedidos presenciales — solo lectura */}
+                        {presenciales.map(p=>(
+                          <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:4, marginBottom:4,
+                            padding:"4px 6px", borderRadius:5,
+                            background: cat.bg,
+                            border:`1.5px solid ${cat.color}`,
+                          }}>
+                            <span style={{ fontSize:9, background:cat.color, color:"#fff", borderRadius:3, padding:"1px 4px", fontWeight:700, flexShrink:0 }}>📋</span>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontSize:10, fontWeight:700, color:cat.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                                {p.telefono||"Sin tel"}
+                              </div>
+                              <div style={{ fontSize:10, color:"#4a5568", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                                {p.nombre}
+                              </div>
+                            </div>
+                            {setViewApp && (
+                              <button onClick={()=>{ if(setSelectedPedido) setSelectedPedido(p); if(setViewApp) setViewApp("detalle"); }}
+                                style={{ background:cat.color, border:"none", color:"#fff", borderRadius:4,
+                                  padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>
+                                →
+                              </button>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Slots manuales (WhatsApp / Online) */}
                         {slots.map((sl,si)=>{
                           const ok    = sl.tel||sl.desc;
                           const hecho = sl.hecho||false;
@@ -1836,40 +1911,34 @@ function PedidosOnlineView({ showToast }) {
                               padding:"3px 4px", borderRadius:5,
                               background: hecho?"#ffebee": ok?cat.bg:"#f8f9fa",
                               border:`1px solid ${hecho?"#ef9a9a": ok?cat.color+"50":"#ebebeb"}`,
-                              opacity: hecho?.75:1,
-                              transition:"all .2s" }}>
-                              {/* Check hecho */}
+                              opacity: hecho?.75:1 }}>
                               <button onClick={()=>updateSlot(d.fecha,cat.id,si,"hecho",!hecho)}
                                 title={hecho?"Marcar pendiente":"Marcar como hecho"}
                                 style={{ background: hecho?"#ef5350":"transparent",
                                   border:`1.5px solid ${hecho?"#ef5350":"#ddd"}`,
-                                  borderRadius:4, width:18, height:18, flexShrink:0,
+                                  borderRadius:4, width:16, height:16, flexShrink:0,
                                   cursor:"pointer", display:"flex", alignItems:"center",
-                                  justifyContent:"center", fontSize:10, color:hecho?"#fff":"#bbb",
-                                  padding:0, alignSelf:"center", transition:"all .2s" }}>
+                                  justifyContent:"center", fontSize:9, color:hecho?"#fff":"#bbb",
+                                  padding:0, alignSelf:"center" }}>
                                 {hecho?"✓":""}
                               </button>
                               <input value={sl.tel} onChange={e=>updateSlot(d.fecha,cat.id,si,"tel",e.target.value)}
                                 placeholder="Tel"
-                                style={{ ...inp, width:56, color: hecho?"#ef5350":cat.color,
+                                style={{ ...inp, width:52, color: hecho?"#ef5350":cat.color,
                                   fontWeight:ok?600:400, textDecoration:hecho?"line-through":"none" }}/>
                               <input value={sl.desc} onChange={e=>updateSlot(d.fecha,cat.id,si,"desc",e.target.value)}
                                 placeholder="Detalle"
                                 style={{ ...inp, flex:1, textDecoration:hecho?"line-through":"none", color:hecho?"#999":"inherit" }}/>
                               {slots.length>1 && (
                                 <button onClick={()=>eliminarSlot(d.fecha,cat.id,si)}
-                                  style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:12, padding:"0 2px", lineHeight:1, flexShrink:0 }}
-                                  title="Eliminar">✕</button>
+                                  style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:11, padding:"0 2px", lineHeight:1, flexShrink:0 }}>✕</button>
                               )}
                             </div>
                           );
                         })}
-                        {/* Botón + agregar slot */}
                         <button onClick={()=>agregarSlot(d.fecha,cat.id)}
                           style={{ width:"100%", padding:"2px 0", background:"transparent", border:`1px dashed ${cat.color}50`,
-                            color:cat.color, borderRadius:5, fontSize:11, cursor:"pointer", opacity:.6,
-                            fontWeight:700, marginTop:1 }}
-                          title="Agregar slot">
+                            color:cat.color, borderRadius:5, fontSize:11, cursor:"pointer", opacity:.5, fontWeight:700 }}>
                           +
                         </button>
                       </td>
@@ -1883,13 +1952,15 @@ function PedidosOnlineView({ showToast }) {
       )}
 
       {/* Leyenda */}
-      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginTop:12 }}>
-        {cfg.cats.map(c=>(
-          <div key={c.id} style={{ display:"flex", alignItems:"center", gap:5, fontSize:11 }}>
-            <div style={{ width:10, height:10, borderRadius:2, background:c.bg, border:`1.5px solid ${c.color}` }}/>
-            <span style={{ color:"#4a5568", fontWeight:600 }}>{c.label}</span>
-          </div>
-        ))}
+      <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:12, alignItems:"center" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11 }}>
+          <div style={{ width:10, height:10, borderRadius:2, background:"#e3f2fd", border:"1.5px solid #1565c0" }}/>
+          <span style={{ color:"#4a5568" }}>📋 Pedido presencial</span>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11 }}>
+          <div style={{ width:10, height:10, borderRadius:2, background:"#f8f9fa", border:"1px solid #ddd" }}/>
+          <span style={{ color:"#4a5568" }}>Manual (WhatsApp/Online)</span>
+        </div>
       </div>
     </div>
   );
@@ -7342,7 +7413,7 @@ export default function App() {
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
         {view==="produccion"   && <ProduccionView showToast={showToast}/>}
-        {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast}/>}
+        {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido}/>}
 
         {view==="finanzas" && (
           <FinanzasView
