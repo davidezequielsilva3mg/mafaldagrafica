@@ -1774,6 +1774,23 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }
     setSemanaInicio(getLunes(n));
   };
 
+  // Determinar si una categoría tiene contenido en la semana visible
+  const catTieneContenido = (catId) => {
+    if (dias.some(d => pedidosDelDia(d.fecha, catId).length > 0)) return true;
+    return dias.some(d => (grilla[d.fecha]?.[catId]||[]).some(s=>s?.tel||s?.desc));
+  };
+
+  // Estado de expansión manual por categoría (null = auto)
+  const [catsExpandidas, setCatsExpandidas] = useState({});
+  const toggleCat = (catId) => setCatsExpandidas(prev => ({
+    ...prev,
+    [catId]: !isCatExpandida(catId)
+  }));
+  const isCatExpandida = (catId) => {
+    if (catsExpandidas[catId] !== undefined) return catsExpandidas[catId];
+    return catTieneContenido(catId); // auto: expandida si tiene contenido
+  };
+
   const esHoy = f => f === new Date().toISOString().split("T")[0];
   const esSemanaActual = semanaKey(getLunes(new Date())) === key;
 
@@ -1863,89 +1880,103 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }
               </tr>
             </thead>
             <tbody>
-              {cfg.cats.map((cat,ci)=>(
+              {cfg.cats.map((cat,ci)=>{
+                const expandida = isCatExpandida(cat.id);
+                return (
                 <tr key={cat.id}>
-                  {/* Label categoría */}
-                  <td style={{ background:cat.bg, padding:"6px 10px", borderRight:"1px solid #ddd", borderTop:"1px solid #ddd", verticalAlign:"middle" }}>
-                    <span style={{ fontSize:10, fontWeight:800, color:cat.color, textTransform:"uppercase", letterSpacing:".4px" }}>{cat.label}</span>
+                  {/* Label categoría — clickeable para expandir/colapsar */}
+                  <td onClick={()=>toggleCat(cat.id)}
+                    style={{ background:cat.bg, padding:"6px 10px", borderRight:"1px solid #ddd", borderTop:"1px solid #ddd", verticalAlign:"middle", cursor:"pointer", userSelect:"none" }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:4 }}>
+                      <span style={{ fontSize:10, fontWeight:800, color:cat.color, textTransform:"uppercase", letterSpacing:".4px" }}>{cat.label}</span>
+                      <span style={{ fontSize:10, color:cat.color, opacity:.7 }}>{expandida?"▲":"▼"}</span>
+                    </div>
                   </td>
                   {/* Slots por día */}
                   {dias.map(d=>{
                     const slots = grilla[d.fecha]?.[cat.id] || [{tel:"",desc:""}];
                     const presenciales = pedidosDelDia(d.fecha, cat.id);
+                    const tieneAlgo = presenciales.length>0 || slots.some(s=>s?.tel||s?.desc);
                     return (
-                      <td key={d.fecha} style={{ padding:"5px 6px", borderRight:"1px solid #e8e8e8", borderTop:"1px solid #e8e8e8", verticalAlign:"top", background:"#fff" }}>
+                      <td key={d.fecha} onClick={!expandida&&!tieneAlgo ? ()=>toggleCat(cat.id) : undefined}
+                        style={{ padding: expandida?"5px 6px":"2px 6px", borderRight:"1px solid #e8e8e8", borderTop:"1px solid #e8e8e8",
+                          verticalAlign:"top", background: expandida?"#fff": tieneAlgo?cat.bg+"80":"#fafafa",
+                          cursor: !expandida&&!tieneAlgo?"pointer":"default" }}>
 
-                        {/* Pedidos presenciales — solo lectura */}
-                        {presenciales.map(p=>(
-                          <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:4, marginBottom:4,
-                            padding:"4px 6px", borderRadius:5,
-                            background: cat.bg,
-                            border:`1.5px solid ${cat.color}`,
-                          }}>
-                            <span style={{ fontSize:9, background:cat.color, color:"#fff", borderRadius:3, padding:"1px 4px", fontWeight:700, flexShrink:0 }}>📋</span>
-                            <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ fontSize:10, fontWeight:700, color:cat.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                                {p.telefono||"Sin tel"}
-                              </div>
-                              <div style={{ fontSize:10, color:"#4a5568", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                                {p.nombre}
-                              </div>
-                            </div>
-                            {setViewApp && (
-                              <button onClick={()=>{ if(setSelectedPedido) setSelectedPedido(p); if(setViewApp) setViewApp("detalle"); }}
-                                style={{ background:cat.color, border:"none", color:"#fff", borderRadius:4,
-                                  padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>
-                                →
-                              </button>
-                            )}
+                        {/* Colapsado — solo mostrar badges si tiene algo */}
+                        {!expandida && tieneAlgo && (
+                          <div style={{ display:"flex", flexWrap:"wrap", gap:3, padding:"2px 0" }}>
+                            {presenciales.map(p=>(
+                              <span key={p.fireId} style={{ background:cat.color, color:"#fff", borderRadius:4, padding:"1px 5px", fontSize:9, fontWeight:700 }}>
+                                📋 {p.telefono||p.nombre.slice(0,8)}
+                              </span>
+                            ))}
+                            {slots.filter(s=>s?.tel||s?.desc).map((s,i)=>(
+                              <span key={i} style={{ background:cat.bg, color:cat.color, border:`1px solid ${cat.color}50`, borderRadius:4, padding:"1px 5px", fontSize:9, fontWeight:600 }}>
+                                {s.tel||s.desc?.slice(0,8)}
+                              </span>
+                            ))}
                           </div>
-                        ))}
+                        )}
+                        {!expandida && !tieneAlgo && (
+                          <div style={{ height:6 }}/>
+                        )}
 
-                        {/* Slots manuales (WhatsApp / Online) */}
-                        {slots.map((sl,si)=>{
-                          const ok    = sl.tel||sl.desc;
-                          const hecho = sl.hecho||false;
-                          return (
-                            <div key={si} style={{ display:"flex", gap:3, marginBottom:4,
-                              padding:"3px 4px", borderRadius:5,
-                              background: hecho?"#ffebee": ok?cat.bg:"#f8f9fa",
-                              border:`1px solid ${hecho?"#ef9a9a": ok?cat.color+"50":"#ebebeb"}`,
-                              opacity: hecho?.75:1 }}>
-                              <button onClick={()=>updateSlot(d.fecha,cat.id,si,"hecho",!hecho)}
-                                title={hecho?"Marcar pendiente":"Marcar como hecho"}
-                                style={{ background: hecho?"#ef5350":"transparent",
-                                  border:`1.5px solid ${hecho?"#ef5350":"#ddd"}`,
-                                  borderRadius:4, width:16, height:16, flexShrink:0,
-                                  cursor:"pointer", display:"flex", alignItems:"center",
-                                  justifyContent:"center", fontSize:9, color:hecho?"#fff":"#bbb",
-                                  padding:0, alignSelf:"center" }}>
-                                {hecho?"✓":""}
-                              </button>
-                              <input value={sl.tel} onChange={e=>updateSlot(d.fecha,cat.id,si,"tel",e.target.value)}
-                                placeholder="Tel"
-                                style={{ ...inp, width:52, color: hecho?"#ef5350":cat.color,
-                                  fontWeight:ok?600:400, textDecoration:hecho?"line-through":"none" }}/>
-                              <input value={sl.desc} onChange={e=>updateSlot(d.fecha,cat.id,si,"desc",e.target.value)}
-                                placeholder="Detalle"
-                                style={{ ...inp, flex:1, textDecoration:hecho?"line-through":"none", color:hecho?"#999":"inherit" }}/>
-                              {slots.length>1 && (
-                                <button onClick={()=>eliminarSlot(d.fecha,cat.id,si)}
-                                  style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:11, padding:"0 2px", lineHeight:1, flexShrink:0 }}>✕</button>
-                              )}
-                            </div>
-                          );
-                        })}
-                        <button onClick={()=>agregarSlot(d.fecha,cat.id)}
-                          style={{ width:"100%", padding:"2px 0", background:"transparent", border:`1px dashed ${cat.color}50`,
-                            color:cat.color, borderRadius:5, fontSize:11, cursor:"pointer", opacity:.5, fontWeight:700 }}>
-                          +
-                        </button>
+                        {/* Expandido — vista completa */}
+                        {expandida && (
+                          <>
+                            {presenciales.map(p=>(
+                              <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:4, marginBottom:4,
+                                padding:"4px 6px", borderRadius:5, background:cat.bg, border:`1.5px solid ${cat.color}` }}>
+                                <span style={{ fontSize:9, background:cat.color, color:"#fff", borderRadius:3, padding:"1px 4px", fontWeight:700, flexShrink:0 }}>📋</span>
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ fontSize:10, fontWeight:700, color:cat.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.telefono||"Sin tel"}</div>
+                                  <div style={{ fontSize:10, color:"#4a5568", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.nombre}</div>
+                                </div>
+                                {setViewApp && (
+                                  <button onClick={()=>{ if(setSelectedPedido) setSelectedPedido(p); if(setViewApp) setViewApp("detalle"); }}
+                                    style={{ background:cat.color, border:"none", color:"#fff", borderRadius:4, padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>→</button>
+                                )}
+                              </div>
+                            ))}
+                            {slots.map((sl,si)=>{
+                              const ok    = sl.tel||sl.desc;
+                              const hecho = sl.hecho||false;
+                              return (
+                                <div key={si} style={{ display:"flex", gap:3, marginBottom:4,
+                                  padding:"3px 4px", borderRadius:5,
+                                  background: hecho?"#ffebee": ok?cat.bg:"#f8f9fa",
+                                  border:`1px solid ${hecho?"#ef9a9a": ok?cat.color+"50":"#ebebeb"}`,
+                                  opacity: hecho?.75:1 }}>
+                                  <button onClick={()=>updateSlot(d.fecha,cat.id,si,"hecho",!hecho)}
+                                    style={{ background: hecho?"#ef5350":"transparent", border:`1.5px solid ${hecho?"#ef5350":"#ddd"}`,
+                                      borderRadius:4, width:16, height:16, flexShrink:0, cursor:"pointer",
+                                      display:"flex", alignItems:"center", justifyContent:"center",
+                                      fontSize:9, color:hecho?"#fff":"#bbb", padding:0, alignSelf:"center" }}>
+                                    {hecho?"✓":""}
+                                  </button>
+                                  <input value={sl.tel} onChange={e=>updateSlot(d.fecha,cat.id,si,"tel",e.target.value)}
+                                    placeholder="Tel" style={{ ...inp, width:52, color: hecho?"#ef5350":cat.color, fontWeight:ok?600:400, textDecoration:hecho?"line-through":"none" }}/>
+                                  <input value={sl.desc} onChange={e=>updateSlot(d.fecha,cat.id,si,"desc",e.target.value)}
+                                    placeholder="Detalle" style={{ ...inp, flex:1, textDecoration:hecho?"line-through":"none", color:hecho?"#999":"inherit" }}/>
+                                  {slots.length>1 && (
+                                    <button onClick={()=>eliminarSlot(d.fecha,cat.id,si)}
+                                      style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:11, padding:"0 2px", lineHeight:1, flexShrink:0 }}>✕</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            <button onClick={()=>agregarSlot(d.fecha,cat.id)}
+                              style={{ width:"100%", padding:"2px 0", background:"transparent", border:`1px dashed ${cat.color}50`,
+                                color:cat.color, borderRadius:5, fontSize:11, cursor:"pointer", opacity:.5, fontWeight:700 }}>+</button>
+                          </>
+                        )}
                       </td>
                     );
                   })}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
