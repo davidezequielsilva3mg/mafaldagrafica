@@ -46,7 +46,7 @@ const ESTADO_COLOR = {
 const EMPTY_FORM = {
   nombre: "", cliente: "", telefono: "", categoria: "Vinilo Impreso",
   estado: "Pendiente", fechaPedido: "", fechaEntrega: "", precio: "",
-  seña: "", notas: ""
+  seña: "", notas: "", tomadoPor: ""
 };
 
 
@@ -142,6 +142,7 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
     <div class="ibox"><div class="ilbl">📞 Teléfono</div><div class="ival">${p.telefono || "—"}</div></div>
     <div class="ibox"><div class="ilbl">📅 Fecha de Pedido</div><div class="ival">${p.fechaPedido || "—"}</div></div>
     <div class="ibox"><div class="ilbl">🏁 Fecha de Entrega</div><div class="ival" style="color:${p.fechaEntrega < new Date().toISOString().split('T')[0] ? '#c62828':'#1a2340'}">${p.fechaEntrega || "—"}</div></div>
+    ${p.tomadoPor ? `<div class="ibox" style="grid-column:1/-1"><div class="ilbl">👤 Tomado por</div><div class="ival">${p.tomadoPor}</div></div>` : ""}
   </div>
   <div class="notas">
     <div class="ntit">📝 Especificaciones / Notas</div>
@@ -7134,6 +7135,23 @@ export default function App() {
               )}
 
               <div style={{ gridColumn:"1 / -1" }}>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>👤 Tomado por</label>
+                <select value={formData.tomadoPor||""} onChange={e=>setFormData(p=>({...p,tomadoPor:e.target.value}))}
+                  style={{ ...inp(), cursor:"pointer",
+                    borderColor: formData.tomadoPor?"#e65100":"",
+                    background: formData.tomadoPor?"#fff8f5":"#fff",
+                    fontWeight: formData.tomadoPor?600:400,
+                    color: formData.tomadoPor?"#1a2340":"#a09080" }}>
+                  <option value="">— Sin asignar —</option>
+                  {empleados.map(e=>(
+                    <option key={e.fireId} value={`${e.nombre||""} ${e.apellido||""}`.trim()}>
+                      {`${e.nombre||""} ${e.apellido||""}`.trim()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ gridColumn:"1 / -1" }}>
                 <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Notas / Detalles</label>
                 <textarea value={formData.notas} onChange={e=>setFormData(p=>({...p,notas:e.target.value}))}
                   placeholder="Medidas, colores, cantidad, especificaciones..." rows={3}
@@ -7179,6 +7197,7 @@ export default function App() {
                   { label:"Teléfono", value:p.telefono||"—", icon:"📞" },
                   { label:"Fecha de Pedido", value:p.fechaPedido||"—", icon:"📅" },
                   { label:"Fecha de Entrega", value:p.fechaEntrega||"—", icon:"🏁" },
+                  ...(p.tomadoPor ? [{ label:"Tomado por", value:p.tomadoPor, icon:"👤" }] : []),
                 ].map(item => (
                   <div key={item.label} style={{ background:"#fffaf7", borderRadius:10, padding:"13px 16px",
                     cursor: item.clickable ? "pointer" : "default",
