@@ -6378,6 +6378,7 @@ export default function App() {
   const [entregaModal, setEntregaModal]               = useState(null); // { pedido }
   const [busquedaGlobal, setBusquedaGlobal]       = useState("");
   const [busqGlobalOpen, setBusqGlobalOpen]       = useState(false);
+  const [planillaFlotante, setPlanillaFlotante]   = useState(false);
   const [empleados, setEmpleados]                 = useState([]);
 
   // ── Firebase: verificar sesión ──
@@ -6709,7 +6710,10 @@ export default function App() {
               <span className="sidebar-icon">📋</span>
               <span className="sidebar-label">Pedidos</span>
             </button>
-            <button className={`sidebar-item ${view==="pedidosOnline"?"act":""}`} onClick={()=>{ setView("pedidosOnline"); }}>
+            <button className={`sidebar-item ${view==="pedidosOnline"?"act":""}`}
+              onClick={()=>{ setView("pedidosOnline"); }}
+              onDoubleClick={e=>{ e.stopPropagation(); setPlanillaFlotante(true); }}
+              title="Clic: abrir · Doble clic: ventana flotante">
               <span className="sidebar-icon">📱</span>
               <span className="sidebar-label">Pedidos Online</span>
             </button>
@@ -6861,6 +6865,39 @@ export default function App() {
               CATEGORIA_COLOR={CATEGORIA_COLOR}
               CATEGORIA_ICON={CATEGORIA_ICON}
             />
+          )}
+
+          {/* ── PLANILLA FLOTANTE ── */}
+          {planillaFlotante && (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+              onClick={()=>setPlanillaFlotante(false)}>
+              <div style={{ background:"#f8f9fa", borderRadius:16, width:"100%", maxWidth:1200, maxHeight:"92vh",
+                boxShadow:"0 24px 80px rgba(0,0,0,.3)", display:"flex", flexDirection:"column", overflow:"hidden" }}
+                onClick={e=>e.stopPropagation()}>
+                {/* Header flotante */}
+                <div style={{ background:"#1a2340", padding:"14px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+                  <div style={{ fontWeight:700, fontSize:16, color:"#fff" }}>📱 Pedidos Online</div>
+                  <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                    <button onClick={()=>{ setPlanillaFlotante(false); setView("pedidosOnline"); }}
+                      style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", padding:"6px 14px", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                      Abrir en pantalla completa ↗
+                    </button>
+                    <button onClick={()=>setPlanillaFlotante(false)}
+                      style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", width:32, height:32, borderRadius:8, fontSize:18, cursor:"pointer", fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                {/* Contenido */}
+                <div style={{ overflowY:"auto", padding:"20px 20px", flex:1 }}>
+                  <PedidosOnlineView
+                    showToast={showToast}
+                    setView={setView}
+                    setSelectedPedido={setSelectedPedido}
+                  />
+                </div>
+              </div>
+            </div>
           )}
 
           <div className="main-content" onClick={()=>{ if(window.innerWidth<=900) setMenuAbierto(false); }}>
