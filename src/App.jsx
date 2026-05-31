@@ -1645,7 +1645,7 @@ const CATS_ONLINE = [
   { id:"otros",       label:"OTROS",          color:"#37474f", bg:"#eceff1" },
 ];
 const DIAS_SEMANA = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
-const SLOTS_POR_CAT = 2;
+const SLOTS_POR_CAT = 1; // slot inicial, se agregan con +
 
 function getLunes(fecha) {
   const d = new Date(fecha);
@@ -1719,6 +1719,23 @@ function PedidosOnlineView({ showToast }) {
   const esSemanaActual = semanaKey(getLunes(new Date())) === key;
   const countDia = f => Object.values(grilla[f]||{}).flat().filter(s=>s?.tel||s?.desc).length;
 
+  const agregarSlot = (fecha, catId) => {
+    const g = JSON.parse(JSON.stringify(grilla));
+    if (!g[fecha]) g[fecha] = {};
+    if (!g[fecha][catId]) g[fecha][catId] = [];
+    g[fecha][catId].push({tel:"",desc:""});
+    setGrilla(g);
+    guardar(g);
+  };
+
+  const eliminarSlot = (fecha, catId, idx) => {
+    const g = JSON.parse(JSON.stringify(grilla));
+    if (!g[fecha]?.[catId]) return;
+    g[fecha][catId].splice(idx, 1);
+    setGrilla(g);
+    guardar(g);
+  };
+
   const inp = { width:"100%", padding:"4px 7px", borderRadius:5, border:"1px solid #ddd",
     fontSize:11, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", background:"#fff" };
 
@@ -1774,24 +1791,53 @@ function PedidosOnlineView({ showToast }) {
                   </td>
                   {/* Slots por día */}
                   {dias.map(d=>{
-                    const slots = grilla[d.fecha]?.[cat.id] || [];
+                    const slots = grilla[d.fecha]?.[cat.id] || [{tel:"",desc:""}];
                     return (
                       <td key={d.fecha} style={{ padding:"5px 6px", borderRight:"1px solid #e8e8e8", borderTop:"1px solid #e8e8e8", verticalAlign:"top", background:"#fff" }}>
-                        {Array.from({length:SLOTS_POR_CAT}).map((_,si)=>{
-                          const sl = slots[si]||{tel:"",desc:""};
-                          const ok = sl.tel||sl.desc;
+                        {slots.map((sl,si)=>{
+                          const ok    = sl.tel||sl.desc;
+                          const hecho = sl.hecho||false;
                           return (
-                            <div key={si} style={{ display:"flex", gap:3, marginBottom:si<SLOTS_POR_CAT-1?4:0,
+                            <div key={si} style={{ display:"flex", gap:3, marginBottom:4,
                               padding:"3px 4px", borderRadius:5,
-                              background:ok?cat.bg:"#f8f9fa",
-                              border:`1px solid ${ok?cat.color+"50":"#ebebeb"}` }}>
+                              background: hecho?"#ffebee": ok?cat.bg:"#f8f9fa",
+                              border:`1px solid ${hecho?"#ef9a9a": ok?cat.color+"50":"#ebebeb"}`,
+                              opacity: hecho?.75:1,
+                              transition:"all .2s" }}>
+                              {/* Check hecho */}
+                              <button onClick={()=>updateSlot(d.fecha,cat.id,si,"hecho",!hecho)}
+                                title={hecho?"Marcar pendiente":"Marcar como hecho"}
+                                style={{ background: hecho?"#ef5350":"transparent",
+                                  border:`1.5px solid ${hecho?"#ef5350":"#ddd"}`,
+                                  borderRadius:4, width:18, height:18, flexShrink:0,
+                                  cursor:"pointer", display:"flex", alignItems:"center",
+                                  justifyContent:"center", fontSize:10, color:hecho?"#fff":"#bbb",
+                                  padding:0, alignSelf:"center", transition:"all .2s" }}>
+                                {hecho?"✓":""}
+                              </button>
                               <input value={sl.tel} onChange={e=>updateSlot(d.fecha,cat.id,si,"tel",e.target.value)}
-                                placeholder="Tel" style={{ ...inp, width:60, color:cat.color, fontWeight:ok?600:400 }}/>
+                                placeholder="Tel"
+                                style={{ ...inp, width:56, color: hecho?"#ef5350":cat.color,
+                                  fontWeight:ok?600:400, textDecoration:hecho?"line-through":"none" }}/>
                               <input value={sl.desc} onChange={e=>updateSlot(d.fecha,cat.id,si,"desc",e.target.value)}
-                                placeholder="Detalle" style={{ ...inp, flex:1 }}/>
+                                placeholder="Detalle"
+                                style={{ ...inp, flex:1, textDecoration:hecho?"line-through":"none", color:hecho?"#999":"inherit" }}/>
+                              {slots.length>1 && (
+                                <button onClick={()=>eliminarSlot(d.fecha,cat.id,si)}
+                                  style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:12, padding:"0 2px", lineHeight:1, flexShrink:0 }}
+                                  title="Eliminar">✕</button>
+                              )}
                             </div>
                           );
                         })}
+                        {/* Botón + agregar slot */}
+                        <button onClick={()=>agregarSlot(d.fecha,cat.id)}
+                          style={{ width:"100%", padding:"2px 0", background:"transparent", border:`1px dashed ${cat.color}50`,
+                            color:cat.color, borderRadius:5, fontSize:11, cursor:"pointer", opacity:.6,
+                            fontWeight:700, marginTop:1 }}
+                          title="Agregar slot">
+                          +
+                        </button>
                       </td>
                     );
                   })}
