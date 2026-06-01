@@ -1914,8 +1914,9 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }
                         {!expandida && tieneAlgo && (
                           <div style={{ display:"flex", flexWrap:"wrap", gap:3, padding:"2px 0" }}>
                             {presenciales.map(p=>(
-                              <span key={p.fireId} style={{ background:cat.color, color:"#fff", borderRadius:4, padding:"1px 5px", fontSize:9, fontWeight:700 }}>
-                                📋 {p.telefono||p.nombre.slice(0,8)}
+                              <span key={p.fireId} style={{ background:p.estado==="Listo"?"#ef5350":cat.color, color:"#fff", borderRadius:4, padding:"1px 5px", fontSize:9, fontWeight:700,
+                                textDecoration:p.estado==="Listo"?"line-through":"none", opacity:p.estado==="Listo"?.7:1 }}>
+                                {p.estado==="Listo"?"✓ ":"📋 "}{p.telefono||p.nombre.slice(0,8)}
                               </span>
                             ))}
                             {slots.filter(s=>s?.tel||s?.desc).map((s,i)=>(
@@ -1932,20 +1933,45 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }
                         {/* Expandido — vista completa */}
                         {expandida && (
                           <>
-                            {presenciales.map(p=>(
-                              <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:4, marginBottom:4,
-                                padding:"4px 6px", borderRadius:5, background:cat.bg, border:`1.5px solid ${cat.color}` }}>
-                                <span style={{ fontSize:9, background:cat.color, color:"#fff", borderRadius:3, padding:"1px 4px", fontWeight:700, flexShrink:0 }}>📋</span>
-                                <div style={{ flex:1, minWidth:0 }}>
-                                  <div style={{ fontSize:10, fontWeight:700, color:cat.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.telefono||"Sin tel"}</div>
-                                  <div style={{ fontSize:10, color:"#4a5568", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.nombre}</div>
+                            {presenciales.map(p=>{
+                              const listo = p.estado==="Listo";
+                              const toggleListo = async () => {
+                                const nuevoEstado = listo ? "En Producción" : "Listo";
+                                await updateDoc(doc(db,"pedidos",p.fireId), { estado:nuevoEstado });
+                              };
+                              return (
+                                <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:4, marginBottom:4,
+                                  padding:"4px 6px", borderRadius:5,
+                                  background: listo?"#ffebee":cat.bg,
+                                  border:`1.5px solid ${listo?"#ef5350":cat.color}`,
+                                  opacity: listo?.7:1,
+                                  transition:"all .2s" }}>
+                                  {/* Check listo */}
+                                  <button onClick={toggleListo}
+                                    title={listo?"Marcar pendiente":"Marcar como listo"}
+                                    style={{ background: listo?"#ef5350":"transparent",
+                                      border:`1.5px solid ${listo?"#ef5350":"#ccc"}`,
+                                      borderRadius:4, width:16, height:16, flexShrink:0,
+                                      cursor:"pointer", display:"flex", alignItems:"center",
+                                      justifyContent:"center", fontSize:9,
+                                      color:listo?"#fff":"#bbb", padding:0 }}>
+                                    {listo?"✓":""}
+                                  </button>
+                                  <div style={{ flex:1, minWidth:0 }}>
+                                    <div style={{ fontSize:10, fontWeight:700, color:listo?"#ef5350":cat.color,
+                                      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                                      textDecoration:listo?"line-through":"none" }}>{p.telefono||"Sin tel"}</div>
+                                    <div style={{ fontSize:10, color:listo?"#999":"#4a5568",
+                                      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                                      textDecoration:listo?"line-through":"none" }}>{p.nombre}</div>
+                                  </div>
+                                  {setViewApp && (
+                                    <button onClick={()=>{ if(setSelectedPedido) setSelectedPedido(p); if(setViewApp) setViewApp("detalle"); }}
+                                      style={{ background:listo?"#ef5350":cat.color, border:"none", color:"#fff", borderRadius:4, padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>→</button>
+                                  )}
                                 </div>
-                                {setViewApp && (
-                                  <button onClick={()=>{ if(setSelectedPedido) setSelectedPedido(p); if(setViewApp) setViewApp("detalle"); }}
-                                    style={{ background:cat.color, border:"none", color:"#fff", borderRadius:4, padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>→</button>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                             {slots.map((sl,si)=>{
                               const ok    = sl.tel||sl.desc;
                               const hecho = sl.hecho||false;
