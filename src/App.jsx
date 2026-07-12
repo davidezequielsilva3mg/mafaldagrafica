@@ -1643,7 +1643,7 @@ function CalcConfigFijos({ fijos, onGuardar, materias, getPrecioM2 }) {
 }
 
 
-// ── Componente: Pedidos Online ────────────────────────────────────────────
+// ── Componente: Calendario ───────────────────────────────────────────────
 const LOCALES = {
   grafica: {
     label: "🖨️ Gráfica",
@@ -2316,7 +2316,18 @@ function KonicaView({ showToast }) {
   const [tonerTipo,   setTonerTipo]   = useState("cian");
   const [tonerFecha,  setTonerFecha]  = useState(new Date().toISOString().split("T")[0]);
   const [tonerNota,   setTonerNota]   = useState("");
+  const [tonerPrecio, setTonerPrecio] = useState("");
   const [savingT,     setSavingT]     = useState(false);
+
+  // Form consumibles
+  const [consumibles,      setConsumibles]      = useState([]);
+  const [loadingCons,      setLoadingCons]      = useState(true);
+  const [modalCons,        setModalCons]        = useState(false);
+  const [consDesc,         setConsDesc]         = useState("");
+  const [consFecha,        setConsFecha]        = useState(new Date().toISOString().split("T")[0]);
+  const [consValor,        setConsValor]        = useState("");
+  const [consNota,         setConsNota]         = useState("");
+  const [savingCons,       setSavingCons]       = useState(false);
 
   const anioActual = new Date().getFullYear();
   const [anioVer, setAnioVer] = useState(anioActual);
@@ -2332,7 +2343,12 @@ function KonicaView({ showToast }) {
         .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")));
       setLoadingT(false);
     });
-    return ()=>{ u1(); u2(); };
+    const u3 = onSnapshot(collection(db,"konicaConsumibles"), snap => {
+      setConsumibles(snap.docs.map(d=>({...d.data(),fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")));
+      setLoadingCons(false);
+    });
+    return ()=>{ u1(); u2(); u3(); };
   }, []);
 
   const handleGuardarContador = async () => {
@@ -2356,10 +2372,31 @@ function KonicaView({ showToast }) {
     setSavingT(true);
     await addDoc(collection(db,"konicaToners"), {
       tipo: tonerTipo, fecha: tonerFecha, nota: tonerNota,
+      precio: parseFloat(tonerPrecio)||0,
       cargadoEn: new Date().toISOString()
     });
     showToast("Reposición registrada ✅");
-    setSavingT(false); setModalToner(false); setTonerNota("");
+    setSavingT(false); setModalToner(false); setTonerNota(""); setTonerPrecio("");
+  };
+
+  const handleGuardarCons = async () => {
+    if (!consDesc.trim()) { showToast("Ingresá una descripción","error"); return; }
+    setSavingCons(true);
+    await addDoc(collection(db,"konicaConsumibles"), {
+      descripcion: consDesc, fecha: consFecha,
+      valor: parseFloat(consValor)||0, nota: consNota,
+      cargadoEn: new Date().toISOString()
+    });
+    showToast("Consumible registrado ✅");
+    setSavingCons(false); setModalCons(false);
+    setConsDesc(""); setConsValor(""); setConsNota("");
+    setConsFecha(new Date().toISOString().split("T")[0]);
+  };
+
+  const delCons = async (r) => {
+    if (!window.confirm("¿Eliminar este registro?")) return;
+    await deleteDoc(doc(db,"konicaConsumibles",r.fireId));
+    showToast("Eliminado","error");
   };
 
   const delContador = async (r) => {
@@ -2394,6 +2431,10 @@ function KonicaView({ showToast }) {
     <div>
       {/* Botones */}
       <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginBottom:20, flexWrap:"wrap" }}>
+        <button onClick={()=>setModalCons(true)}
+          style={{ background:"#4a5568", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          🔧 Registrar consumible / service
+        </button>
         <button onClick={()=>setModalToner(true)}
           style={{ background:"#1a2340", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
           🖊️ Registrar reposición de tóner
@@ -2497,7 +2538,7 @@ function KonicaView({ showToast }) {
         ) : (
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
             <thead><tr style={{ background:"#f8f9fa" }}>
-              {["Fecha","Tóner","Notas",""].map(h=>(
+              {["Fecha","Tóner","Precio","Notas",""].map(h=>(
                 <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid #f0d5c0" }}>{h}</th>
               ))}
             </tr></thead>
@@ -2513,6 +2554,9 @@ function KonicaView({ showToast }) {
                         ⬛ {t.label}
                       </span>
                     </td>
+                    <td style={{ padding:"11px 14px", fontWeight:700, color:"#1a2340" }}>
+                      {r.precio ? `$${parseFloat(r.precio).toLocaleString("es-AR")}` : "—"}
+                    </td>
                     <td style={{ padding:"11px 14px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
                     <td style={{ padding:"11px 10px" }}>
                       <button onClick={()=>delToner(r)}
@@ -2521,6 +2565,47 @@ function KonicaView({ showToast }) {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Consumibles / Services */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden", marginTop:24 }}>
+        <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0d5c0", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>🔧 Consumibles y servicios</div>
+          {consumibles.length>0 && (
+            <span style={{ fontSize:13, color:"#4a5568" }}>
+              Total invertido: <strong style={{color:"#e65100"}}>${consumibles.reduce((s,r)=>s+parseFloat(r.valor||0),0).toLocaleString("es-AR")}</strong>
+            </span>
+          )}
+        </div>
+        {loadingCons ? (
+          <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Cargando...</div>
+        ) : consumibles.length===0 ? (
+          <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Sin consumibles registrados</div>
+        ) : (
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+            <thead><tr style={{ background:"#f8f9fa" }}>
+              {["Fecha","Descripción","Valor","Notas",""].map(h=>(
+                <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid #f0d5c0" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {consumibles.map(r=>(
+                <tr key={r.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                  <td style={{ padding:"11px 14px", color:"#4a5568" }}>{fmtFecha(r.fecha)}</td>
+                  <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>{r.descripcion}</td>
+                  <td style={{ padding:"11px 14px", fontWeight:700, color:"#e65100" }}>
+                    {r.valor ? `$${parseFloat(r.valor).toLocaleString("es-AR")}` : "—"}
+                  </td>
+                  <td style={{ padding:"11px 14px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
+                  <td style={{ padding:"11px 10px" }}>
+                    <button onClick={()=>delCons(r)}
+                      style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
@@ -2592,6 +2677,10 @@ function KonicaView({ showToast }) {
                 <input type="date" value={tonerFecha} onChange={e=>setTonerFecha(e.target.value)} style={inp}/>
               </div>
               <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio pagado ($)</label>
+                <input type="number" value={tonerPrecio} onChange={e=>setTonerPrecio(e.target.value)} placeholder="Ej: 45000" style={inp}/>
+              </div>
+              <div>
                 <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nota (opcional)</label>
                 <input value={tonerNota} onChange={e=>setTonerNota(e.target.value)} placeholder="Ej: tóner original Konica" style={inp}/>
               </div>
@@ -2601,6 +2690,44 @@ function KonicaView({ showToast }) {
               <button onClick={handleGuardarToner} disabled={savingT}
                 style={{ flex:2, padding:"11px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
                 {savingT?"Guardando...":"✅ Registrar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal consumibles */}
+      {modalCons && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setModalCons(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:440, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>🔧 Registrar consumible / service</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Descripción *</label>
+                <input value={consDesc} onChange={e=>setConsDesc(e.target.value)}
+                  placeholder="Ej: Cambio de cuchilla, Service trimestral, Kit de fusión..."
+                  style={inp} autoFocus/>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha</label>
+                  <input type="date" value={consFecha} onChange={e=>setConsFecha(e.target.value)} style={inp}/>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Valor ($)</label>
+                  <input type="number" value={consValor} onChange={e=>setConsValor(e.target.value)} placeholder="0" style={inp}/>
+                </div>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Notas adicionales (opcional)</label>
+                <input value={consNota} onChange={e=>setConsNota(e.target.value)} placeholder="Proveedor, garantía, observaciones..." style={inp}/>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10, marginTop:22 }}>
+              <button onClick={()=>setModalCons(false)} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={handleGuardarCons} disabled={savingCons}
+                style={{ flex:2, padding:"11px", background:"#4a5568", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                {savingCons?"Guardando...":"🔧 Registrar"}
               </button>
             </div>
           </div>
@@ -7130,8 +7257,8 @@ export default function App() {
               onClick={()=>{ setView("pedidosOnline"); }}
               onDoubleClick={e=>{ e.stopPropagation(); setPlanillaFlotante(true); }}
               title="Clic: abrir · Doble clic: ventana flotante">
-              <span className="sidebar-icon">📱</span>
-              <span className="sidebar-label">Pedidos Online</span>
+              <span className="sidebar-icon">📅</span>
+              <span className="sidebar-label">Calendario</span>
             </button>
             <button className={`sidebar-item ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}` + ""} onClick={()=>{ setView("clientes"); }}>
               <span className="sidebar-icon">👥</span>
@@ -7230,7 +7357,7 @@ export default function App() {
           view==="editarProveedor" ? "🏭 Proveedores" :
           view==="calculadora" ? "🧮 Calculadora de Costos" :
           view==="produccion"  ? "📊 Control de Producción" :
-          view==="pedidosOnline" ? "📱 Pedidos Online" :
+          view==="pedidosOnline" ? "📅 Calendario" :
           view==="config" ? "⚙️ Configuración" :
           view==="finanzas" ? "💼 Finanzas" :
           "Sistema"}
@@ -7296,7 +7423,7 @@ export default function App() {
                 onClick={e=>e.stopPropagation()}>
                 {/* Header flotante */}
                 <div style={{ background:"#1a2340", padding:"14px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
-                  <div style={{ fontWeight:700, fontSize:16, color:"#fff" }}>📱 Pedidos Online</div>
+                  <div style={{ fontWeight:700, fontSize:16, color:"#fff" }}>📅 Calendario</div>
                   <div style={{ display:"flex", gap:10, alignItems:"center" }}>
                     <button onClick={()=>{ setPlanillaFlotante(false); setView("pedidosOnline"); }}
                       style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", padding:"6px 14px", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer" }}>
@@ -7363,7 +7490,6 @@ export default function App() {
               {[
                 { id:"categorias", label:"📋 Por Categoría" },
                 { id:"kanban",     label:"🗂 Kanban" },
-                { id:"calendario", label:"📅 Calendario" },
               ].map(v => (
                 <button key={v.id} onClick={() => setVistaLista(v.id)}
                   style={{ padding:"8px 18px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", border:"none", transition:"all .18s",
@@ -7373,6 +7499,12 @@ export default function App() {
                   {v.label}
                 </button>
               ))}
+              <button onClick={() => setView("pedidosOnline")}
+                style={{ padding:"8px 18px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", border:"none", transition:"all .18s",
+                  background:"#fff", color:"#4a5568",
+                  boxShadow:"0 2px 8px rgba(230,81,0,.07)" }}>
+                📅 Calendario
+              </button>
             </div>
 
             {/* Filtros — solo en vista categorías */}
