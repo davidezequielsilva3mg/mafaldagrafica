@@ -1934,64 +1934,81 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }
                         {expandida && (
                           <>
                             {presenciales.map(p=>{
-                              const listo = p.estado==="Listo";
-                              const toggleListo = async () => {
-                                const nuevoEstado = listo ? "En Producción" : "Listo";
-                                await updateDoc(doc(db,"pedidos",p.fireId), { estado:nuevoEstado });
+                              const estadoP = p.estadoCalendario||0; // 0=pend, 1=prod, 2=listo
+                              const enProd  = estadoP===1;
+                              const listo   = estadoP===2;
+                              const nextEst = (estadoP+1)%3;
+                              const toggleEstado = async () => {
+                                await updateDoc(doc(db,"pedidos",p.fireId), { estadoCalendario: nextEst });
                               };
                               return (
                                 <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:4, marginBottom:4,
-                                  padding:"4px 6px", borderRadius:5,
-                                  background: listo?"#ffebee":cat.bg,
-                                  border:`1.5px solid ${listo?"#ef5350":cat.color}`,
-                                  opacity: listo?.7:1,
-                                  transition:"all .2s" }}>
-                                  {/* Check listo */}
-                                  <button onClick={toggleListo}
-                                    title={listo?"Marcar pendiente":"Marcar como listo"}
-                                    style={{ background: listo?"#ef5350":"transparent",
-                                      border:`1.5px solid ${listo?"#ef5350":"#ccc"}`,
+                                  padding:"4px 6px", borderRadius:5, transition:"all .2s",
+                                  background: listo?"#ffebee": enProd?"#fffde7":cat.bg,
+                                  border:`1.5px solid ${listo?"#ef5350": enProd?"#f9a825":cat.color}`,
+                                  opacity: listo?.7:1 }}>
+                                  <button onClick={toggleEstado}
+                                    title={estadoP===0?"Marcar en producción":estadoP===1?"Marcar como listo":"Volver a pendiente"}
+                                    style={{ background: listo?"#ef5350": enProd?"#f9a825":"transparent",
+                                      border:`1.5px solid ${listo?"#ef5350": enProd?"#f9a825":"#ccc"}`,
                                       borderRadius:4, width:16, height:16, flexShrink:0,
                                       cursor:"pointer", display:"flex", alignItems:"center",
                                       justifyContent:"center", fontSize:9,
-                                      color:listo?"#fff":"#bbb", padding:0 }}>
-                                    {listo?"✓":""}
+                                      color:(listo||enProd)?"#fff":"#bbb", padding:0, transition:"all .2s" }}>
+                                    {listo?"✓": enProd?"⚙":""}
                                   </button>
                                   <div style={{ flex:1, minWidth:0 }}>
-                                    <div style={{ fontSize:10, fontWeight:700, color:listo?"#ef5350":cat.color,
+                                    <div style={{ fontSize:10, fontWeight:700,
+                                      color:listo?"#ef5350": enProd?"#f57f17":cat.color,
                                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                                       textDecoration:listo?"line-through":"none" }}>{p.telefono||"Sin tel"}</div>
-                                    <div style={{ fontSize:10, color:listo?"#999":"#4a5568",
+                                    <div style={{ fontSize:10,
+                                      color:listo?"#999": enProd?"#7a6000":"#4a5568",
                                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                                       textDecoration:listo?"line-through":"none" }}>{p.nombre}</div>
                                   </div>
                                   {setViewApp && (
                                     <button onClick={()=>{ if(setSelectedPedido) setSelectedPedido(p); if(setViewApp) setViewApp("detalle"); }}
-                                      style={{ background:listo?"#ef5350":cat.color, border:"none", color:"#fff", borderRadius:4, padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>→</button>
+                                      style={{ background:listo?"#ef5350": enProd?"#f9a825":cat.color, border:"none", color:"#fff", borderRadius:4, padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>→</button>
                                   )}
                                 </div>
                               );
                             })}
                             {slots.map((sl,si)=>{
-                              const ok    = sl.tel||sl.desc;
-                              const hecho = sl.hecho||false;
+                              const ok     = sl.tel||sl.desc;
+                              // estado: 0=pendiente, 1=en producción, 2=listo
+                              const estado = sl.estado||0;
+                              const nextEstado = (estado+1) % 3;
+                              const enProd = estado===1;
+                              const listo  = estado===2;
                               return (
                                 <div key={si} style={{ display:"flex", gap:3, marginBottom:4,
-                                  padding:"3px 4px", borderRadius:5,
-                                  background: hecho?"#ffebee": ok?cat.bg:"#f8f9fa",
-                                  border:`1px solid ${hecho?"#ef9a9a": ok?cat.color+"50":"#ebebeb"}`,
-                                  opacity: hecho?.75:1 }}>
-                                  <button onClick={()=>updateSlot(d.fecha,cat.id,si,"hecho",!hecho)}
-                                    style={{ background: hecho?"#ef5350":"transparent", border:`1.5px solid ${hecho?"#ef5350":"#ddd"}`,
+                                  padding:"3px 4px", borderRadius:5, transition:"all .2s",
+                                  background: listo?"#ffebee": enProd?"#fffde7": ok?cat.bg:"#f8f9fa",
+                                  border:`1px solid ${listo?"#ef9a9a": enProd?"#f9a825": ok?cat.color+"50":"#ebebeb"}`,
+                                  opacity: listo?.75:1 }}>
+                                  {/* Check 3 estados */}
+                                  <button
+                                    onClick={()=>updateSlot(d.fecha,cat.id,si,"estado",nextEstado)}
+                                    title={estado===0?"Marcar en producción":estado===1?"Marcar como listo":"Volver a pendiente"}
+                                    style={{
+                                      background: listo?"#ef5350": enProd?"#f9a825":"transparent",
+                                      border:`1.5px solid ${listo?"#ef5350": enProd?"#f9a825":"#ddd"}`,
                                       borderRadius:4, width:16, height:16, flexShrink:0, cursor:"pointer",
                                       display:"flex", alignItems:"center", justifyContent:"center",
-                                      fontSize:9, color:hecho?"#fff":"#bbb", padding:0, alignSelf:"center" }}>
-                                    {hecho?"✓":""}
+                                      fontSize:9, color: (listo||enProd)?"#fff":"#bbb",
+                                      padding:0, alignSelf:"center", transition:"all .2s" }}>
+                                    {listo?"✓": enProd?"⚙":""}
                                   </button>
                                   <input value={sl.tel} onChange={e=>updateSlot(d.fecha,cat.id,si,"tel",e.target.value)}
-                                    placeholder="Tel" style={{ ...inp, width:52, color: hecho?"#ef5350":cat.color, fontWeight:ok?600:400, textDecoration:hecho?"line-through":"none" }}/>
+                                    placeholder="Tel" style={{ ...inp, width:52,
+                                      color: listo?"#ef5350": enProd?"#f57f17":cat.color,
+                                      fontWeight:ok?600:400,
+                                      textDecoration:listo?"line-through":"none" }}/>
                                   <input value={sl.desc} onChange={e=>updateSlot(d.fecha,cat.id,si,"desc",e.target.value)}
-                                    placeholder="Detalle" style={{ ...inp, flex:1, textDecoration:hecho?"line-through":"none", color:hecho?"#999":"inherit" }}/>
+                                    placeholder="Detalle" style={{ ...inp, flex:1,
+                                      textDecoration:listo?"line-through":"none",
+                                      color:listo?"#999": enProd?"#7a6000":"inherit" }}/>
                                   {slots.length>1 && (
                                     <button onClick={()=>eliminarSlot(d.fecha,cat.id,si)}
                                       style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:11, padding:"0 2px", lineHeight:1, flexShrink:0 }}>✕</button>
@@ -2040,12 +2057,13 @@ function ProduccionView({ showToast }) {
   const TABS = [
     { id:"plotter", label:"🖨️ Hancolor i3200" },
     { id:"konica",  label:"🖥️ Konica Minolta C558" },
+    { id:"tinta",   label:"💧 Impresoras de tinta" },
   ];
 
   return (
     <div>
       {/* Tabs */}
-      <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+      <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTabProd(t.id)}
             style={{ padding:"10px 22px", borderRadius:20, fontSize:14, fontWeight:600,
@@ -2059,6 +2077,334 @@ function ProduccionView({ showToast }) {
       </div>
       {tabProd==="plotter" && <PlotterView showToast={showToast}/>}
       {tabProd==="konica"  && <KonicaView  showToast={showToast}/>}
+      {tabProd==="tinta"   && <TintaView   showToast={showToast}/>}
+    </div>
+  );
+}
+
+// ── Impresoras de Tinta ───────────────────────────────────────────────────
+const COLORES_TINTA = [
+  { id:"negro",     label:"Negro",      color:"#212121", bg:"#f5f5f5" },
+  { id:"cian",      label:"Cian",       color:"#0097a7", bg:"#e0f7fa" },
+  { id:"magenta",   label:"Magenta",    color:"#c2185b", bg:"#fce4ec" },
+  { id:"amarillo",  label:"Amarillo",   color:"#f9a825", bg:"#fffde7" },
+  { id:"foto_neg",  label:"Negro foto", color:"#424242", bg:"#eeeeee" },
+  { id:"otro",      label:"Otro",       color:"#546e7a", bg:"#eceff1" },
+];
+
+const TIPOS_PAPEL = ["Brillante", "Mate", "Satinado", "Seda", "Canvas", "Adhesivo brillante", "Adhesivo mate", "Otro"];
+const TAMAÑOS_PAPEL = ["10×15", "13×18", "15×20", "A4", "A3", "A3+", "Rollo", "Otro"];
+
+function TintaView({ showToast }) {
+  const [tintas,   setTintas]   = useState([]);
+  const [papeles,  setPapeles]  = useState([]);
+  const [loadingT, setLoadingT] = useState(true);
+  const [loadingP, setLoadingP] = useState(true);
+  const [modalTinta,  setModalTinta]  = useState(false);
+  const [modalPapel,  setModalPapel]  = useState(false);
+  const [tabInk, setTabInk]          = useState("tintas");
+
+  // Form tinta
+  const [tColor,    setTColor]   = useState("negro");
+  const [tMarca,    setTMarca]   = useState("");
+  const [tCantidad, setTCantidad]= useState("");
+  const [tPrecio,   setTPrecio]  = useState("");
+  const [tFecha,    setTFecha]   = useState(new Date().toISOString().split("T")[0]);
+  const [tNota,     setTNota]    = useState("");
+  const [savingT,   setSavingT]  = useState(false);
+
+  // Form papel
+  const [pTipo,     setPTipo]    = useState("Brillante");
+  const [pTamaño,   setPTamaño]  = useState("A4");
+  const [pCantidad, setPCantidad]= useState("");
+  const [pPrecio,   setPPrecio]  = useState("");
+  const [pFecha,    setPFecha]   = useState(new Date().toISOString().split("T")[0]);
+  const [pNota,     setPNota]    = useState("");
+  const [savingP,   setSavingP]  = useState(false);
+
+  useEffect(() => {
+    const u1 = onSnapshot(collection(db,"tintasInkjet"), snap => {
+      setTintas(snap.docs.map(d=>({...d.data(),fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")));
+      setLoadingT(false);
+    });
+    const u2 = onSnapshot(collection(db,"papelesInkjet"), snap => {
+      setPapeles(snap.docs.map(d=>({...d.data(),fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")));
+      setLoadingP(false);
+    });
+    return ()=>{ u1(); u2(); };
+  }, []);
+
+  const handleGuardarTinta = async () => {
+    if (!tMarca.trim()) { showToast("Ingresá la marca/modelo","error"); return; }
+    setSavingT(true);
+    await addDoc(collection(db,"tintasInkjet"), {
+      color:tColor, marca:tMarca, cantidad:parseFloat(tCantidad)||1,
+      precio:parseFloat(tPrecio)||0, fecha:tFecha, nota:tNota,
+      cargadoEn:new Date().toISOString()
+    });
+    showToast("Tinta registrada ✅");
+    setSavingT(false); setModalTinta(false);
+    setTMarca(""); setTCantidad(""); setTPrecio(""); setTNota("");
+  };
+
+  const handleGuardarPapel = async () => {
+    if (!pCantidad) { showToast("Ingresá la cantidad","error"); return; }
+    setSavingP(true);
+    await addDoc(collection(db,"papelesInkjet"), {
+      tipo:pTipo, tamaño:pTamaño, cantidad:parseInt(pCantidad)||0,
+      precio:parseFloat(pPrecio)||0, fecha:pFecha, nota:pNota,
+      cargadoEn:new Date().toISOString()
+    });
+    showToast("Papel registrado ✅");
+    setSavingP(false); setModalPapel(false);
+    setPCantidad(""); setPPrecio(""); setPNota("");
+  };
+
+  const delTinta = async (r) => {
+    if (!window.confirm("¿Eliminar?")) return;
+    await deleteDoc(doc(db,"tintasInkjet",r.fireId));
+    showToast("Eliminado","error");
+  };
+  const delPapel = async (r) => {
+    if (!window.confirm("¿Eliminar?")) return;
+    await deleteDoc(doc(db,"papelesInkjet",r.fireId));
+    showToast("Eliminado","error");
+  };
+
+  const totalTintas = tintas.reduce((s,r)=>s+parseFloat(r.precio||0),0);
+  const totalPapeles = papeles.reduce((s,r)=>s+parseFloat(r.precio||0),0);
+
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0",
+    fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  return (
+    <div>
+      {/* Sub-tabs + botones */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+        <div style={{ display:"flex", gap:8 }}>
+          {[["tintas","💧 Tintas"],["papeles","📄 Papeles fotográficos"]].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setTabInk(id)}
+              style={{ padding:"9px 20px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
+                background:tabInk===id?"#1a2340":"#fff", color:tabInk===id?"#fff":"#4a5568",
+                boxShadow:tabInk===id?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(0,0,0,.06)" }}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={()=>setModalPapel(true)}
+            style={{ background:"#1a2340", color:"#fff", border:"none", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            ➕ Registrar papel
+          </button>
+          <button onClick={()=>setModalTinta(true)}
+            style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            ➕ Registrar tinta
+          </button>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
+        {[
+          { label:"Reposiciones de tinta", valor:tintas.length, color:"#e65100" },
+          { label:"Invertido en tinta", valor:`$${totalTintas.toLocaleString("es-AR")}`, color:"#e65100" },
+          { label:"Compras de papel", valor:papeles.length, color:"#1a2340" },
+          { label:"Invertido en papel", valor:`$${totalPapeles.toLocaleString("es-AR")}`, color:"#1a2340" },
+        ].map((k,i)=>(
+          <div key={i} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"14px 18px" }}>
+            <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>{k.label}</div>
+            <div style={{ fontSize:20, fontWeight:800, color:k.color }}>{k.valor}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── TAB TINTAS ── */}
+      {tabInk==="tintas" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0d5c0", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
+            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>💧 Historial de tintas</div>
+            {/* Resumen por color */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {COLORES_TINTA.map(c=>{
+                const cant = tintas.filter(t=>t.color===c.id).length;
+                if (!cant) return null;
+                return <span key={c.id} style={{ background:c.bg, color:c.color, border:`1.5px solid ${c.color}40`, padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>{c.label}: {cant}</span>;
+              })}
+            </div>
+          </div>
+          {loadingT ? <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Cargando...</div>
+          : tintas.length===0 ? <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Sin registros — registrá tu primera reposición</div>
+          : (
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr style={{ background:"#f8f9fa" }}>
+                {["Fecha","Color","Marca / Modelo","Cantidad","Precio","Notas",""].map(h=>(
+                  <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid #f0d5c0" }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {tintas.map(r=>{
+                  const c = COLORES_TINTA.find(x=>x.id===r.color)||COLORES_TINTA[0];
+                  return (
+                    <tr key={r.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                      <td style={{ padding:"11px 14px", color:"#4a5568" }}>{fmtFecha(r.fecha)}</td>
+                      <td style={{ padding:"11px 14px" }}>
+                        <span style={{ background:c.bg, color:c.color, border:`1.5px solid ${c.color}50`, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700 }}>{c.label}</span>
+                      </td>
+                      <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>{r.marca}</td>
+                      <td style={{ padding:"11px 14px", color:"#4a5568" }}>{r.cantidad} u.</td>
+                      <td style={{ padding:"11px 14px", fontWeight:700, color:"#e65100" }}>{r.precio?`$${parseFloat(r.precio).toLocaleString("es-AR")}`:"—"}</td>
+                      <td style={{ padding:"11px 14px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
+                      <td style={{ padding:"11px 10px" }}>
+                        <button onClick={()=>delTinta(r)} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB PAPELES ── */}
+      {tabInk==="papeles" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+          <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0d5c0", fontWeight:700, fontSize:15, color:"#1a2340" }}>📄 Historial de papeles fotográficos</div>
+          {loadingP ? <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Cargando...</div>
+          : papeles.length===0 ? <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Sin registros — registrá tu primera compra de papel</div>
+          : (
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr style={{ background:"#f8f9fa" }}>
+                {["Fecha","Tipo","Tamaño","Cantidad","Precio","Notas",""].map(h=>(
+                  <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid #f0d5c0" }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {papeles.map(r=>(
+                  <tr key={r.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                    <td style={{ padding:"11px 14px", color:"#4a5568" }}>{fmtFecha(r.fecha)}</td>
+                    <td style={{ padding:"11px 14px" }}>
+                      <span style={{ background:"#e3f2fd", color:"#1565c0", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{r.tipo}</span>
+                    </td>
+                    <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>{r.tamaño}</td>
+                    <td style={{ padding:"11px 14px", color:"#4a5568" }}>{parseInt(r.cantidad).toLocaleString("es-AR")} hojas</td>
+                    <td style={{ padding:"11px 14px", fontWeight:700, color:"#e65100" }}>{r.precio?`$${parseFloat(r.precio).toLocaleString("es-AR")}`:"—"}</td>
+                    <td style={{ padding:"11px 14px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
+                    <td style={{ padding:"11px 10px" }}>
+                      <button onClick={()=>delPapel(r)} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Modal tinta */}
+      {modalTinta && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setModalTinta(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>💧 Registrar tinta</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:8 }}>Color</label>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                  {COLORES_TINTA.map(c=>(
+                    <div key={c.id} onClick={()=>setTColor(c.id)}
+                      style={{ padding:"9px", borderRadius:10, cursor:"pointer", textAlign:"center",
+                        border:`2px solid ${tColor===c.id?c.color:"#f0d5c0"}`,
+                        background:tColor===c.id?c.bg:"#fff" }}>
+                      <div style={{ fontWeight:700, fontSize:12, color:c.color }}>{c.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Marca / Modelo *</label>
+                <input value={tMarca} onChange={e=>setTMarca(e.target.value)} placeholder="Ej: Epson T664 original, compatible genérico..." style={inp} autoFocus/>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha</label>
+                  <input type="date" value={tFecha} onChange={e=>setTFecha(e.target.value)} style={inp}/>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Cantidad</label>
+                  <input type="number" value={tCantidad} onChange={e=>setTCantidad(e.target.value)} placeholder="1" style={inp}/>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio ($)</label>
+                  <input type="number" value={tPrecio} onChange={e=>setTPrecio(e.target.value)} placeholder="0" style={inp}/>
+                </div>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nota (opcional)</label>
+                <input value={tNota} onChange={e=>setTNota(e.target.value)} placeholder="Ej: comprado en Mercado Libre" style={inp}/>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10, marginTop:22 }}>
+              <button onClick={()=>setModalTinta(false)} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={handleGuardarTinta} disabled={savingT}
+                style={{ flex:2, padding:"11px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                {savingT?"Guardando...":"💧 Registrar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal papel */}
+      {modalPapel && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setModalPapel(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>📄 Registrar papel fotográfico</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Tipo de papel</label>
+                  <select value={pTipo} onChange={e=>setPTipo(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+                    {TIPOS_PAPEL.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Tamaño</label>
+                  <select value={pTamaño} onChange={e=>setPTamaño(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+                    {TAMAÑOS_PAPEL.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha</label>
+                  <input type="date" value={pFecha} onChange={e=>setPFecha(e.target.value)} style={inp}/>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Cantidad (hojas)</label>
+                  <input type="number" value={pCantidad} onChange={e=>setPCantidad(e.target.value)} placeholder="100" style={inp} autoFocus/>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio ($)</label>
+                  <input type="number" value={pPrecio} onChange={e=>setPPrecio(e.target.value)} placeholder="0" style={inp}/>
+                </div>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nota (opcional)</label>
+                <input value={pNota} onChange={e=>setPNota(e.target.value)} placeholder="Ej: papel Epson premium, comprado en proveedor X" style={inp}/>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10, marginTop:22 }}>
+              <button onClick={()=>setModalPapel(false)} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={handleGuardarPapel} disabled={savingP}
+                style={{ flex:2, padding:"11px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                {savingP?"Guardando...":"📄 Registrar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
