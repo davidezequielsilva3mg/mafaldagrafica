@@ -2035,6 +2035,36 @@ const SQ_FT_TO_M2 = 0.092903;
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 function ProduccionView({ showToast }) {
+  const [tabProd, setTabProd] = useState("plotter");
+
+  const TABS = [
+    { id:"plotter", label:"🖨️ Hancolor i3200" },
+    { id:"konica",  label:"🖥️ Konica Minolta C558" },
+  ];
+
+  return (
+    <div>
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTabProd(t.id)}
+            style={{ padding:"10px 22px", borderRadius:20, fontSize:14, fontWeight:600,
+              cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:tabProd===t.id?"#e65100":"#fff",
+              color:tabProd===t.id?"#fff":"#4a5568",
+              boxShadow:tabProd===t.id?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(0,0,0,.06)" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tabProd==="plotter" && <PlotterView showToast={showToast}/>}
+      {tabProd==="konica"  && <KonicaView  showToast={showToast}/>}
+    </div>
+  );
+}
+
+// ── Plotter Hancolor i3200 (ex ProduccionView) ────────────────────────────
+function PlotterView({ showToast }) {
   const [registros, setRegistros] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [modal, setModal]         = useState(false);
@@ -2249,6 +2279,328 @@ function ProduccionView({ showToast }) {
               <button onClick={handleGuardar} disabled={saving||!sqft}
                 style={{ flex:2, padding:"11px", background:!sqft?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:!sqft?"not-allowed":"pointer" }}>
                 {saving?"Guardando...":"💾 Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Konica Minolta C558 ───────────────────────────────────────────────────
+const TONERES = [
+  { id:"cian",     label:"Cian",    color:"#0097a7", bg:"#e0f7fa" },
+  { id:"magenta",  label:"Magenta", color:"#c2185b", bg:"#fce4ec" },
+  { id:"amarillo", label:"Amarillo",color:"#f9a825", bg:"#fffde7" },
+  { id:"negro",    label:"Negro",   color:"#212121", bg:"#f5f5f5" },
+];
+
+function KonicaView({ showToast }) {
+  const [contadores, setContadores] = useState([]);
+  const [toners,     setToners]     = useState([]);
+  const [loadingC,   setLoadingC]   = useState(true);
+  const [loadingT,   setLoadingT]   = useState(true);
+  const [modalCont,  setModalCont]  = useState(false);
+  const [modalToner, setModalToner] = useState(false);
+
+  // Form contador
+  const [mes,    setMes]    = useState(new Date().getMonth());
+  const [anio,   setAnio]   = useState(new Date().getFullYear());
+  const [pagBN,  setPagBN]  = useState("");
+  const [pagCol, setPagCol] = useState("");
+  const [notaC,  setNotaC]  = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Form toner
+  const [tonerTipo,   setTonerTipo]   = useState("cian");
+  const [tonerFecha,  setTonerFecha]  = useState(new Date().toISOString().split("T")[0]);
+  const [tonerNota,   setTonerNota]   = useState("");
+  const [savingT,     setSavingT]     = useState(false);
+
+  const anioActual = new Date().getFullYear();
+  const [anioVer, setAnioVer] = useState(anioActual);
+
+  useEffect(() => {
+    const u1 = onSnapshot(collection(db,"konicaContadores"), snap => {
+      setContadores(snap.docs.map(d=>({...d.data(),fireId:d.id}))
+        .sort((a,b)=>a.anio!==b.anio?a.anio-b.anio:a.mes-b.mes));
+      setLoadingC(false);
+    });
+    const u2 = onSnapshot(collection(db,"konicaToners"), snap => {
+      setToners(snap.docs.map(d=>({...d.data(),fireId:d.id}))
+        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")));
+      setLoadingT(false);
+    });
+    return ()=>{ u1(); u2(); };
+  }, []);
+
+  const handleGuardarContador = async () => {
+    if (!pagBN && !pagCol) { showToast("Ingresá al menos un contador","error"); return; }
+    setSaving(true);
+    const existe = contadores.find(r=>r.mes===parseInt(mes)&&r.anio===parseInt(anio));
+    const data = { mes:parseInt(mes), anio:parseInt(anio),
+      pagBN:parseInt(pagBN)||0, pagCol:parseInt(pagCol)||0, nota:notaC,
+      cargadoEn:new Date().toISOString() };
+    if (existe) {
+      await updateDoc(doc(db,"konicaContadores",existe.fireId), data);
+      showToast("Contador actualizado ✅");
+    } else {
+      await addDoc(collection(db,"konicaContadores"), data);
+      showToast("Contador guardado ✅");
+    }
+    setSaving(false); setModalCont(false); setPagBN(""); setPagCol(""); setNotaC("");
+  };
+
+  const handleGuardarToner = async () => {
+    setSavingT(true);
+    await addDoc(collection(db,"konicaToners"), {
+      tipo: tonerTipo, fecha: tonerFecha, nota: tonerNota,
+      cargadoEn: new Date().toISOString()
+    });
+    showToast("Reposición registrada ✅");
+    setSavingT(false); setModalToner(false); setTonerNota("");
+  };
+
+  const delContador = async (r) => {
+    if (!window.confirm("¿Eliminar este registro?")) return;
+    await deleteDoc(doc(db,"konicaContadores",r.fireId));
+    showToast("Eliminado","error");
+  };
+  const delToner = async (r) => {
+    if (!window.confirm("¿Eliminar este registro?")) return;
+    await deleteDoc(doc(db,"konicaToners",r.fireId));
+    showToast("Eliminado","error");
+  };
+
+  const delAnio = contadores.filter(r=>r.anio===anioVer);
+  const anios   = [...new Set(contadores.map(r=>r.anio))].sort();
+  const totalBN  = delAnio.reduce((s,r)=>s+r.pagBN,0);
+  const totalCol = delAnio.reduce((s,r)=>s+r.pagCol,0);
+
+  // Calcular diferencias mes a mes
+  const conDiff = delAnio.map((r,i)=>{
+    const prev = delAnio[i-1];
+    return { ...r,
+      diffBN:  prev ? r.pagBN  - prev.pagBN  : null,
+      diffCol: prev ? r.pagCol - prev.pagCol : null,
+    };
+  });
+
+  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0",
+    fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  return (
+    <div>
+      {/* Botones */}
+      <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginBottom:20, flexWrap:"wrap" }}>
+        <button onClick={()=>setModalToner(true)}
+          style={{ background:"#1a2340", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          🖊️ Registrar reposición de tóner
+        </button>
+        <button onClick={()=>setModalCont(true)}
+          style={{ background:"#e65100", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          ➕ Cargar contador mensual
+        </button>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:20 }}>
+        {[
+          { label:`Páginas B/N ${anioVer}`, valor:totalBN.toLocaleString("es-AR"), color:"#212121" },
+          { label:`Páginas Color ${anioVer}`, valor:totalCol.toLocaleString("es-AR"), color:"#e65100" },
+          { label:"Total páginas año", valor:(totalBN+totalCol).toLocaleString("es-AR"), color:"#1a2340" },
+        ].map((k,i)=>(
+          <div key={i} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"16px 20px" }}>
+            <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>{k.label}</div>
+            <div style={{ fontSize:22, fontWeight:800, color:k.color }}>{k.valor}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Selector año */}
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {anios.map(a=>(
+          <button key={a} onClick={()=>setAnioVer(a)}
+            style={{ padding:"7px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
+              background:anioVer===a?"#e65100":"#fff", color:anioVer===a?"#fff":"#4a5568",
+              boxShadow:anioVer===a?"0 3px 10px rgba(230,81,0,.2)":"0 1px 6px rgba(0,0,0,.06)" }}>
+            {a}
+          </button>
+        ))}
+      </div>
+
+      {/* Tabla contadores */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden", marginBottom:24 }}>
+        <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0d5c0", fontWeight:700, fontSize:15, color:"#1a2340" }}>
+          📊 Registro de contadores — {anioVer}
+        </div>
+        {loadingC ? (
+          <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Cargando...</div>
+        ) : conDiff.length===0 ? (
+          <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Sin registros para {anioVer}</div>
+        ) : (
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+            <thead><tr style={{ background:"#f8f9fa" }}>
+              {["Mes","Contador B/N","Páginas B/N mes","Contador Color","Páginas Color mes","Notas",""].map(h=>(
+                <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid #f0d5c0" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {[...conDiff].reverse().map(r=>(
+                <tr key={r.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                  <td style={{ padding:"11px 14px", fontWeight:700, color:"#1a2340" }}>{MESES[r.mes]} {r.anio}</td>
+                  <td style={{ padding:"11px 14px", color:"#1a2340" }}>{r.pagBN.toLocaleString("es-AR")}</td>
+                  <td style={{ padding:"11px 14px" }}>
+                    {r.diffBN!==null
+                      ? <span style={{ fontWeight:700, color:"#212121" }}>+{r.diffBN.toLocaleString("es-AR")}</span>
+                      : <span style={{ color:"#a09080" }}>—</span>}
+                  </td>
+                  <td style={{ padding:"11px 14px", color:"#1a2340" }}>{r.pagCol.toLocaleString("es-AR")}</td>
+                  <td style={{ padding:"11px 14px" }}>
+                    {r.diffCol!==null
+                      ? <span style={{ fontWeight:700, color:"#e65100" }}>+{r.diffCol.toLocaleString("es-AR")}</span>
+                      : <span style={{ color:"#a09080" }}>—</span>}
+                  </td>
+                  <td style={{ padding:"11px 14px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
+                  <td style={{ padding:"11px 10px" }}>
+                    <button onClick={()=>delContador(r)}
+                      style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Historial tóners */}
+      <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
+        <div style={{ padding:"16px 20px", borderBottom:"1px solid #f0d5c0", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>🖊️ Historial de reposición de tóner</div>
+          <div style={{ display:"flex", gap:8 }}>
+            {TONERES.map(t=>{
+              const cant = toners.filter(r=>r.tipo===t.id).length;
+              return (
+                <span key={t.id} style={{ background:t.bg, color:t.color, border:`1.5px solid ${t.color}40`,
+                  padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>
+                  {t.label}: {cant}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+        {loadingT ? (
+          <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Cargando...</div>
+        ) : toners.length===0 ? (
+          <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Sin reposiciones registradas</div>
+        ) : (
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+            <thead><tr style={{ background:"#f8f9fa" }}>
+              {["Fecha","Tóner","Notas",""].map(h=>(
+                <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid #f0d5c0" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {toners.map(r=>{
+                const t = TONERES.find(x=>x.id===r.tipo)||TONERES[3];
+                return (
+                  <tr key={r.fireId} style={{ borderBottom:"1px solid #fef0e8" }}>
+                    <td style={{ padding:"11px 14px", color:"#4a5568" }}>{fmtFecha(r.fecha)}</td>
+                    <td style={{ padding:"11px 14px" }}>
+                      <span style={{ background:t.bg, color:t.color, border:`1.5px solid ${t.color}50`,
+                        padding:"3px 12px", borderRadius:20, fontSize:12, fontWeight:700 }}>
+                        ⬛ {t.label}
+                      </span>
+                    </td>
+                    <td style={{ padding:"11px 14px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
+                    <td style={{ padding:"11px 10px" }}>
+                      <button onClick={()=>delToner(r)}
+                        style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Modal contador */}
+      {modalCont && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setModalCont(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:440, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>📊 Cargar contador mensual</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Mes</label>
+                  <select value={mes} onChange={e=>setMes(parseInt(e.target.value))} style={{ ...inp, cursor:"pointer" }}>
+                    {MESES.map((m,i)=><option key={i} value={i}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Año</label>
+                  <input type="number" value={anio} onChange={e=>setAnio(parseInt(e.target.value))} style={inp}/>
+                </div>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#212121", marginBottom:6 }}>Contador Blanco y Negro</label>
+                <input type="number" value={pagBN} onChange={e=>setPagBN(e.target.value)} placeholder="Ej: 125430" style={inp}/>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#e65100", marginBottom:6 }}>Contador Color</label>
+                <input type="number" value={pagCol} onChange={e=>setPagCol(e.target.value)} placeholder="Ej: 48320" style={inp}/>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nota (opcional)</label>
+                <input value={notaC} onChange={e=>setNotaC(e.target.value)} placeholder="Ej: después de mantenimiento" style={inp}/>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10, marginTop:22 }}>
+              <button onClick={()=>setModalCont(false)} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={handleGuardarContador} disabled={saving}
+                style={{ flex:2, padding:"11px", background:"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                {saving?"Guardando...":"💾 Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal tóner */}
+      {modalToner && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setModalToner(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:420, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>🖊️ Registrar reposición de tóner</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:8 }}>Tóner repuesto</label>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  {TONERES.map(t=>(
+                    <div key={t.id} onClick={()=>setTonerTipo(t.id)}
+                      style={{ padding:"12px", borderRadius:10, cursor:"pointer", textAlign:"center",
+                        border:`2px solid ${tonerTipo===t.id?t.color:"#f0d5c0"}`,
+                        background:tonerTipo===t.id?t.bg:"#fff" }}>
+                      <div style={{ fontWeight:700, fontSize:13, color:t.color }}>{t.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha</label>
+                <input type="date" value={tonerFecha} onChange={e=>setTonerFecha(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nota (opcional)</label>
+                <input value={tonerNota} onChange={e=>setTonerNota(e.target.value)} placeholder="Ej: tóner original Konica" style={inp}/>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10, marginTop:22 }}>
+              <button onClick={()=>setModalToner(false)} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={handleGuardarToner} disabled={savingT}
+                style={{ flex:2, padding:"11px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                {savingT?"Guardando...":"✅ Registrar"}
               </button>
             </div>
           </div>
@@ -6812,6 +7164,10 @@ export default function App() {
             <button className="sidebar-item" onClick={()=>window.open("https://mafalda-photoprint.vercel.app","_blank")}>
               <span className="sidebar-icon">📷</span>
               <span className="sidebar-label">PhotoPrint</span>
+            </button>
+            <button className="sidebar-item" onClick={()=>window.open("https://mafaldalibros.vercel.app","_blank")} title="Ir a Mafalda Libros">
+              <span className="sidebar-icon">📚</span>
+              <span className="sidebar-label">Ir a Libros</span>
             </button>
             <button className={`sidebar-item ${(view==="config")?"act":""}` + ""} onClick={()=>{ setView("config"); }}>
               <span className="sidebar-icon">⚙️</span>
