@@ -7626,9 +7626,9 @@ export default function App() {
               <span className="sidebar-icon">🏭</span>
               <span className="sidebar-label">Proveedores</span>
             </button>
-            <button className={`sidebar-item ${view==="calculadora"?"act":""}`} onClick={()=>{ setView("calculadora"); }}>
-              <span className="sidebar-icon">🧮</span>
-              <span className="sidebar-label">Calculadora</span>
+            <button className="sidebar-item" onClick={()=>window.open("https://mafalda-cotizador.vercel.app","_blank")}>
+              <span className="sidebar-icon">💲</span>
+              <span className="sidebar-label">Cotizador</span>
             </button>
             <button className={`sidebar-item ${view==="produccion"?"act":""}`} onClick={()=>{ setView("produccion"); }}>
               <span className="sidebar-icon">📊</span>
