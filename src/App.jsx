@@ -7638,10 +7638,7 @@ export default function App() {
               <span className="sidebar-icon">📷</span>
               <span className="sidebar-label">PhotoPrint</span>
             </button>
-            <button className="sidebar-item" onClick={()=>window.open("https://mafaldalibros.vercel.app","_blank")} title="Ir a Mafalda Libros">
-              <span className="sidebar-icon">📚</span>
-              <span className="sidebar-label">Ir a Libros</span>
-            </button>
+
             <button className={`sidebar-item ${(view==="config")?"act":""}` + ""} onClick={()=>{ setView("config"); }}>
               <span className="sidebar-icon">⚙️</span>
               <span className="sidebar-label">Configuración</span>
