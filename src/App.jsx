@@ -46,7 +46,7 @@ const ESTADO_COLOR = {
 const EMPTY_FORM = {
   nombre: "", cliente: "", telefono: "", categoria: "Vinilo Impreso",
   estado: "Pendiente", fechaPedido: "", fechaEntrega: "", precio: "",
-  seña: "", notas: "", tomadoPor: ""
+  seña: "", notas: "", notasItems: [""], tomadoPor: ""
 };
 
 
@@ -1714,7 +1714,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
   const [modalNuevo, setModalNuevo]     = useState(null); // {fecha, catId}
   const [mTel,       setMTel]           = useState("");
   const [mNombre,    setMNombre]        = useState("");
-  const [mDetalle,   setMDetalle]       = useState("");
+  const [mDetalleItems, setMDetalleItems] = useState([""]);
   const [mEntrega,   setMEntrega]       = useState("");
   const [savingM,    setSavingM]        = useState(false);
 
@@ -1819,7 +1819,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
 
   const abrirModalNuevo = (fecha, catId) => {
     setModalNuevo({ fecha, catId });
-    setMTel(""); setMNombre(""); setMDetalle("");
+    setMTel(""); setMNombre(""); setMDetalleItems([""]);
     setMEntrega(fecha);
   };
 
@@ -1832,7 +1832,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
     const nuevoPedido = {
       nombre:       mNombre.trim(),
       telefono:     mTel.trim(),
-      notas:        mDetalle.trim(),
+      notas:        mDetalleItems.filter(x=>x.trim()).join("\n"),
       categoria:    catLabel,
       estado:       "Pendiente",
       fechaPedido:  hoy,
@@ -2095,9 +2095,45 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
               </div>
               <div>
                 <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Detalle del pedido</label>
-                <textarea value={mDetalle} onChange={e=>setMDetalle(e.target.value)}
-                  placeholder="Medidas, colores, cantidad, observaciones..." rows={3}
-                  style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", resize:"vertical" }}/>
+                <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                  {mDetalleItems.map((item, idx) => (
+                    <div key={idx} style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <span style={{ fontSize:11, color:"#a09080", minWidth:16, textAlign:"right" }}>{idx+1}.</span>
+                      <input
+                        value={item}
+                        onChange={e => {
+                          const arr = [...mDetalleItems];
+                          arr[idx] = e.target.value;
+                          setMDetalleItems(arr);
+                        }}
+                        onKeyDown={e => {
+                          if (e.key==="Enter") {
+                            e.preventDefault();
+                            const arr = [...mDetalleItems];
+                            arr.splice(idx+1, 0, "");
+                            setMDetalleItems(arr);
+                          }
+                          if (e.key==="Backspace" && !item && mDetalleItems.length > 1) {
+                            e.preventDefault();
+                            const arr = [...mDetalleItems];
+                            arr.splice(idx, 1);
+                            setMDetalleItems(arr);
+                          }
+                        }}
+                        placeholder={idx===0 ? "Medidas, color, cantidad..." : ""}
+                        style={{ flex:1, padding:"8px 10px", borderRadius:7, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}
+                      />
+                      {mDetalleItems.length > 1 && (
+                        <button onClick={() => { const arr=[...mDetalleItems]; arr.splice(idx,1); setMDetalleItems(arr); }}
+                          style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:15, padding:"0 3px" }}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={() => setMDetalleItems(a=>[...a, ""])}
+                    style={{ alignSelf:"flex-start", background:"transparent", border:"1px dashed #f0d5c0", color:"#e65100", borderRadius:6, padding:"3px 10px", fontSize:12, cursor:"pointer", marginTop:2 }}>
+                    + Agregar ítem
+                  </button>
+                </div>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <div>
@@ -8249,9 +8285,48 @@ export default function App() {
 
               <div style={{ gridColumn:"1 / -1" }}>
                 <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Notas / Detalles</label>
-                <textarea value={formData.notas} onChange={e=>setFormData(p=>({...p,notas:e.target.value}))}
-                  placeholder="Medidas, colores, cantidad, especificaciones..." rows={3}
-                  style={{ ...inp(), resize:"vertical" }}/>
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {(formData.notasItems||[""]).map((item, idx) => (
+                    <div key={idx} style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <span style={{ fontSize:12, color:"#a09080", minWidth:18, textAlign:"right" }}>{idx+1}.</span>
+                      <input
+                        value={item}
+                        onChange={e => {
+                          const arr = [...(formData.notasItems||[""])];
+                          arr[idx] = e.target.value;
+                          setFormData(p=>({...p, notasItems:arr}));
+                        }}
+                        onKeyDown={e => {
+                          if (e.key==="Enter") {
+                            e.preventDefault();
+                            const arr = [...(formData.notasItems||[""])];
+                            arr.splice(idx+1, 0, "");
+                            setFormData(p=>({...p, notasItems:arr}));
+                          }
+                          if (e.key==="Backspace" && !item && (formData.notasItems||[""]).length > 1) {
+                            e.preventDefault();
+                            const arr = [...(formData.notasItems||[""])];
+                            arr.splice(idx, 1);
+                            setFormData(p=>({...p, notasItems:arr}));
+                          }
+                        }}
+                        placeholder={idx===0 ? "Medidas, color, cantidad..." : ""}
+                        style={{ ...inp(), flex:1 }}
+                      />
+                      {(formData.notasItems||[""]).length > 1 && (
+                        <button onClick={() => {
+                          const arr = [...(formData.notasItems||[""])];
+                          arr.splice(idx, 1);
+                          setFormData(p=>({...p, notasItems:arr}));
+                        }} style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:16, padding:"0 4px" }}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={() => setFormData(p=>({...p, notasItems:[...(p.notasItems||[""]), ""]}))}
+                    style={{ alignSelf:"flex-start", background:"transparent", border:"1px dashed #f0d5c0", color:"#e65100", borderRadius:6, padding:"4px 12px", fontSize:12, cursor:"pointer", marginTop:2 }}>
+                    + Agregar ítem
+                  </button>
+                </div>
               </div>
             </div>
 
