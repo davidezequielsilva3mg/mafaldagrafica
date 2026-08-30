@@ -1971,7 +1971,21 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                               const listo   = estadoP===2;
                               const nextEst = (estadoP+1)%3;
                               const toggleEstado = async () => {
-                                await updateDoc(doc(db,"pedidos",p.fireId), { estadoCalendario: nextEst });
+                                const estadoMap = { 0:"Pendiente", 1:"En Producción", 2:"Listo" };
+                                await updateDoc(doc(db,"pedidos",p.fireId), {
+                                  estadoCalendario: nextEst,
+                                  estado: estadoMap[nextEst]
+                                });
+                                // Al pasar a En Producción ofrecer imprimir orden
+                                if (nextEst === 1) {
+                                  if (window.confirm("¿Querés imprimir la orden de trabajo?")) {
+                                    const empSnap = await getDoc(doc(db,"config","empresa"));
+                                    const emp = empSnap.exists() ? empSnap.data() : {};
+                                    const html = buildOrdenHTML({...p, estado:"En Producción"}, emp);
+                                    const win = window.open("","_blank","width=800,height=600");
+                                    win.document.write(html); win.document.close(); win.print();
+                                  }
+                                }
                               };
                               return (
                                 <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:4, marginBottom:4,
@@ -7515,12 +7529,16 @@ export default function App() {
   const handleEstadoChange = async (id, nuevoEstado) => {
     const prev = pedidos.find(p => p.id === id);
     if (nuevoEstado === "Entregado" && prev.estado !== "Entregado") {
-      // Mostrar modal para elegir método de pago antes de marcar entregado
       setEntregaModal({ pedido: prev });
       return;
     }
     const updated = { ...prev, estado: nuevoEstado };
-    await updateDoc(doc(db, "pedidos", prev.fireId), { estado: nuevoEstado });
+    // Sincronizar estadoCalendario con el estado del pedido
+    let estadoCalendario = prev.estadoCalendario || 0;
+    if (nuevoEstado === "En Producción") estadoCalendario = 1;
+    if (nuevoEstado === "Listo")         estadoCalendario = 2;
+    if (nuevoEstado === "Pendiente")     estadoCalendario = 0;
+    await updateDoc(doc(db, "pedidos", prev.fireId), { estado: nuevoEstado, estadoCalendario });
     triggerPrintIfNeeded(prev, updated);
     triggerMsgIfNeeded(prev, updated);
   };
