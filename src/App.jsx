@@ -1702,13 +1702,21 @@ function getLunes(fecha) {
 }
 function semanaKey(lunes) { return lunes.toISOString().split("T")[0]; }
 
-function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }) {
+function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, clientes }) {
   const [local, setLocal]               = useState("grafica");
   const [semanaInicio, setSemanaInicio] = useState(()=>getLunes(new Date()));
   const [grilla, setGrilla]             = useState({});
   const [loading, setLoading]           = useState(true);
   const [docId, setDocId]               = useState(null);
   const [pedidosDB, setPedidosDB]       = useState([]);
+
+  // Modal nuevo pedido
+  const [modalNuevo, setModalNuevo]     = useState(null); // {fecha, catId}
+  const [mTel,       setMTel]           = useState("");
+  const [mNombre,    setMNombre]        = useState("");
+  const [mDetalle,   setMDetalle]       = useState("");
+  const [mEntrega,   setMEntrega]       = useState("");
+  const [savingM,    setSavingM]        = useState(false);
 
   const cfg = LOCALES[local];
   const key = semanaKey(semanaInicio);
@@ -1809,13 +1817,37 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }
     return manuales + presenciales;
   };
 
-  const agregarSlot = (fecha, catId) => {
-    const g = JSON.parse(JSON.stringify(grilla));
-    if (!g[fecha]) g[fecha] = {};
-    if (!g[fecha][catId]) g[fecha][catId] = [];
-    g[fecha][catId].push({tel:"",desc:""});
-    setGrilla(g);
-    guardar(g);
+  const abrirModalNuevo = (fecha, catId) => {
+    setModalNuevo({ fecha, catId });
+    setMTel(""); setMNombre(""); setMDetalle("");
+    setMEntrega(fecha);
+  };
+
+  const guardarPedidoDesdeCalendario = async () => {
+    if (!mNombre.trim()) { showToast("Ingresá el nombre del pedido","error"); return; }
+    setSavingM(true);
+    const hoy = new Date().toISOString().split("T")[0];
+    // Determinar categoría real del pedido
+    const catLabel = modalNuevo.catId;
+    const nuevoPedido = {
+      nombre:       mNombre.trim(),
+      telefono:     mTel.trim(),
+      notas:        mDetalle.trim(),
+      categoria:    catLabel,
+      estado:       "Pendiente",
+      fechaPedido:  hoy,
+      fechaEntrega: mEntrega,
+      cliente:      "",
+      clienteId:    "",
+      precio:       "",
+      seña:         "",
+      tomadoPor:    "",
+      origenCalendario: true,
+    };
+    await addDoc(collection(db,"pedidos"), nuevoPedido);
+    showToast("Pedido creado ✅");
+    setSavingM(false);
+    setModalNuevo(null);
   };
 
   const eliminarSlot = (fecha, catId, idx) => {
@@ -2016,9 +2048,9 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }
                                 </div>
                               );
                             })}
-                            <button onClick={()=>agregarSlot(d.fecha,cat.id)}
-                              style={{ width:"100%", padding:"2px 0", background:"transparent", border:`1px dashed ${cat.color}50`,
-                                color:cat.color, borderRadius:5, fontSize:11, cursor:"pointer", opacity:.5, fontWeight:700 }}>+</button>
+                            <button onClick={()=>abrirModalNuevo(d.fecha,cat.id)}
+                              style={{ width:"100%", padding:"3px 0", background:"transparent", border:`1px dashed ${cat.color}50`,
+                                color:cat.color, borderRadius:5, fontSize:12, cursor:"pointer", opacity:.6, fontWeight:700 }}>+</button>
                           </>
                         )}
                       </td>
@@ -2036,13 +2068,64 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido }
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:12, alignItems:"center" }}>
         <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11 }}>
           <div style={{ width:10, height:10, borderRadius:2, background:"#e3f2fd", border:"1.5px solid #1565c0" }}/>
-          <span style={{ color:"#4a5568" }}>📋 Pedido presencial</span>
-        </div>
-        <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11 }}>
-          <div style={{ width:10, height:10, borderRadius:2, background:"#f8f9fa", border:"1px solid #ddd" }}/>
-          <span style={{ color:"#4a5568" }}>Manual (WhatsApp/Online)</span>
+          <span style={{ color:"#4a5568" }}>📋 Pedido — clic en + para agregar</span>
         </div>
       </div>
+
+      {/* Modal nuevo pedido desde calendario */}
+      {modalNuevo && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400, padding:16 }}
+          onClick={()=>setModalNuevo(null)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"26px 30px", width:460, boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:18, color:"#1a2340", marginBottom:4 }}>➕ Nuevo pedido</div>
+            <div style={{ fontSize:12, color:"#a09080", marginBottom:20 }}>
+              {modalNuevo.catId} · entrega {fmtFecha(modalNuevo.fecha)}
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:13 }}>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Teléfono</label>
+                <input value={mTel} onChange={e=>setMTel(e.target.value)} placeholder="Ej: 341 555-1234"
+                  style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Nombre del pedido *</label>
+                <input value={mNombre} onChange={e=>setMNombre(e.target.value)} placeholder="Ej: Vinilo puerta local" autoFocus
+                  style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #e65100", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", fontWeight:600 }}/>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Detalle del pedido</label>
+                <textarea value={mDetalle} onChange={e=>setMDetalle(e.target.value)}
+                  placeholder="Medidas, colores, cantidad, observaciones..." rows={3}
+                  style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", resize:"vertical" }}/>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Fecha de solicitud</label>
+                  <div style={{ padding:"10px 12px", borderRadius:8, background:"#f8f9fa", fontSize:13, color:"#a09080" }}>
+                    {fmtFecha(new Date().toISOString().split("T")[0])}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Fecha de entrega</label>
+                  <input type="date" value={mEntrega} onChange={e=>setMEntrega(e.target.value)}
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                </div>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10, marginTop:22 }}>
+              <button onClick={()=>setModalNuevo(null)}
+                style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+                Cancelar
+              </button>
+              <button onClick={guardarPedidoDesdeCalendario} disabled={savingM||!mNombre.trim()}
+                style={{ flex:2, padding:"11px", background:!mNombre.trim()?"#f0d5c0":"#e65100", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:!mNombre.trim()?"not-allowed":"pointer" }}>
+                {savingM ? "Guardando..." : "✅ Crear pedido"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -7784,6 +7867,7 @@ export default function App() {
                     showToast={showToast}
                     setView={setView}
                     setSelectedPedido={setSelectedPedido}
+                    clientes={clientes}
                   />
                 </div>
               </div>
@@ -8345,7 +8429,7 @@ export default function App() {
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
         {view==="produccion"   && <ProduccionView showToast={showToast}/>}
-        {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido}/>}
+        {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido} clientes={clientes}/>}
 
         {view==="finanzas" && (
           <FinanzasView
