@@ -229,7 +229,7 @@ function KanbanView({ pedidos, handleEstadoChange, handleEdit, handleDelete, set
                     </div>
                     {/* Actions */}
                     <div style={{ display:"flex", gap:5, marginTop:10, paddingTop:10, borderTop:"1px solid #f0f3f9" }} onClick={e => e.stopPropagation()}>
-                      <select value={p.estado} onChange={e => handleEstadoChange(p.id, e.target.value)}
+                      <select value={p.estado} onChange={e => handleEstadoChange(p.fireId || p.id, e.target.value)}
                         style={{ flex:1, padding:"4px 6px", borderRadius:6, fontSize:11, fontWeight:600, border:`1.5px solid ${cc.accent}22`, background:ec.bg, color:ec.text, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
                         {["Pendiente","En Producción","Listo","Entregado"].map(s=><option key={s}>{s}</option>)}
                       </select>
@@ -592,7 +592,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                             <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
                               onClick={() => setMsgModal({ pedido: p })}>💬</button>
                             <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
-                              onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
+                              onClick={() => handleEstadoChange(p.fireId || p.id, "Entregado")}>📦 Entregar</button>
                             <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 10px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }}
                               onClick={() => handleDelete(p.fireId || p.id)}>🗑</button>
                           </div>
@@ -7530,13 +7530,13 @@ export default function App() {
   };
 
   const handleEstadoChange = async (id, nuevoEstado) => {
-    const prev = pedidos.find(p => p.id === id);
+    const prev = pedidos.find(p => p.fireId === id) || pedidos.find(p => p.id === id);
+    if (!prev?.fireId) return;
     if (nuevoEstado === "Entregado" && prev.estado !== "Entregado") {
       setEntregaModal({ pedido: prev });
       return;
     }
     const updated = { ...prev, estado: nuevoEstado };
-    // Sincronizar estadoCalendario con el estado del pedido
     let estadoCalendario = prev.estadoCalendario || 0;
     if (nuevoEstado === "En Producción") estadoCalendario = 1;
     if (nuevoEstado === "Listo")         estadoCalendario = 2;
@@ -8083,7 +8083,7 @@ export default function App() {
                                   </td>
                                   <td style={{ padding:"12px 16px" }} onClick={e => e.stopPropagation()}>
                                     <select className="est-sel" value={p.estado}
-                                      onChange={e => handleEstadoChange(p.id, e.target.value)}
+                                      onChange={e => handleEstadoChange(p.fireId || p.id, e.target.value)}
                                       style={{ background:ec.bg, color:ec.text, borderColor:ec.bg }}>
                                       {ESTADOS.filter(s => s!=="Todos").map(s => <option key={s}>{s}</option>)}
                                     </select>
