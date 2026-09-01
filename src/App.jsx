@@ -1711,12 +1711,18 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
   const [pedidosDB, setPedidosDB]       = useState([]);
 
   // Modal nuevo pedido
-  const [modalNuevo, setModalNuevo]     = useState(null); // {fecha, catId}
-  const [mTel,       setMTel]           = useState("");
-  const [mNombre,    setMNombre]        = useState("");
+  const [modalNuevo, setModalNuevo]       = useState(null);
+  const [mTel,       setMTel]             = useState("");
+  const [mNombre,    setMNombre]          = useState("");
   const [mDetalleItems, setMDetalleItems] = useState([""]);
-  const [mEntrega,   setMEntrega]       = useState("");
-  const [savingM,    setSavingM]        = useState(false);
+  const [mEntrega,   setMEntrega]         = useState("");
+  const [mPrecio,    setMPrecio]          = useState("");
+  const [mSeña,      setMSeña]            = useState("");
+  const [mClienteId, setMClienteId]       = useState(null);
+  const [mClienteNombre, setMClienteNombre] = useState("");
+  const [mClienteBusq, setMClienteBusq]   = useState("");
+  const [mShowSugg,  setMShowSugg]        = useState(false);
+  const [savingM,    setSavingM]          = useState(false);
 
   const cfg = LOCALES[local];
   const key = semanaKey(semanaInicio);
@@ -1820,27 +1826,26 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
   const abrirModalNuevo = (fecha, catId) => {
     setModalNuevo({ fecha, catId });
     setMTel(""); setMNombre(""); setMDetalleItems([""]);
-    setMEntrega(fecha);
+    setMEntrega(fecha); setMPrecio(""); setMSeña("");
+    setMClienteId(null); setMClienteNombre(""); setMClienteBusq(""); setMShowSugg(false);
   };
 
   const guardarPedidoDesdeCalendario = async () => {
     if (!mNombre.trim()) { showToast("Ingresá el nombre del pedido","error"); return; }
     setSavingM(true);
     const hoy = new Date().toISOString().split("T")[0];
-    // Determinar categoría real del pedido
-    const catLabel = modalNuevo.catId;
     const nuevoPedido = {
       nombre:       mNombre.trim(),
       telefono:     mTel.trim(),
       notas:        mDetalleItems.filter(x=>x.trim()).join("\n"),
-      categoria:    catLabel,
+      categoria:    modalNuevo.catId,
       estado:       "Pendiente",
       fechaPedido:  hoy,
       fechaEntrega: mEntrega,
-      cliente:      "",
-      clienteId:    "",
-      precio:       "",
-      seña:         "",
+      cliente:      mClienteNombre.trim(),
+      clienteId:    mClienteId || null,
+      precio:       mPrecio,
+      seña:         mSeña,
       tomadoPor:    "",
       origenCalendario: true,
     };
@@ -2094,65 +2099,146 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
       {modalNuevo && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:400, padding:16 }}
           onClick={()=>setModalNuevo(null)}>
-          <div style={{ background:"#fff", borderRadius:16, padding:"26px 30px", width:460, boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}
+          <div style={{ background:"#fff", borderRadius:16, padding:"26px 30px", width:500, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}
             onClick={e=>e.stopPropagation()}>
             <div style={{ fontWeight:700, fontSize:18, color:"#1a2340", marginBottom:4 }}>➕ Nuevo pedido</div>
             <div style={{ fontSize:12, color:"#a09080", marginBottom:20 }}>
               {modalNuevo.catId} · entrega {fmtFecha(modalNuevo.fecha)}
             </div>
+
             <div style={{ display:"flex", flexDirection:"column", gap:13 }}>
-              <div>
+
+              {/* Teléfono con sugerencias */}
+              <div style={{ position:"relative" }}>
                 <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Teléfono</label>
-                <input value={mTel} onChange={e=>setMTel(e.target.value)} placeholder="Ej: 341 555-1234"
+                <input value={mTel} onChange={e=>{
+                    setMTel(e.target.value);
+                    setMClienteBusq(e.target.value);
+                    setMShowSugg(true);
+                  }}
+                  onFocus={()=>setMShowSugg(true)}
+                  placeholder="Ej: 341 555-1234"
                   style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                {/* Sugerencias de clientes por teléfono */}
+                {mShowSugg && mTel.length > 2 && (() => {
+                  const sugg = clientes.filter(c =>
+                    (c.telefono||"").includes(mTel) ||
+                    (`${c.nombre||""} ${c.apellido||""}`).toLowerCase().includes(mTel.toLowerCase())
+                  ).slice(0,5);
+                  return sugg.length > 0 ? (
+                    <div style={{ position:"absolute", top:"100%", left:0, right:0, background:"#fff", border:"1.5px solid #f0d5c0", borderRadius:8, boxShadow:"0 8px 24px rgba(0,0,0,.12)", zIndex:10, overflow:"hidden" }}>
+                      {sugg.map(c=>(
+                        <div key={c.fireId} onClick={()=>{
+                            setMTel(c.telefono||"");
+                            setMClienteId(c.fireId);
+                            setMClienteNombre(`${c.nombre||""} ${c.apellido||""}`.trim());
+                            setMShowSugg(false);
+                          }}
+                          style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid #fef0e8", fontSize:13 }}
+                          onMouseEnter={e=>e.currentTarget.style.background="#fff8f5"}
+                          onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                          <div style={{ fontWeight:600, color:"#1a2340" }}>{`${c.nombre||""} ${c.apellido||""}`.trim()}</div>
+                          <div style={{ fontSize:11, color:"#a09080" }}>{c.telefono}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
               </div>
+
+              {/* Cliente con sugerencias */}
+              <div style={{ position:"relative" }}>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>
+                  Cliente
+                  {mClienteId && <span style={{ marginLeft:8, fontSize:11, color:"#e65100", fontWeight:600 }}>✓ vinculado</span>}
+                </label>
+                <input value={mClienteNombre} onChange={e=>{
+                    setMClienteNombre(e.target.value);
+                    setMClienteId(null);
+                    setMShowSugg(true);
+                  }}
+                  onFocus={()=>setMShowSugg(true)}
+                  placeholder="Nombre del cliente"
+                  style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:`1.5px solid ${mClienteId?"#e65100":"#f0d5c0"}`, fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                {/* Sugerencias por nombre */}
+                {mShowSugg && mClienteNombre.length > 1 && !mClienteId && (() => {
+                  const sugg = clientes.filter(c =>
+                    (`${c.nombre||""} ${c.apellido||""}`).toLowerCase().includes(mClienteNombre.toLowerCase()) ||
+                    (c.empresa||"").toLowerCase().includes(mClienteNombre.toLowerCase())
+                  ).slice(0,5);
+                  return sugg.length > 0 ? (
+                    <div style={{ position:"absolute", top:"100%", left:0, right:0, background:"#fff", border:"1.5px solid #f0d5c0", borderRadius:8, boxShadow:"0 8px 24px rgba(0,0,0,.12)", zIndex:10, overflow:"hidden" }}>
+                      {sugg.map(c=>(
+                        <div key={c.fireId} onClick={()=>{
+                            setMClienteId(c.fireId);
+                            setMClienteNombre(`${c.nombre||""} ${c.apellido||""}`.trim());
+                            if (!mTel) setMTel(c.telefono||"");
+                            setMShowSugg(false);
+                          }}
+                          style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid #fef0e8", fontSize:13 }}
+                          onMouseEnter={e=>e.currentTarget.style.background="#fff8f5"}
+                          onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                          <div style={{ fontWeight:600, color:"#1a2340" }}>{`${c.nombre||""} ${c.apellido||""}`.trim()}</div>
+                          <div style={{ fontSize:11, color:"#a09080" }}>{c.telefono} {c.empresa ? `· ${c.empresa}`:""}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* Nombre del pedido */}
               <div>
                 <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Nombre del pedido *</label>
-                <input value={mNombre} onChange={e=>setMNombre(e.target.value)} placeholder="Ej: Vinilo puerta local" autoFocus
+                <input value={mNombre} onChange={e=>setMNombre(e.target.value)}
+                  onFocus={()=>setMShowSugg(false)}
+                  placeholder="Ej: Vinilo puerta local"
                   style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #e65100", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", fontWeight:600 }}/>
               </div>
+
+              {/* Precio y seña */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Precio ($)</label>
+                  <input type="number" value={mPrecio} onChange={e=>setMPrecio(e.target.value)} placeholder="0"
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                </div>
+                <div>
+                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Seña ($)</label>
+                  <input type="number" value={mSeña} onChange={e=>setMSeña(e.target.value)} placeholder="0"
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                </div>
+              </div>
+
+              {/* Detalle */}
               <div>
                 <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Detalle del pedido</label>
                 <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
                   {mDetalleItems.map((item, idx) => (
                     <div key={idx} style={{ display:"flex", gap:6, alignItems:"center" }}>
                       <span style={{ fontSize:11, color:"#a09080", minWidth:16, textAlign:"right" }}>{idx+1}.</span>
-                      <input
-                        value={item}
-                        onChange={e => {
-                          const arr = [...mDetalleItems];
-                          arr[idx] = e.target.value;
-                          setMDetalleItems(arr);
-                        }}
+                      <input value={item}
+                        onChange={e => { const arr=[...mDetalleItems]; arr[idx]=e.target.value; setMDetalleItems(arr); }}
                         onKeyDown={e => {
-                          if (e.key==="Enter") {
-                            e.preventDefault();
-                            const arr = [...mDetalleItems];
-                            arr.splice(idx+1, 0, "");
-                            setMDetalleItems(arr);
-                          }
-                          if (e.key==="Backspace" && !item && mDetalleItems.length > 1) {
-                            e.preventDefault();
-                            const arr = [...mDetalleItems];
-                            arr.splice(idx, 1);
-                            setMDetalleItems(arr);
-                          }
+                          if (e.key==="Enter") { e.preventDefault(); const arr=[...mDetalleItems]; arr.splice(idx+1,0,""); setMDetalleItems(arr); }
+                          if (e.key==="Backspace" && !item && mDetalleItems.length>1) { e.preventDefault(); const arr=[...mDetalleItems]; arr.splice(idx,1); setMDetalleItems(arr); }
                         }}
                         placeholder={idx===0 ? "Medidas, color, cantidad..." : ""}
-                        style={{ flex:1, padding:"8px 10px", borderRadius:7, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}
-                      />
-                      {mDetalleItems.length > 1 && (
-                        <button onClick={() => { const arr=[...mDetalleItems]; arr.splice(idx,1); setMDetalleItems(arr); }}
+                        style={{ flex:1, padding:"8px 10px", borderRadius:7, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                      {mDetalleItems.length>1 && (
+                        <button onClick={()=>{ const arr=[...mDetalleItems]; arr.splice(idx,1); setMDetalleItems(arr); }}
                           style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:15, padding:"0 3px" }}>✕</button>
                       )}
                     </div>
                   ))}
-                  <button onClick={() => setMDetalleItems(a=>[...a, ""])}
+                  <button onClick={()=>setMDetalleItems(a=>[...a,""])}
                     style={{ alignSelf:"flex-start", background:"transparent", border:"1px dashed #f0d5c0", color:"#e65100", borderRadius:6, padding:"3px 10px", fontSize:12, cursor:"pointer", marginTop:2 }}>
                     + Agregar ítem
                   </button>
                 </div>
               </div>
+
+              {/* Fechas */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <div>
                   <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 }}>Fecha de solicitud</label>
@@ -2166,7 +2252,9 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                     style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
                 </div>
               </div>
+
             </div>
+
             <div style={{ display:"flex", gap:10, marginTop:22 }}>
               <button onClick={()=>setModalNuevo(null)}
                 style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid #f0d5c0", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>
