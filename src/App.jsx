@@ -2014,7 +2014,11 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                                       textDecoration:listo?"line-through":"none" }}>{p.nombre}</div>
                                   </div>
                                   {setViewApp && (
-                                    <button onClick={()=>{ if(setSelectedPedido) setSelectedPedido(p); if(setViewApp) setViewApp("detalle"); }}
+                                    <button onClick={()=>{
+                                      const fresh = pedidosDB.find(x=>x.fireId===p.fireId)||p;
+                                      if(setSelectedPedido) setSelectedPedido(fresh);
+                                      if(setViewApp) setViewApp("detalle");
+                                    }}
                                       style={{ background:listo?"#ef5350": enProd?"#f9a825":cat.color, border:"none", color:"#fff", borderRadius:4, padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>→</button>
                                   )}
                                 </div>
@@ -7503,21 +7507,20 @@ export default function App() {
 
   const handleSubmit = async () => {
     if (!validate()) return;
-    // Limpiar campos undefined que Firebase no acepta
     const limpiar = (obj) => Object.fromEntries(
       Object.entries(obj).filter(([_, v]) => v !== undefined)
     );
+    const notasStr = (formData.notasItems||[""]).filter(x=>x.trim()).join("\n");
     if (editingId !== null) {
-      const prev    = pedidos.find(p => p.id === editingId);
-      const updated = limpiar({ ...formData, id: editingId, clienteId: selectedClienteId||prev.clienteId||null });
-      const fireId  = prev.fireId;
-      await updateDoc(doc(db, "pedidos", fireId), updated);
+      const prev    = pedidos.find(p => p.fireId === editingId || p.id === editingId);
+      const updated = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: prev?.id, clienteId: selectedClienteId||prev?.clienteId||null });
+      await updateDoc(doc(db, "pedidos", editingId), updated);
       showToast("Pedido actualizado correctamente");
       triggerPrintIfNeeded(prev, updated);
       triggerMsgIfNeeded(prev, updated);
     } else {
-      const newId = Math.max(...pedidos.map(p => p.id), 0) + 1;
-      const nuevo = limpiar({ ...formData, id: newId, clienteId: selectedClienteId||null });
+      const newId = Math.max(...pedidos.map(p => p.id||0), 0) + 1;
+      const nuevo = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: newId, clienteId: selectedClienteId||null });
       await addDoc(collection(db, "pedidos"), nuevo);
       showToast("Pedido cargado exitosamente 🎉");
       triggerPrintIfNeeded(null, nuevo);
@@ -7573,11 +7576,18 @@ export default function App() {
     showToast(`Pedido entregado · $${parseFloat(pedido.precio||0).toLocaleString("es-AR")} registrado en Finanzas ✅`);
   };
 
-  const handleEdit   = (p) => { setFormData({...p}); setEditingId(p.id); setErrors({}); setView("formulario"); };
+  const handleEdit = (p) => {
+    const notasItems = p.notas ? p.notas.split("\n").filter(x=>x.trim()) : [""];
+    setFormData({...EMPTY_FORM, ...p, notasItems: notasItems.length ? notasItems : [""]});
+    setEditingId(p.fireId);
+    setErrors({});
+    setView("formulario");
+  };
   const handleDelete = async (id) => {
-    const p = pedidos.find(x => x.id === id);
+    if (!window.confirm("¿Eliminár este pedido?")) return;
+    const p = pedidos.find(x => x.id === id || x.fireId === id);
     if (p?.fireId) await deleteDoc(doc(db, "pedidos", p.fireId));
-    if (selectedPedido?.id === id) { setSelectedPedido(null); setView("lista"); }
+    if (selectedPedido?.id === id || selectedPedido?.fireId === id) { setSelectedPedido(null); setView("lista"); }
     showToast("Pedido eliminado", "error");
   };
 
@@ -8357,7 +8367,7 @@ export default function App() {
 
         {/* ── DETALLE ── */}
         {view==="detalle" && selectedPedido && (() => {
-          const p  = pedidos.find(x => x.id===selectedPedido.id)||selectedPedido;
+          const p  = pedidos.find(x => x.fireId===selectedPedido.fireId) || pedidos.find(x => x.id===selectedPedido.id) || selectedPedido;
           const ec = ESTADO_COLOR[p.estado];
           const cc = CATEGORIA_COLOR[p.categoria];
           return (
