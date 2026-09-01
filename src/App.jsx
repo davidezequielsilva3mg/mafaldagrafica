@@ -234,7 +234,7 @@ function KanbanView({ pedidos, handleEstadoChange, handleEdit, handleDelete, set
                         {["Pendiente","En Producción","Listo","Entregado"].map(s=><option key={s}>{s}</option>)}
                       </select>
                       <button style={{ background:"transparent", border:"1.5px solid #f0d5c0", color:"#4a5568", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }} onClick={() => handleEdit(p)}>✏️</button>
-                      <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }} onClick={() => handleDelete(p.id)}>🗑</button>
+                      <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }} onClick={() => handleDelete(p.fireId || p.id)}>🗑</button>
                     </div>
                   </div>
                 );
@@ -594,7 +594,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                             <button style={{ background:"#e65100", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
                               onClick={() => handleEstadoChange(p.id, "Entregado")}>📦 Entregar</button>
                             <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 10px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }}
-                              onClick={() => handleDelete(p.id)}>🗑</button>
+                              onClick={() => handleDelete(p.fireId || p.id)}>🗑</button>
                           </div>
                         </td>
                       </tr>
@@ -7584,11 +7584,18 @@ export default function App() {
     setView("formulario");
   };
   const handleDelete = async (id) => {
-    if (!window.confirm("¿Eliminár este pedido?")) return;
-    const p = pedidos.find(x => x.id === id || x.fireId === id);
-    if (p?.fireId) await deleteDoc(doc(db, "pedidos", p.fireId));
-    if (selectedPedido?.id === id || selectedPedido?.fireId === id) { setSelectedPedido(null); setView("lista"); }
-    showToast("Pedido eliminado", "error");
+    if (!window.confirm("¿Eliminar este pedido?")) return;
+    // id puede ser fireId (string) o id numérico
+    const p = pedidos.find(x => x.fireId === id) || pedidos.find(x => x.id === id);
+    if (!p?.fireId) { showToast("No se encontró el pedido","error"); return; }
+    try {
+      await deleteDoc(doc(db, "pedidos", p.fireId));
+      if (selectedPedido?.fireId === p.fireId) { setSelectedPedido(null); setView("lista"); }
+      showToast("Pedido eliminado", "error");
+    } catch(e) {
+      showToast("Error al eliminar","error");
+      console.error(e);
+    }
   };
 
   const toggleCat     = (cat) => setExpandedCats(p => ({ ...p, [cat]: !p[cat] }));
@@ -8100,7 +8107,7 @@ export default function App() {
                                     <div style={{ display:"flex", gap:5 }}>
                                       <button className="btn-imp" title="Imprimir orden" onClick={() => imprimirOrden(p, empresa)}>🖨️</button>
                                       <button className="btn-g" style={{ padding:"5px 10px", fontSize:12 }} onClick={() => handleEdit(p)}>✏️</button>
-                                      <button className="btn-d" onClick={() => handleDelete(p.id)}>🗑</button>
+                                      <button className="btn-d" onClick={() => handleDelete(p.fireId || p.id)}>🗑</button>
                                     </div>
                                   </td>
                                 </tr>
@@ -8386,7 +8393,7 @@ export default function App() {
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   <button className="btn-imp" style={{ padding:"9px 16px", fontSize:14 }} onClick={() => imprimirOrden(p, empresa)}>🖨️ Imprimir Orden</button>
                   <button className="btn-g" onClick={() => handleEdit(p)}>✏️ Editar</button>
-                  <button className="btn-d" onClick={() => handleDelete(p.id)}>🗑</button>
+                  <button className="btn-d" onClick={() => handleDelete(p.fireId || p.id)}>🗑</button>
                 </div>
               </div>
 
