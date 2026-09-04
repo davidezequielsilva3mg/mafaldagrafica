@@ -74,7 +74,7 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
   const now   = new Date();
   const fecha = now.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const hora  = now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-  const num   = `OT-${String(p.id).padStart(4, "0")}`;
+  const num   = p.id ? `OT-${String(p.id).padStart(4, "0")}` : `OT-${String(p.fireId||"").slice(-4).toUpperCase()}`;
   const nombre = empresa.nombre || "Mafalda Gráfica";
 
   return `<!DOCTYPE html>
@@ -153,7 +153,10 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
   </div>
   <div class="notas">
     <div class="ntit">📝 Especificaciones / Notas</div>
-    <div class="ntxt">${p.notas || "Sin notas adicionales."}</div>
+    <div class="ntxt">${p.notas
+      ? p.notas.split("\n").filter(x=>x.trim()).map((l,i)=>`<span style="display:flex;gap:6px;margin-bottom:3px;"><span style="color:#a09080;min-width:16px;">${i+1}.</span><span>${l}</span></span>`).join("")
+      : "Sin notas adicionales."
+    }</div>
   </div>
   <div class="fgrid">
     <div class="fbox"><div class="flbl">Precio Total</div><div class="fval" style="color:#1a2340">$${parseFloat(p.precio||0).toLocaleString("es-AR")}</div></div>
@@ -206,7 +209,7 @@ function KanbanView({ pedidos, handleEstadoChange, handleEdit, handleDelete, set
                 const ven = isVencido(p);
                 const hf  = isHoy(p);
                 return (
-                  <div key={p.id} onClick={() => { setSelectedPedido(p); setView("detalle"); }}
+                  <div key={p.fireId||p.id} onClick={() => { setSelectedPedido(p); setView("detalle"); }}
                     style={{ background:"#fff", borderRadius:10, padding:"14px 15px", boxShadow:"0 2px 10px rgba(230,81,0,.08)", cursor:"pointer", borderLeft:`3px solid ${cc.accent}`, transition:"transform .15s, box-shadow .15s", position:"relative" }}
                     onMouseOver={e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 18px rgba(230,81,0,.13)"; }}
                     onMouseOut={e  => { e.currentTarget.style.transform="translateY(0)";   e.currentTarget.style.boxShadow="0 2px 10px rgba(230,81,0,.08)"; }}>
@@ -377,7 +380,7 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
                     const cc = CATEGORIA_COLOR[p.categoria];
                     const ec = ESTADO_COLOR[p.estado];
                     return (
-                      <div key={p.id} onClick={() => { setSelectedPedido(p); setView("detalle"); }}
+                      <div key={p.fireId||p.id} onClick={() => { setSelectedPedido(p); setView("detalle"); }}
                         style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 18px", borderRadius:10, border:`1.5px solid ${cc.accent}22`, background:cc.bg+"44", cursor:"pointer", transition:"box-shadow .15s" }}
                         onMouseOver={e=>e.currentTarget.style.boxShadow="0 4px 14px rgba(230,81,0,.12)"}
                         onMouseOut={e=>e.currentTarget.style.boxShadow="none"}>
@@ -7577,7 +7580,7 @@ export default function App() {
   const validate = () => {
     const e = {};
     if (!formData.nombre.trim())  e.nombre       = "El nombre es obligatorio";
-    if (!formData.cliente.trim()) e.cliente      = "El cliente es obligatorio";
+    // cliente opcional para pedidos del calendario
     if (!formData.fechaEntrega)   e.fechaEntrega = "La fecha de entrega es obligatoria";
     setErrors(e);
     return !Object.keys(e).length;
@@ -7596,7 +7599,7 @@ export default function App() {
   const handleSubmit = async () => {
     if (!validate()) return;
     const limpiar = (obj) => Object.fromEntries(
-      Object.entries(obj).filter(([_, v]) => v !== undefined)
+      Object.entries(obj).filter(([k, v]) => v !== undefined && k !== "notasItems" && k !== "fireId")
     );
     const notasStr = (formData.notasItems||[""]).filter(x=>x.trim()).join("\n");
     if (editingId !== null) {
@@ -7607,7 +7610,8 @@ export default function App() {
       triggerPrintIfNeeded(prev, updated);
       triggerMsgIfNeeded(prev, updated);
     } else {
-      const newId = Math.max(...pedidos.map(p => p.id||0), 0) + 1;
+      const ids = pedidos.map(p => typeof p.id === "number" ? p.id : 0);
+      const newId = ids.length ? Math.max(...ids, 0) + 1 : 1;
       const nuevo = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: newId, clienteId: selectedClienteId||null });
       await addDoc(collection(db, "pedidos"), nuevo);
       showToast("Pedido cargado exitosamente 🎉");
