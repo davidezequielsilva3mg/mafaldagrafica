@@ -584,7 +584,17 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                           <span style={{ fontWeight:600, color:hf?"#f57f17":"#1a2340" }}>{hf&&"📍 "}{fmtFecha(p.fechaEntrega)||"—"}</span>
                           {hf && <div style={{ fontSize:11, color:"#f57f17" }}>Hoy</div>}
                         </td>
-                        <td style={{ padding:"13px 16px", fontWeight:600, color:"#1a2340", whiteSpace:"nowrap" }}>{p.precio?`$${parseFloat(p.precio).toLocaleString("es-AR")}`:"—"}</td>
+                        <td style={{ padding:"8px 16px", whiteSpace:"nowrap" }}>
+                          <InlineEditPrecio
+                            value={p.precio||""}
+                            color="#1a2340"
+                            size={15}
+                            onSave={async (val) => {
+                              await updateDoc(doc(db,"pedidos",p.fireId), { precio: val });
+                              showToast("Precio actualizado ✅");
+                            }}
+                          />
+                        </td>
                         <td style={{ padding:"13px 16px", whiteSpace:"nowrap" }}>
                           <span style={{ fontWeight:700, color:saldo(p)>0?"#c62828":"#2e7d32", fontSize:14 }}>{p.precio?`$${saldo(p).toLocaleString("es-AR")}`:"—"}</span>
                         </td>
@@ -7485,7 +7495,7 @@ function MsgModal({ pedido, copied, setCopied, onClose }) {
 }
 
 // ── Componente: Precio editable inline ───────────────────────────────────
-function InlineEditPrecio({ value, color, onSave }) {
+function InlineEditPrecio({ value, color, onSave, size=22 }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal]         = useState(value);
   const inputRef              = useRef(null);
@@ -7499,27 +7509,32 @@ function InlineEditPrecio({ value, color, onSave }) {
   };
 
   if (editing) return (
-    <div style={{ display:"flex", alignItems:"center", gap:4, justifyContent:"center" }}>
+    <div style={{ display:"flex", alignItems:"center", gap:4 }}>
       <span style={{ color:"#a09080", fontWeight:600 }}>$</span>
       <input ref={inputRef} type="number" value={val}
         onChange={e=>setVal(e.target.value)}
         onBlur={confirmar}
         onKeyDown={e=>{ if(e.key==="Enter") confirmar(); if(e.key==="Escape") setEditing(false); }}
-        style={{ width:100, padding:"4px 8px", borderRadius:6, border:`2px solid ${color}`, fontSize:18, fontWeight:700,
-          fontFamily:"'DM Sans',sans-serif", color, textAlign:"center", outline:"none" }}/>
+        style={{ width:90, padding:"3px 6px", borderRadius:6, border:`2px solid ${color}`, fontSize:size,
+          fontWeight:700, fontFamily:"'DM Sans',sans-serif", color, textAlign:"center", outline:"none" }}/>
     </div>
   );
 
+  const display = value ? `$${parseFloat(value).toLocaleString("es-AR")}` : "— agregar";
+  const isEmpty = !value;
+
   return (
     <div onClick={()=>setEditing(true)} title="Clic para editar"
-      style={{ cursor:"pointer", display:"inline-flex", alignItems:"center", gap:4, justifyContent:"center",
-        borderRadius:8, padding:"2px 8px", transition:"background .15s" }}
-      onMouseEnter={e=>e.currentTarget.style.background="#f0d5c0"}
+      style={{ cursor:"pointer", display:"inline-flex", alignItems:"center", gap:4,
+        borderRadius:6, padding:"2px 6px", transition:"background .15s" }}
+      onMouseEnter={e=>e.currentTarget.style.background="#fff0e8"}
       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-      <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color }}>
-        ${parseFloat(val||0).toLocaleString("es-AR")}
+      <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:size, fontWeight:700,
+        color: isEmpty ? "#c0bdb9" : color,
+        fontStyle: isEmpty ? "italic" : "normal" }}>
+        {display}
       </span>
-      <span style={{ fontSize:12, color:"#a09080", marginBottom:2 }}>✏️</span>
+      <span style={{ fontSize:11, color:"#c0bdb9" }}>✏️</span>
     </div>
   );
 }
