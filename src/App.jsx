@@ -74,7 +74,7 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
   const now   = new Date();
   const fecha = now.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const hora  = now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-  const num   = p.id ? `OT-${String(p.id).padStart(4, "0")}` : `OT-${String(p.fireId||"").slice(-4).toUpperCase()}`;
+  const num   = p.nroOT ? `OT-${String(p.nroOT).padStart(4, "0")}` : p.id ? `OT-${String(p.id).padStart(4, "0")}` : `OT-????`;
   const nombre = empresa.nombre || "Mafalda Gráfica";
 
   return `<!DOCTYPE html>
@@ -217,7 +217,10 @@ function KanbanView({ pedidos, handleEstadoChange, handleEdit, handleDelete, set
                     <span style={{ background:cc.bg, color:cc.text, fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:20, display:"inline-block", marginBottom:8 }}>
                       {CATEGORIA_ICON[p.categoria]} {p.categoria}
                     </span>
-                    <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", marginBottom:4, lineHeight:1.3 }}>{p.nombre}</div>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                      <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", lineHeight:1.3 }}>{p.nombre}</div>
+                      {p.nroOT && <span style={{ fontSize:10, fontWeight:700, color:"#e65100", fontFamily:"monospace", background:"#fff8f5", padding:"2px 6px", borderRadius:4, border:"1px solid #f0d5c0" }}>OT-{String(p.nroOT).padStart(4,"0")}</span>}
+                    </div>
                     <div style={{ fontSize:12, color:"#8a7060", marginBottom:8 }}>👤 {p.cliente}</div>
                     {/* Fecha entrega */}
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -1852,7 +1855,8 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
       tomadoPor:    "",
       origenCalendario: true,
     };
-    await addDoc(collection(db,"pedidos"), nuevoPedido);
+    const nroOT = await getNextNroOT();
+    await addDoc(collection(db,"pedidos"), { ...nuevoPedido, nroOT });
     showToast("Pedido creado ✅");
     setSavingM(false);
     setModalNuevo(null);
@@ -1897,10 +1901,16 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
           </div>
           <button onClick={()=>irSemana(1)} style={{ background:"#fff", border:"1.5px solid #f0d5c0", color:"#e65100", padding:"8px 14px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>Sig. →</button>
         </div>
-        <button onClick={()=>setSemanaInicio(getLunes(new Date()))}
-          style={{ background:"#e65100", color:"#fff", border:"none", padding:"9px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-          Hoy
-        </button>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={()=>setSemanaInicio(getLunes(new Date()))}
+            style={{ background:"#fff", color:"#e65100", border:"1.5px solid #f0d5c0", padding:"9px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            Hoy
+          </button>
+          <button onClick={()=>abrirModalNuevo(new Date().toISOString().split("T")[0], cfg.cats[0]?.id||"")}
+            style={{ background:"#e65100", color:"#fff", border:"none", padding:"9px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
+            ➕ Nuevo pedido
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -7411,16 +7421,32 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
 
 // ── Componente: Modal Mensaje WhatsApp ───────────────────────────────────
 function MsgModal({ pedido, copied, setCopied, onClose }) {
-  const p   = pedido;
-  const tot = parseFloat(p.precio||0).toLocaleString("es-AR");
-  const sal = (parseFloat(p.precio||0) - parseFloat(p.seña||0)).toLocaleString("es-AR");
-  const msg = `¡Hola ${p.cliente}! 👋\nTu pedido *${p.nombre}* ya está listo 🎉\nEl monto total es $${tot} y resta abonar $${sal}.\nPodés transferir al alias *mafaldagrafica*.\n¡Muchas gracias por tu compra!`;
+  const p    = pedido;
+  const tot  = parseFloat(p.precio||0).toLocaleString("es-AR");
+  const sal  = (parseFloat(p.precio||0) - parseFloat(p.seña||0)).toLocaleString("es-AR");
+  const nroOT = p.nroOT ? `N° ${String(p.nroOT).padStart(4,"0")} - ` : "";
+  const nombre = p.cliente?.split(" ")[0] || p.cliente || "cliente"; // primer nombre
+  const saldoNum = parseFloat(p.precio||0) - parseFloat(p.seña||0);
+
+  const msg = `¡Hola ${nombre}! 👋\nTu pedido *${nroOT}${p.nombre}* ya está listo para retirar 🎉${
+    saldoNum > 0
+      ? `\nEl monto total es $${tot} y resta abonar *$${sal}*.`
+      : p.precio ? `\nEl total abonado es $${tot}. ¡Todo pago!` : ""
+  }\n¡Muchas gracias por elegirnos! 🙌`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(msg).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     });
+  };
+
+  const handleWhatsApp = () => {
+    const tel = (p.telefono||"").replace(/\D/g,"");
+    const url = tel
+      ? `https://wa.me/54${tel}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
   };
 
   return (
@@ -7430,22 +7456,70 @@ function MsgModal({ pedido, copied, setCopied, onClose }) {
           <div style={{ fontSize:36 }}>💬</div>
           <div>
             <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>Mensaje para el cliente</h3>
-            <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>Copiá el mensaje y enviáselo por WhatsApp</p>
+            <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>Copiá el mensaje o abrí WhatsApp directo</p>
           </div>
         </div>
         <div style={{ background:"#e8f5e9", borderRadius:8, padding:"8px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8, fontSize:13 }}>
           <span>🏢</span>
           <span style={{ fontWeight:600, color:"#1b5e20" }}>{p.cliente}</span>
           {p.telefono && <span style={{ color:"#4a5568" }}>· {p.telefono}</span>}
+          {p.nroOT && <span style={{ marginLeft:"auto", fontFamily:"monospace", fontWeight:700, color:"#e65100", background:"#fff8f5", padding:"2px 8px", borderRadius:5, border:"1px solid #f0d5c0" }}>OT-{String(p.nroOT).padStart(4,"0")}</span>}
         </div>
-        <textarea className="msg-textarea" rows={6} defaultValue={msg} id="msg-cliente-textarea"/>
+        <textarea className="msg-textarea" rows={6} defaultValue={msg} id="msg-cliente-textarea"
+          onChange={e => e.target.value}
+          style={{ width:"100%", padding:"12px", borderRadius:8, border:"1.5px solid #f0d5c0", fontSize:14, fontFamily:"'DM Sans',sans-serif", resize:"vertical", outline:"none", boxSizing:"border-box" }}/>
         <div style={{ display:"flex", gap:10, marginTop:16, justifyContent:"flex-end" }}>
           <button className="btn-g" style={{ padding:"10px 20px" }} onClick={onClose}>Cerrar</button>
           <button className={`btn-copy${copied?" copied":""}`} onClick={handleCopy}>
-            {copied ? "✅ ¡Copiado!" : "📋 Copiar mensaje"}
+            {copied ? "✅ ¡Copiado!" : "📋 Copiar"}
+          </button>
+          <button onClick={handleWhatsApp}
+            style={{ background:"#25d366", color:"#fff", border:"none", borderRadius:8, padding:"10px 18px", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.122.553 4.112 1.52 5.842L0 24l6.336-1.498A11.956 11.956 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.652-.518-5.17-1.42l-.37-.22-3.762.889.924-3.668-.242-.378A9.944 9.944 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
+            WhatsApp
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Componente: Precio editable inline ───────────────────────────────────
+function InlineEditPrecio({ value, color, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal]         = useState(value);
+  const inputRef              = useRef(null);
+
+  useEffect(() => { setVal(value); }, [value]);
+  useEffect(() => { if (editing && inputRef.current) inputRef.current.select(); }, [editing]);
+
+  const confirmar = async () => {
+    setEditing(false);
+    if (val !== value) await onSave(val);
+  };
+
+  if (editing) return (
+    <div style={{ display:"flex", alignItems:"center", gap:4, justifyContent:"center" }}>
+      <span style={{ color:"#a09080", fontWeight:600 }}>$</span>
+      <input ref={inputRef} type="number" value={val}
+        onChange={e=>setVal(e.target.value)}
+        onBlur={confirmar}
+        onKeyDown={e=>{ if(e.key==="Enter") confirmar(); if(e.key==="Escape") setEditing(false); }}
+        style={{ width:100, padding:"4px 8px", borderRadius:6, border:`2px solid ${color}`, fontSize:18, fontWeight:700,
+          fontFamily:"'DM Sans',sans-serif", color, textAlign:"center", outline:"none" }}/>
+    </div>
+  );
+
+  return (
+    <div onClick={()=>setEditing(true)} title="Clic para editar"
+      style={{ cursor:"pointer", display:"inline-flex", alignItems:"center", gap:4, justifyContent:"center",
+        borderRadius:8, padding:"2px 8px", transition:"background .15s" }}
+      onMouseEnter={e=>e.currentTarget.style.background="#f0d5c0"}
+      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+      <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color }}>
+        ${parseFloat(val||0).toLocaleString("es-AR")}
+      </span>
+      <span style={{ fontSize:12, color:"#a09080", marginBottom:2 }}>✏️</span>
     </div>
   );
 }
@@ -7596,6 +7670,16 @@ export default function App() {
       setTimeout(() => setMsgModal({ pedido: next }), 350);
   };
 
+  // Obtener siguiente número de OT desde Firebase (contador atómico)
+  const getNextNroOT = async () => {
+    const ref = doc(db, "config", "contadores");
+    const snap = await getDoc(ref);
+    const actual = snap.exists() ? (snap.data().nroOT || 0) : 0;
+    const siguiente = actual + 1;
+    await setDoc(ref, { nroOT: siguiente }, { merge: true });
+    return siguiente;
+  };
+
   const handleSubmit = async () => {
     if (!validate()) return;
     const limpiar = (obj) => Object.fromEntries(
@@ -7612,7 +7696,8 @@ export default function App() {
     } else {
       const ids = pedidos.map(p => typeof p.id === "number" ? p.id : 0);
       const newId = ids.length ? Math.max(...ids, 0) + 1 : 1;
-      const nuevo = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: newId, clienteId: selectedClienteId||null });
+      const nroOT = await getNextNroOT();
+      const nuevo = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: newId, nroOT, clienteId: selectedClienteId||null });
       await addDoc(collection(db, "pedidos"), nuevo);
       showToast("Pedido cargado exitosamente 🎉");
       triggerPrintIfNeeded(null, nuevo);
@@ -8474,7 +8559,10 @@ export default function App() {
               <button className="btn-g" style={{ marginBottom:22, fontSize:13 }} onClick={() => setView("lista")}>← Volver</button>
               <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:22 }}>
                 <div>
-                  <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:8 }}>{p.nombre}</h2>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                    <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340" }}>{p.nombre}</h2>
+                    {p.nroOT && <span style={{ fontSize:13, fontWeight:800, color:"#e65100", fontFamily:"monospace", background:"#fff8f5", padding:"4px 10px", borderRadius:6, border:"1.5px solid #f0d5c0", whiteSpace:"nowrap" }}>OT-{String(p.nroOT).padStart(4,"0")}</span>}
+                  </div>
                   <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                     <span style={{ background:cc.bg, color:cc.text, padding:"5px 12px", borderRadius:20, fontSize:13, fontWeight:700 }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>
                     <span style={{ background:ec.bg, color:ec.text, padding:"5px 12px", borderRadius:20, fontSize:13, fontWeight:600 }}>{p.estado}</span>
@@ -8514,16 +8602,29 @@ export default function App() {
               </div>
 
               <div style={{ background:"#fff8f5", borderRadius:12, padding:"18px 20px", marginBottom:16, display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                {/* Precio — editable inline */}
                 {[
-                  { label:"Precio Total",    value:`$${parseFloat(p.precio||0).toLocaleString("es-AR")}`, color:"#1a2340" },
-                  { label:"Seña / Adelanto", value:`$${parseFloat(p.seña||0).toLocaleString("es-AR")}`,   color:"#2e7d32" },
-                  { label:"Saldo Pendiente", value:`$${saldo(p).toLocaleString("es-AR")}`,                color:saldo(p)>0?"#c62828":"#2e7d32" },
+                  { label:"Precio Total", field:"precio", color:"#1a2340" },
+                  { label:"Seña / Adelanto", field:"seña", color:"#2e7d32" },
                 ].map(f => (
-                  <div key={f.label} style={{ textAlign:"center" }}>
+                  <div key={f.field} style={{ textAlign:"center" }}>
                     <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:5 }}>{f.label}</div>
-                    <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:f.color }}>{f.value}</div>
+                    <InlineEditPrecio
+                      value={p[f.field]||""}
+                      color={f.color}
+                      onSave={async (val) => {
+                        await updateDoc(doc(db,"pedidos",p.fireId), { [f.field]: val });
+                        showToast(`${f.label} actualizado ✅`);
+                      }}
+                    />
                   </div>
                 ))}
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:5 }}>Saldo Pendiente</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:saldo(p)>0?"#c62828":"#2e7d32" }}>
+                    ${saldo(p).toLocaleString("es-AR")}
+                  </div>
+                </div>
               </div>
 
               {p.notas && (
