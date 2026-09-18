@@ -6269,6 +6269,108 @@ function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
 }
 
 
+// ── Componente: Notas del cliente ────────────────────────────────────────
+function NotasCliente({ cl, showToast }) {
+  const [datos,   setDatos]   = useState({
+    archivos:    cl.notasArchivos    || "",
+    nroCorte:    cl.notasNroCorte   || "",
+    descuento:   cl.notasDescuento  || "",
+    notas:       cl.notasGenerales  || "",
+  });
+  const [guardando, setGuardando] = useState(false);
+  const [dirty,     setDirty]     = useState(false);
+
+  const cambiar = (campo, val) => {
+    setDatos(d => ({ ...d, [campo]: val }));
+    setDirty(true);
+  };
+
+  const guardar = async () => {
+    setGuardando(true);
+    await updateDoc(doc(db, "clientes", cl.fireId), {
+      notasArchivos:   datos.archivos,
+      notasNroCorte:   datos.nroCorte,
+      notasDescuento:  datos.descuento,
+      notasGenerales:  datos.notas,
+    });
+    setGuardando(false);
+    setDirty(false);
+    showToast("Notas guardadas ✅");
+  };
+
+  const inp = { width:"100%", padding:"9px 12px", borderRadius:8, border:"1.5px solid #f0d5c0",
+    fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+
+  return (
+    <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", padding:"22px 26px", marginBottom:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:"#1a2340" }}>
+          📝 Notas del cliente
+        </div>
+        {dirty && (
+          <button onClick={guardar} disabled={guardando}
+            style={{ background:"#e65100", color:"#fff", border:"none", padding:"7px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            {guardando ? "Guardando..." : "💾 Guardar"}
+          </button>
+        )}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+        {/* Archivos */}
+        <div>
+          <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>
+            📁 Archivos
+          </label>
+          <input value={datos.archivos} onChange={e=>cambiar("archivos",e.target.value)}
+            placeholder="Ej: Logo-MafeldaV2.ai — Drive/Clientes"
+            style={inp}/>
+        </div>
+        {/* Número de corte */}
+        <div>
+          <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>
+            ✂️ Número de corte
+          </label>
+          <input value={datos.nroCorte} onChange={e=>cambiar("nroCorte",e.target.value)}
+            placeholder="Ej: C-042"
+            style={inp}/>
+        </div>
+        {/* Descuento */}
+        <div>
+          <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>
+            🏷️ Descuento especial
+          </label>
+          <input value={datos.descuento} onChange={e=>cambiar("descuento",e.target.value)}
+            placeholder="Ej: 10% en vinilos siempre"
+            style={inp}/>
+        </div>
+        {/* Notas generales */}
+        <div>
+          <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>
+            💬 Notas generales
+          </label>
+          <input value={datos.notas} onChange={e=>cambiar("notas",e.target.value)}
+            placeholder="Cualquier dato útil del cliente"
+            style={inp}/>
+        </div>
+      </div>
+
+      {/* Preview si hay datos cargados */}
+      {!dirty && (datos.archivos||datos.nroCorte||datos.descuento||datos.notas) && (
+        <div style={{ background:"#fff8f5", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#4a5568", display:"flex", flexWrap:"wrap", gap:12 }}>
+          {datos.archivos  && <span>📁 {datos.archivos}</span>}
+          {datos.nroCorte  && <span>✂️ Corte: {datos.nroCorte}</span>}
+          {datos.descuento && <span>🏷️ {datos.descuento}</span>}
+          {datos.notas     && <span>💬 {datos.notas}</span>}
+        </div>
+      )}
+
+      {!dirty && !(datos.archivos||datos.nroCorte||datos.descuento||datos.notas) && (
+        <div style={{ fontSize:12, color:"#c0bdb9", fontStyle:"italic" }}>Sin notas cargadas — editá los campos de arriba y guardá</div>
+      )}
+    </div>
+  );
+}
+
 function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClienteId, showToast, clienteDestacado, setClienteDestacado }) {
   const [busq, setBusq]           = useState("");
   const [selected, setSelected]   = useState(clienteDestacado || null);
@@ -6282,7 +6384,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
 
   const filtrados = clientes.filter(c => {
     const q = busq.toLowerCase();
-    return !busq || `${c.nombre} ${c.apellido} ${c.empresa||""} ${c.telefono||""} ${c.mail||""}`.toLowerCase().includes(q);
+    return !busq || `${c.nombre} ${c.apellido} ${c.empresa||""} ${c.telefono||""} ${c.mail||""} ${c.notasArchivos||""} ${c.notasNroCorte||""} ${c.notasDescuento||""} ${c.notasGenerales||""}`.toLowerCase().includes(q);
   }).sort((a,b) => `${a.nombre}${a.apellido}`.localeCompare(`${b.nombre}${b.apellido}`));
 
   const pedidosCliente = (cl) => pedidos.filter(p =>
@@ -6358,6 +6460,9 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
             )}
           </div>
         </div>
+
+        {/* Notas del cliente */}
+        <NotasCliente cl={cl} showToast={showToast} />
 
         {/* Historial pedidos */}
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(230,81,0,.07)", overflow:"hidden" }}>
@@ -6472,6 +6577,12 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
                     <td style={{ padding:"13px 16px" }}>
                       <div style={{ fontWeight:700, color:"#1a2340" }}>{cl.nombre} {cl.apellido}</div>
                       <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>{nPedidos} pedido{nPedidos!==1?"s":""}</div>
+                      {/* Notas rápidas */}
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginTop:4 }}>
+                        {cl.notasNroCorte  && <span style={{ fontSize:10, background:"#e8eaf6", color:"#3949ab", padding:"1px 6px", borderRadius:4, fontWeight:600 }}>✂️ {cl.notasNroCorte}</span>}
+                        {cl.notasDescuento && <span style={{ fontSize:10, background:"#e8f5e9", color:"#2e7d32", padding:"1px 6px", borderRadius:4, fontWeight:600 }}>🏷️ {cl.notasDescuento}</span>}
+                        {cl.notasArchivos  && <span style={{ fontSize:10, background:"#fff8e1", color:"#e65100", padding:"1px 6px", borderRadius:4, fontWeight:600 }}>📁 {cl.notasArchivos.slice(0,20)}{cl.notasArchivos.length>20?"…":""}</span>}
+                      </div>
                     </td>
                     <td style={{ padding:"13px 16px", color:"#4a5568" }}>{cl.empresa||"—"}</td>
                     <td style={{ padding:"13px 16px", fontWeight:700, color:"#e65100" }}>{cl.telefono ? `📞 ${cl.telefono}` : "—"}</td>
