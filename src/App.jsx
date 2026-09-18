@@ -265,6 +265,21 @@ function PedidoChip({ p, ven, setSelectedPedido, setView, CATEGORIA_COLOR }) {
   );
 }
 
+// ── Contador global de OT ────────────────────────────────────────────────
+async function getNextNroOT() {
+  try {
+    const ref  = doc(db, "config", "contadores");
+    const snap = await getDoc(ref);
+    const actual   = snap.exists() ? (snap.data().nroOT || 0) : 0;
+    const siguiente = actual + 1;
+    await setDoc(ref, { nroOT: siguiente }, { merge: true });
+    return siguiente;
+  } catch(e) {
+    console.error("Error generando nroOT:", e);
+    return null; // si falla, guarda sin número
+  }
+}
+
 // ── Componente: Calendario ────────────────────────────────────────────────
 function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, CATEGORIA_ICON, ESTADO_COLOR, isVencido }) {
   const [modoCalendario, setModoCalendario] = useState("semana");
@@ -1866,7 +1881,9 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
       origenCalendario: true,
     };
     const nroOT = await getNextNroOT();
-    await addDoc(collection(db,"pedidos"), { ...nuevoPedido, nroOT });
+    const docData = { ...nuevoPedido };
+    if (nroOT) docData.nroOT = nroOT;
+    await addDoc(collection(db,"pedidos"), docData);
     showToast("Pedido creado ✅");
     setSavingM(false);
     setModalNuevo(null);
@@ -7796,16 +7813,6 @@ export default function App() {
       setTimeout(() => setMsgModal({ pedido: next }), 350);
   };
 
-  // Obtener siguiente número de OT desde Firebase (contador atómico)
-  const getNextNroOT = async () => {
-    const ref = doc(db, "config", "contadores");
-    const snap = await getDoc(ref);
-    const actual = snap.exists() ? (snap.data().nroOT || 0) : 0;
-    const siguiente = actual + 1;
-    await setDoc(ref, { nroOT: siguiente }, { merge: true });
-    return siguiente;
-  };
-
   const handleSubmit = async () => {
     if (!validate()) return;
     const limpiar = (obj) => Object.fromEntries(
@@ -7823,7 +7830,7 @@ export default function App() {
       const ids = pedidos.map(p => typeof p.id === "number" ? p.id : 0);
       const newId = ids.length ? Math.max(...ids, 0) + 1 : 1;
       const nroOT = await getNextNroOT();
-      const nuevo = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: newId, nroOT, clienteId: selectedClienteId||null });
+      const nuevo = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: newId, ...(nroOT ? {nroOT} : {}), clienteId: selectedClienteId||null });
       await addDoc(collection(db, "pedidos"), nuevo);
       showToast("Pedido cargado exitosamente 🎉");
       triggerPrintIfNeeded(null, nuevo);
