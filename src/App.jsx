@@ -121,6 +121,70 @@ function aplicarTema(pri) {
 // Arranca con el último color usado en este dispositivo, así no "parpadea" naranja al abrir
 aplicarTema((() => { try { return localStorage.getItem("app_tema"); } catch(e) { return null; } })() || "#e65100");
 
+// ── Marca del negocio (nombre y logo) ─────────────────────────────────────
+// Antes de iniciar sesión no se puede leer Firebase, así que cada dispositivo
+// recuerda el último nombre/logo para la pantalla de carga, el login y la pestaña.
+function marcaGuardada() {
+  try { return JSON.parse(localStorage.getItem("app_marca") || "null") || {}; } catch(e) { return {}; }
+}
+let _faviconOriginal = null;
+function ponerFavicon(href) {
+  if (typeof document === "undefined") return;
+  let links = [...document.querySelectorAll('link[rel~="icon"]')];
+  if (_faviconOriginal === null) _faviconOriginal = links[0]?.getAttribute("href") || "/favicon.ico";
+  if (!links.length) { const l = document.createElement("link"); l.rel = "icon"; document.head.appendChild(l); links = [l]; }
+  links.forEach(l => { l.setAttribute("href", href || _faviconOriginal); if (href) l.removeAttribute("type"); });
+}
+// Pasa el logo a un ícono cuadrado (si no, los logos anchos se ven aplastados en la pestaña)
+function logoACuadrado(src) {
+  return new Promise(resolve => {
+    if (!src) return resolve("");
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const s = 64, cv = document.createElement("canvas"); cv.width = cv.height = s;
+        const k = Math.min(s / img.width, s / img.height);
+        const w = img.width * k, h = img.height * k;
+        cv.getContext("2d").drawImage(img, (s - w) / 2, (s - h) / 2, w, h);
+        resolve(cv.toDataURL("image/png"));
+      } catch(e) { resolve(src); }
+    };
+    img.onerror = () => resolve("");
+    img.src = src;
+  });
+}
+async function aplicarMarca(empresa) {
+  const nombre = (empresa?.nombre || "").trim();
+  const logo   = empresa?.logo || "";
+  if (typeof document !== "undefined" && nombre) document.title = nombre;
+  const icono = await logoACuadrado(logo);
+  ponerFavicon(icono);
+  try { localStorage.setItem("app_marca", JSON.stringify({ nombre, logo, icono })); }
+  catch(e) { try { localStorage.setItem("app_marca", JSON.stringify({ nombre, icono })); } catch(e2) {} }
+}
+// Al abrir: aplicar lo último recordado en este dispositivo
+(() => {
+  const m = marcaGuardada();
+  if (typeof document !== "undefined") {
+    if (m.nombre) document.title = m.nombre;
+    if (m.icono) ponerFavicon(m.icono);
+  }
+})();
+
+// Logo + nombre para pantallas de carga y login
+function MarcaPantalla({ tamaño = 28, mb = 12 }) {
+  const m = marcaGuardada();
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12, marginBottom:mb }}>
+      {m.logo && <img src={m.logo} alt="" style={{ maxHeight:tamaño*2.6, maxWidth:220, objectFit:"contain" }}/>}
+      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:tamaño, fontWeight:700, color:"var(--c-pri)", textAlign:"center" }}>
+        {m.nombre || "Sistema de gestión"}
+      </div>
+    </div>
+  );
+}
+
 // ── Configuración general de la app (config/app en Firebase) ─────────────
 const APP_CFG_DEFAULT = {
   tema: "#e65100",
@@ -229,7 +293,7 @@ const EMPTY_CLIENTE = {
 };
 
 const EMPTY_EMPRESA = {
-  nombre: "Mafalda Gráfica", titular: "", cuit: "",
+  nombre: "", titular: "", cuit: "",
   direccion: "", telefono: "", logo: ""
 };
 
@@ -247,7 +311,7 @@ function buildOrdenHTML(p, empresa = EMPTY_EMPRESA) {
   const fecha = now.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const hora  = now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
   const num   = p.nroOT ? `OT-${String(p.nroOT).padStart(4, "0")}` : p.id ? `OT-${String(p.id).padStart(4, "0")}` : `OT-????`;
-  const nombre = empresa.nombre || "Mafalda Gráfica";
+  const nombre = empresa.nombre || "";
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -4154,7 +4218,7 @@ function LoginScreen() {
       <div style={{ background:"#fff", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:"0 24px 60px rgba(0,0,0,.25)" }}>
         {/* Logo / título */}
         <div style={{ textAlign:"center", marginBottom:36 }}>
-          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:32, fontWeight:700, color:"var(--c-pri)", marginBottom:6 }}>Mafalda Gráfica</div>
+          <MarcaPantalla tamaño={32} mb={6}/>
           <div style={{ fontSize:14, color:"#a09080" }}>Sistema de gestión de pedidos</div>
         </div>
 
@@ -4205,7 +4269,7 @@ function buildComprobanteHTML(venta, empresa) {
   const now    = new Date();
   const fecha  = venta.fecha || now.toLocaleDateString("es-AR");
   const hora   = now.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
-  const nombre = empresa?.nombre || "Mafalda Gráfica";
+  const nombre = empresa?.nombre || "";
   const rows   = venta.items.map(it => `
     <tr>
       <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0">${it.cantidad}</td>
@@ -4284,7 +4348,7 @@ function buildPresupuestoHTML(datos, empresa) {
   const base  = datos.fecha ? new Date(datos.fecha+"T12:00:00") : new Date();
   const fecha = base.toLocaleDateString("es-AR");
   const hora  = datos.fecha ? "" : new Date().toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
-  const nombre = empresa?.nombre || "Mafalda Gráfica";
+  const nombre = empresa?.nombre || "";
   const diasValidez = parseInt(datos.validezDias)||parseInt(APP_CFG.validezPresupuesto)||7;
   const validez = new Date(base.getTime() + diasValidez*24*60*60*1000).toLocaleDateString("es-AR");
   const rows = datos.items.map(it => `
@@ -6689,6 +6753,55 @@ function ModalAgendarVenta({ items, total, clienteNombre, onConfirmar, onClose }
 }
 
 // ── Componente: Insumos ───────────────────────────────────────────────────
+// ── Exportar Servicios y Productos a Excel ───────────────────────────────
+// Usa las mismas columnas que "Importar Excel", así se puede bajar, editar y volver a subir.
+async function exportarExcelProductos(insumos, showToast) {
+  try {
+    const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+    const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+    const ordenados = [...insumos].sort((a,b) => (a.categoria||"").localeCompare(b.categoria||"") || (a.nombre||"").localeCompare(b.nombre||""));
+    const filasProd = ordenados.map(i => ({
+      codigo:        i.codigo || "",
+      nombre:        i.nombre || "",
+      categoria:     i.categoria || "",
+      precio_compra: num(i.precioCompra),
+      precio_venta1: num(i.precioVenta),
+      precio_venta2: num(i.precioGremio),
+      stock:         num(i.stock),
+      stock_minimo:  num(i.stockMinimo),
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(filasProd.length ? filasProd : [{ codigo:"", nombre:"", categoria:"", precio_compra:"", precio_venta1:"", precio_venta2:"", stock:"", stock_minimo:"" }]);
+    ws1["!cols"] = [{wch:12},{wch:42},{wch:18},{wch:14},{wch:14},{wch:14},{wch:8},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, ws1, "Precios final");
+
+    // Materias primas en una segunda hoja
+    const snapMP = await getDocs(collection(db, "materiasPrimas"));
+    const mps = snapMP.docs.map(d => d.data()).sort((a,b) => (a.categoria||"").localeCompare(b.categoria||"") || (a.nombre||"").localeCompare(b.nombre||""));
+    if (mps.length) {
+      const ws2 = XLSX.utils.json_to_sheet(mps.map(m => ({
+        nombre:      m.nombre || "",
+        descripcion: m.descripcion || "",
+        precioCosto: num(m.precioCosto),
+        unidad:      m.unidad || "",
+        categoria:   m.categoria || "",
+        proveedor:   m.proveedor || "",
+        stock:       num(m.stock),
+      })));
+      ws2["!cols"] = [{wch:32},{wch:36},{wch:13},{wch:10},{wch:18},{wch:20},{wch:8}];
+      XLSX.utils.book_append_sheet(wb, ws2, "Materias primas");
+    }
+
+    const negocio = (marcaGuardada().nombre || "productos").replace(/[^\wáéíóúñÁÉÍÓÚÑ ]/g,"").trim().replace(/\s+/g,"_");
+    const fecha   = new Date().toLocaleDateString("sv-SE");
+    XLSX.writeFile(wb, `Productos_${negocio}_${fecha}.xlsx`);
+    showToast(`Excel descargado · ${filasProd.length} producto${filasProd.length!==1?"s":""}${mps.length ? ` y ${mps.length} materia${mps.length!==1?"s":""} prima${mps.length!==1?"s":""}` : ""} ✅`);
+  } catch(e) {
+    console.error(e);
+    showToast("No se pudo generar el Excel", "error");
+  }
+}
+
 function InsumosView({ setView, showToast }) {
   const [insumos, setInsumos]         = useState([]);
   const [busq, setBusq]               = useState("");
@@ -6740,8 +6853,8 @@ function InsumosView({ setView, showToast }) {
         precioVenta:   parseFloat(r.precio_venta1  || r.precio_venta || 0) || 0,
         precioGremio:  parseFloat(r.precio_venta2  || r.precio_gremio || 0) || 0,
         categoria:     String(r.categoria   || "General").trim(),
-        stock:         0,
-        stockMinimo:   0,
+        stock:         parseFloat(r.stock        || 0) || 0,
+        stockMinimo:   parseFloat(r.stock_minimo || 0) || 0,
       }));
     setImportData(parsed);
     setImportModal(true);
@@ -6855,6 +6968,11 @@ function InsumosView({ setView, showToast }) {
             showToast("Todos los insumos fueron eliminados", "error");
           }} style={{ background:"transparent", border:"1.5px solid #ef5350", color:"#ef5350", padding:"9px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             🗑 Borrar todos
+          </button>
+          <button onClick={() => exportarExcelProductos(insumos, showToast)} disabled={!insumos.length}
+            title="Descarga todos los productos (y las materias primas en otra hoja)"
+            style={{ background:"#fff", border:"1.5px solid #2e7d32", color:"#2e7d32", padding:"9px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:insumos.length?"pointer":"default", opacity:insumos.length?1:.5 }}>
+            📤 Descargar Excel
           </button>
           <label style={{ background:"#fff", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"9px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             📥 Importar Excel
@@ -7087,7 +7205,7 @@ function MateriasPrimasView({ showToast }) {
     const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
     const buf  = await file.arrayBuffer();
     const wb   = XLSX.read(buf);
-    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const ws   = wb.Sheets["Materias primas"] || wb.Sheets[wb.SheetNames[0]];
     if (!ws) { showToast("No se pudo leer el Excel","error"); return; }
     const rows = XLSX.utils.sheet_to_json(ws, { defval:"" });
     const parsed = rows.filter(r=>r.nombre||r.Nombre).map(r=>({
@@ -9083,11 +9201,17 @@ export default function App() {
 
   // ── Firebase: cargar configuración de empresa ──
   useEffect(() => {
+    if (!user) return;
     getDoc(doc(db, "config", "empresa")).then(snap => {
       if (snap.exists()) setEmpresa(snap.data());
       setConfigCargada(true);
     }).catch(() => setConfigCargada(true));
-  }, []);
+  }, [user]);
+
+  // Nombre y logo → pestaña del navegador, pantalla de carga y login
+  useEffect(() => {
+    if (configCargada) aplicarMarca(empresa);
+  }, [configCargada, empresa.nombre, empresa.logo]);
 
   const handleLogout = () => signOut(auth);
 
@@ -9294,7 +9418,7 @@ export default function App() {
 
   if (!authChecked) return (
     <div style={{ minHeight:"100vh", background:"var(--c-soft)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
-      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:28, fontWeight:700, color:"var(--c-pri)", marginBottom:12 }}>Mafalda Gráfica</div>
+      <MarcaPantalla/>
       <div style={{ fontSize:14, color:"#a09080" }}>Iniciando...</div>
     </div>
   );
@@ -9303,7 +9427,7 @@ export default function App() {
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:"var(--c-soft)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
-      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:28, fontWeight:700, color:"var(--c-pri)", marginBottom:12 }}>Mafalda Gráfica</div>
+      <MarcaPantalla/>
       <div style={{ fontSize:14, color:"#a09080" }}>Cargando pedidos...</div>
     </div>
   );
@@ -9419,7 +9543,7 @@ export default function App() {
               : <span className="sidebar-icon" style={{ fontSize:26 }}>🖨️</span>
             }
             <div className="sidebar-logo-txt">
-              <div className="sidebar-logo-name">{empresa.nombre||"Mafalda"}</div>
+              <div className="sidebar-logo-name">{empresa.nombre||"Mi negocio"}</div>
               <div className="sidebar-logo-sub">Gestión</div>
             </div>
             <button className="sidebar-toggle" onClick={()=>setMenuAbierto(m=>!m)} title={menuAbierto?"Colapsar menú":"Expandir menú"}>
