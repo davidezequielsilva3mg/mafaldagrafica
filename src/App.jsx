@@ -2133,13 +2133,17 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
         <div style={{ textAlign:"center", padding:40, color:"#a09080" }}>Cargando...</div>
       ) : (
         <div style={{ overflowX:"auto" }}>
-          <table style={{ borderCollapse:"collapse", width:"100%", minWidth:900 }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", minWidth:1040, tableLayout:"fixed" }}>
+            <colgroup>
+              <col style={{ width:120 }}/>
+              {dias.map(d => <col key={d.fecha}/>)}
+            </colgroup>
             {/* Header días */}
             <thead>
               <tr>
-                <th style={{ width:110, background:"#1a2340", padding:"10px 12px", borderRight:"1px solid rgba(255,255,255,.15)", borderBottom:"none" }}/>
+                <th style={{ background:"#1a2340", padding:"10px 12px", borderRight:"1px solid rgba(255,255,255,.15)", borderBottom:"none" }}/>
                 {dias.map(d=>(
-                  <th key={d.fecha} style={{ background:esHoy(d.fecha)?"var(--c-pri)":"#1a2340", padding:"10px 10px", borderRight:"1px solid rgba(255,255,255,.1)", borderBottom:"none", textAlign:"left", minWidth:150 }}>
+                  <th key={d.fecha} style={{ background:esHoy(d.fecha)?"var(--c-pri)":"#1a2340", padding:"10px 10px", borderRight:"1px solid rgba(255,255,255,.1)", borderBottom:"none", textAlign:"left" }}>
                     <div style={{ fontWeight:700, fontSize:12, color:"#fff" }}>{d.nombre}</div>
                     <div style={{ fontSize:10, color:"rgba(255,255,255,.65)" }}>{d.d.toLocaleDateString("es-AR",{day:"numeric",month:"long"})}</div>
                     {countDia(d.fecha)>0 && (
@@ -2242,9 +2246,9 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                                       color:listo?"#ef5350": enProd?"#f57f17":cat.color,
                                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                                       textDecoration:listo?"line-through":"none" }}>{p.telefono||"Sin tel"}</div>
-                                    <div style={{ fontSize:10,
+                                    <div title={p.nombre} style={{ fontSize:10, lineHeight:1.3,
                                       color:listo?"#999": enProd?"#7a6000":"#4a5568",
-                                      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                                      overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", wordBreak:"break-word",
                                       textDecoration:listo?"line-through":"none" }}>{p.nombre}</div>
                                   </div>
                                   {setViewApp && (
@@ -2285,12 +2289,12 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                                     {listo?"✓": enProd?"⚙":""}
                                   </button>
                                   <input value={sl.tel} onChange={e=>updateSlot(d.fecha,cat.id,si,"tel",e.target.value)}
-                                    placeholder="Tel" style={{ ...inp, width:52,
+                                    placeholder="Tel" style={{ ...inp, width:52, minWidth:0, flexShrink:0,
                                       color: listo?"#ef5350": enProd?"#f57f17":cat.color,
                                       fontWeight:ok?600:400,
                                       textDecoration:listo?"line-through":"none" }}/>
                                   <input value={sl.desc} onChange={e=>updateSlot(d.fecha,cat.id,si,"desc",e.target.value)}
-                                    placeholder="Detalle" style={{ ...inp, flex:1,
+                                    placeholder="Detalle" style={{ ...inp, flex:1, minWidth:0,
                                       textDecoration:listo?"line-through":"none",
                                       color:listo?"#999": enProd?"#7a6000":"inherit" }}/>
                                   {slots.length>1 && (
@@ -8472,6 +8476,8 @@ function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
   const [modalPago, setModalPago] = useState(false);
   const [modalVaca, setModalVaca] = useState(false);
   const [nuevaNota, setNuevaNota] = useState("");
+  const [editando, setEditando]   = useState(false);
+  const [borrando, setBorrando]   = useState(false);
 
   useEffect(() => {
     if (!emp) return;
@@ -8486,6 +8492,26 @@ function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
   const totalPagado = pagos.reduce((s,p)=>s+parseFloat(p.monto||0),0);
   const diasTomados = vacas.filter(v=>v.tipo==="tomado").reduce((s,v)=>s+parseInt(v.dias||0),0);
   const diasDisp    = (parseFloat(emp.diasVacaciones||14)) - diasTomados;
+
+  const eliminarEmpleado = async () => {
+    const extra = [
+      pagos.length ? `${pagos.length} pago${pagos.length!==1?"s":""} de sueldo` : "",
+      vacas.length ? `${vacas.length} registro${vacas.length!==1?"s":""} de vacaciones` : "",
+      notas.length ? `${notas.length} nota${notas.length!==1?"s":""}` : "",
+    ].filter(Boolean).join(", ");
+    if (!window.confirm(`¿Eliminar a ${emp.nombre}?${extra ? `\n\nTambién se borran sus ${extra}.` : ""}\n\nLos pedidos que tomó conservan su nombre. Esta acción no se puede deshacer.`)) return;
+    setBorrando(true);
+    try {
+      for (const x of pagos) await deleteDoc(doc(db,"pagosSueldo",x.fireId));
+      for (const x of vacas) await deleteDoc(doc(db,"vacaciones",x.fireId));
+      for (const x of notas) await deleteDoc(doc(db,"notasEmp",x.fireId));
+      await deleteDoc(doc(db,"empleados",empId));
+      showToast(`${emp.nombre} eliminado`,"error");
+      setSelectedEmp(null);
+    } catch(e) {
+      console.error(e); showToast("Error al eliminar","error"); setBorrando(false);
+    }
+  };
 
   const agregarNota = async () => {
     if (!nuevaNota.trim()) return;
@@ -8502,6 +8528,12 @@ function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
           <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:"#1a2340" }}>{emp.nombre}</div>
           <div style={{ fontSize:13, color:"#a09080", marginTop:2 }}>{emp.cargo||"Sin cargo"} · Desde {emp.ingreso||"—"}</div>
           {emp.telefono && <div style={{ fontSize:13, color:"var(--c-pri)", fontWeight:700, marginTop:6 }}>📞 {emp.telefono}</div>}
+          <div style={{ display:"flex", gap:8, marginTop:12 }}>
+            <button onClick={()=>setEditando(true)}
+              style={{ background:"#fff", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"6px 14px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer" }}>✏️ Editar</button>
+            <button onClick={eliminarEmpleado} disabled={borrando}
+              style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 14px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer" }}>{borrando ? "Eliminando..." : "🗑 Eliminar"}</button>
+          </div>
         </div>
         <div style={{ display:"flex", gap:12 }}>
           <div style={{ background:"var(--c-soft)", borderRadius:10, padding:"10px 16px", textAlign:"center" }}>
@@ -8518,6 +8550,8 @@ function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
           </div>
         </div>
       </div>
+
+      {editando && <ModalEmpleado emp={emp} onClose={()=>setEditando(false)} showToast={showToast}/>}
 
       {/* Tabs empleado */}
       <div style={{ display:"flex", gap:8, marginBottom:16 }}>
@@ -8621,8 +8655,8 @@ function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
 }
 
 // ── Modal Simple reutilizable ─────────────────────────────────────────────
-function ModalSimple({ titulo, campos, onClose, onSave }) {
-  const [form, setForm] = useState({});
+function ModalSimple({ titulo, campos, onClose, onSave, inicial }) {
+  const [form, setForm] = useState(() => inicial ? { ...inicial } : {});
   const [saving, setSaving] = useState(false);
   const inp = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
   const handleSave = async () => { setSaving(true); await onSave(form); setSaving(false); };
@@ -8671,8 +8705,9 @@ function ModalCaja({ tipo, onClose, showToast }) {
 }
 
 function ModalEmpleado({ emp, onClose, showToast }) {
-  return <ModalSimple titulo={emp.fireId?"✏️ Editar Empleado":"👷 Nuevo Empleado"} onClose={onClose} onSave={async(form)=>{
-    if(emp.fireId) { await updateDoc(doc(db,"empleados",emp.fireId),form); showToast("Empleado actualizado ✅"); }
+  const { fireId:_f, ...datosEmp } = emp || {};
+  return <ModalSimple titulo={emp.fireId?"✏️ Editar Empleado":"👷 Nuevo Empleado"} inicial={datosEmp} onClose={onClose} onSave={async(form)=>{
+    if(emp.fireId) { const { fireId, ...f } = form; await updateDoc(doc(db,"empleados",emp.fireId),f); showToast("Empleado actualizado ✅"); }
     else { await addDoc(collection(db,"empleados"),form); showToast("Empleado creado ✅"); }
     onClose();
   }} campos={[{key:"nombre",label:"Nombre completo",placeholder:"Nombre y apellido"},{key:"cargo",label:"Cargo",placeholder:"Cajero, Operario..."},{key:"sueldo",label:"Sueldo base",type:"number",placeholder:"0"},{key:"ingreso",label:"Fecha de ingreso",type:"date"},{key:"telefono",label:"Teléfono",placeholder:"11-xxxx-xxxx"},{key:"diasVacaciones",label:"Días de vacaciones/año",type:"number",placeholder:"14"}]}/>;
