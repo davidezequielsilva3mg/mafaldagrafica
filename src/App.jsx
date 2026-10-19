@@ -2063,7 +2063,6 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
     if (local !== "grafica") return [];
     return pedidosDB.filter(p =>
       p.fechaEntrega === fecha &&
-      p.estado !== "Entregado" &&
       p.categoria === catId
     );
   };
@@ -2247,12 +2246,16 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                         {/* Colapsado — solo mostrar badges si tiene algo */}
                         {!expandida && tieneAlgo && (
                           <div style={{ display:"flex", flexWrap:"wrap", gap:3, padding:"2px 0" }}>
-                            {presenciales.map(p=>(
-                              <span key={p.fireId} style={{ background:p.estado==="Listo"?"#ef5350":cat.color, color:"#fff", borderRadius:4, padding:"1px 5px", fontSize:9, fontWeight:700,
-                                textDecoration:p.estado==="Listo"?"line-through":"none", opacity:p.estado==="Listo"?.7:1 }}>
-                                {p.estado==="Listo"?"✓ ":"📋 "}{p.telefono||p.nombre.slice(0,8)}
+                            {presenciales.map(p=>{
+                              const ent = p.estado==="Entregado";
+                              const lis = p.estado==="Listo";
+                              return (
+                              <span key={p.fireId} title={ent?"Entregado":undefined} style={{ background:ent?"#9e9e9e":lis?"#ef5350":cat.color, color:"#fff", borderRadius:4, padding:"1px 5px", fontSize:9, fontWeight:700,
+                                textDecoration:(lis||ent)?"line-through":"none", opacity:ent?.6:lis?.7:1 }}>
+                                {ent?"📦 ":lis?"✓ ":"📋 "}{p.telefono||(p.nombre||"").slice(0,8)}
                               </span>
-                            ))}
+                              );
+                            })}
                             {slots.filter(s=>s?.tel||s?.desc).map((s,i)=>(
                               <span key={i} style={{ background:cat.bg, color:cat.color, border:`1px solid ${cat.color}50`, borderRadius:4, padding:"1px 5px", fontSize:9, fontWeight:600 }}>
                                 {s.tel||s.desc?.slice(0,8)}
@@ -2268,11 +2271,13 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                         {expandida && (
                           <>
                             {presenciales.map(p=>{
-                              const estadoP = p.estadoCalendario||0; // 0=pend, 1=prod, 2=listo
+                              const entregado = p.estado==="Entregado";
+                              const estadoP = entregado ? 2 : (p.estadoCalendario||0); // 0=pend, 1=prod, 2=listo
                               const enProd  = estadoP===1;
                               const listo   = estadoP===2;
                               const nextEst = (estadoP+1)%3;
                               const toggleEstado = async () => {
+                                if (entregado) return; // ya entregado: no se modifica desde el calendario
                                 const estadoMap = { 0:"Pendiente", 1:"En Producción", 2:"Listo" };
                                 await updateDoc(doc(db,"pedidos",p.fireId), {
                                   estadoCalendario: nextEst,
@@ -2292,22 +2297,22 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                               return (
                                 <div key={p.fireId} style={{ display:"flex", alignItems:"center", gap:4, marginBottom:4,
                                   padding:"4px 6px", borderRadius:5, transition:"all .2s",
-                                  background: listo?"#ffebee": enProd?"#fffde7":cat.bg,
-                                  border:`1.5px solid ${listo?"#ef5350": enProd?"#f9a825":cat.color}`,
-                                  opacity: listo?.7:1 }}>
+                                  background: entregado?"#f2f2f2": listo?"#ffebee": enProd?"#fffde7":cat.bg,
+                                  border:`1.5px solid ${entregado?"#bdbdbd": listo?"#ef5350": enProd?"#f9a825":cat.color}`,
+                                  opacity: entregado?.6: listo?.7:1 }}>
                                   <button onClick={toggleEstado}
-                                    title={estadoP===0?"Marcar en producción":estadoP===1?"Marcar como listo":"Volver a pendiente"}
-                                    style={{ background: listo?"#ef5350": enProd?"#f9a825":"transparent",
-                                      border:`1.5px solid ${listo?"#ef5350": enProd?"#f9a825":"#ccc"}`,
+                                    title={entregado?"Entregado":estadoP===0?"Marcar en producción":estadoP===1?"Marcar como listo":"Volver a pendiente"}
+                                    style={{ background: entregado?"#9e9e9e": listo?"#ef5350": enProd?"#f9a825":"transparent",
+                                      border:`1.5px solid ${entregado?"#9e9e9e": listo?"#ef5350": enProd?"#f9a825":"#ccc"}`,
                                       borderRadius:4, width:16, height:16, flexShrink:0,
-                                      cursor:"pointer", display:"flex", alignItems:"center",
+                                      cursor:entregado?"default":"pointer", display:"flex", alignItems:"center",
                                       justifyContent:"center", fontSize:9,
                                       color:(listo||enProd)?"#fff":"#bbb", padding:0, transition:"all .2s" }}>
-                                    {listo?"✓": enProd?"⚙":""}
+                                    {entregado?"📦": listo?"✓": enProd?"⚙":""}
                                   </button>
                                   <div style={{ flex:1, minWidth:0 }}>
                                     <div style={{ fontSize:10, fontWeight:700,
-                                      color:listo?"#ef5350": enProd?"#f57f17":cat.color,
+                                      color:entregado?"#888": listo?"#ef5350": enProd?"#f57f17":cat.color,
                                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                                       textDecoration:listo?"line-through":"none" }}>{p.telefono||"Sin tel"}</div>
                                     <div title={p.nombre} style={{ fontSize:10, lineHeight:1.3,
@@ -2321,7 +2326,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                                       if(setSelectedPedido) setSelectedPedido(fresh);
                                       if(setViewApp) setViewApp("detalle");
                                     }}
-                                      style={{ background:listo?"#ef5350": enProd?"#f9a825":cat.color, border:"none", color:"#fff", borderRadius:4, padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>→</button>
+                                      style={{ background:entregado?"#9e9e9e": listo?"#ef5350": enProd?"#f9a825":cat.color, border:"none", color:"#fff", borderRadius:4, padding:"2px 5px", fontSize:9, cursor:"pointer", flexShrink:0, fontWeight:700 }}>→</button>
                                   )}
                                 </div>
                               );
