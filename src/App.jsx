@@ -9442,7 +9442,7 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}#root{width:100%;min-height:100vh;display:flex;flex-direction:column}
-        html,body,#root{margin:0;padding:0;width:100%;min-height:100vh;overflow-x:hidden}body{background:var(--c-soft)}
+        html,body,#root{margin:0;padding:0;width:100%;min-height:100vh;overflow-x:clip;overscroll-behavior:auto}body{background:var(--c-soft)}
         input:focus,select:focus,textarea:focus{border-color:var(--c-pri)!important;box-shadow:0 0 0 3px rgba(var(--c-pri-rgb),.1)}
         ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#c5cce0;border-radius:3px}
         .btn-p{background:var(--c-pri);color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .18s}
