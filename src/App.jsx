@@ -190,6 +190,8 @@ const APP_CFG_DEFAULT = {
   tema: "#e65100",
   msgListoSaldo: "¡Hola {nombre}! 👋\nTu pedido *{ot}{pedido}* ya está listo para retirar 🎉\nEl monto total es ${total} y resta abonar *${saldo}*.\n¡Muchas gracias por elegirnos! 🙌",
   msgListoPago:  "¡Hola {nombre}! 👋\nTu pedido *{ot}{pedido}* ya está listo para retirar 🎉\nEl total abonado es ${total}. ¡Todo pago!\n¡Muchas gracias por elegirnos! 🙌",
+  msgAgendado: "¡Hola {nombre}! 👋\nRecibimos tu pedido *{ot}{pedido}* ✅\n\n📝 *Detalle:*\n{detalle}\n\n📅 Fecha de entrega: *{entrega}*\n💰 Total: ${total}\n💵 Seña: ${seña}\n🧾 Resta abonar: *${saldo}*\n\nTe avisamos cuando esté listo. ¡Gracias por elegirnos! 🙌",
+  msgAgendadoAuto: true,
   prefijoWhatsapp: "549",
   validezPresupuesto: 7,
   condicionesPresupuesto: "Sujeto a cambios de precio",
@@ -240,13 +242,38 @@ function metodosConHistorial(ventas) {
   }));
 }
 
-// Arma el mensaje de WhatsApp de "pedido listo" a partir de la plantilla
-function armarMensajeListo(p) {
+// Fecha de entrega legible para el cliente: "viernes 24/10"
+function fechaEntregaLarga(f) {
+  if (!f) return "";
+  const [y,m,d] = f.split("-").map(Number);
+  if (!y || !m || !d) return f;
+  const dia = new Date(y, m-1, d).toLocaleDateString("es-AR", { weekday:"long" });
+  return `${dia} ${String(d).padStart(2,"0")}/${String(m).padStart(2,"0")}`;
+}
+// Renglones del detalle del pedido (sale de las notas cargadas)
+function detallePedidoTexto(p) {
+  return (p.notas||"").split("\n").map(l => l.trim())
+    .filter(l => l && l !== "---")
+    .map(l => /^[•\-\*]/.test(l) ? l : `• ${l}`)
+    .join("\n");
+}
+// Avisa a la app que se agendó un pedido nuevo (abre el mensaje de confirmación)
+function avisarPedidoAgendado(pedido) {
+  try { window.dispatchEvent(new CustomEvent("pedido-agendado", { detail: pedido })); } catch(e) {}
+}
+
+// Arma el mensaje de WhatsApp a partir de la plantilla: tipo "listo" (por defecto) o "agendado"
+function armarMensajeListo(p, tipo = "listo") {
   const total    = parseFloat(p.precio||0);
-  const saldoNum = total - parseFloat(p.seña||0);
-  const plantilla = saldoNum > 0 ? APP_CFG.msgListoSaldo : APP_CFG.msgListoPago;
+  const señaNum  = parseFloat(p.seña||0);
+  const saldoNum = total - señaNum;
+  const plantilla = tipo === "agendado" ? APP_CFG.msgAgendado
+    : saldoNum > 0 ? APP_CFG.msgListoSaldo : APP_CFG.msgListoPago;
+  const detalle = detallePedidoTexto(p);
   const valores = {
-    nombre: p.cliente?.split(" ")[0] || p.cliente || "cliente",
+    detalle,
+    entrega: fechaEntregaLarga(p.fechaEntrega),
+    nombre: p.cliente?.trim().split(" ")[0] || "",
     cliente: p.cliente || "",
     ot:     p.nroOT ? `N° ${String(p.nroOT).padStart(4,"0")} - ` : "",
     pedido: p.nombre || "",
@@ -254,11 +281,21 @@ function armarMensajeListo(p) {
     saldo:  saldoNum.toLocaleString("es-AR"),
     seña:   parseFloat(p.seña||0).toLocaleString("es-AR"),
   };
-  return (plantilla||"").split("\n")
+  let lineas = (plantilla||"").split("\n")
     // si el pedido no tiene precio, se omiten los renglones que hablan de plata
     .filter(l => p.precio || !/\{(total|saldo|seña)\}/.test(l))
-    .map(l => l.replace(/\{(\w+)\}/g, (m, k) => valores[k] !== undefined ? valores[k] : m))
-    .join("\n");
+    // sin detalle o sin fecha se omiten esos renglones
+    .filter(l => detalle || !/\{detalle\}/.test(l))
+    .filter(l => p.fechaEntrega || !/\{entrega\}/.test(l));
+  if (tipo === "agendado") {
+    // sin seña no se muestra ese renglón
+    lineas = lineas.filter(l => señaNum > 0 || !/\{seña\}/.test(l));
+    // si no hay detalle, se quita también su título ("Detalle:") si quedó suelto
+    if (!detalle) lineas = lineas.filter((l,i,a) => !(/detalle/i.test(l) && !l.includes("{") && (a[i+1]===undefined || a[i+1].trim()==="")));
+  }
+  return lineas
+    .map(l => l.replace(/\{([\wñÑ]+)\}/g, (m, k) => valores[k] !== undefined ? valores[k] : m))
+    .join("\n").replace(/\n{3,}/g, "\n\n").replace(/¡Hola\s+!/g, "¡Hola!").trim();
 }
 
 // Arma el número para wa.me: si ya trae código de país lo respeta, si no le agrega el prefijo configurado
@@ -2151,6 +2188,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
     if (nroOT) docData.nroOT = nroOT;
     await addDoc(collection(db,"pedidos"), docData);
     showToast("Pedido creado ✅");
+    avisarPedidoAgendado(docData);
     setSavingM(false);
     setModalNuevo(null);
   };
@@ -3636,24 +3674,33 @@ const CfgGuardar = ({ dirty, saving, onClick, texto="💾 Guardar" }) => (
 
 // ── Configuración: Mensajes y documentos ─────────────────────────────────
 function MensajesConfig({ showToast }) {
-  const campos = ["msgListoSaldo","msgListoPago","prefijoWhatsapp","validezPresupuesto","condicionesPresupuesto","piePresupuesto","firmaOrden","pieOrden"];
+  const campos = ["msgListoSaldo","msgListoPago","msgAgendado","msgAgendadoAuto","prefijoWhatsapp","validezPresupuesto","condicionesPresupuesto","piePresupuesto","firmaOrden","pieOrden"];
   const [f, setF]         = useState(() => Object.fromEntries(campos.map(k => [k, APP_CFG[k]])));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [foco, setFoco]   = useState("msgListoSaldo");
   const set = (k, v) => { setF(x => ({ ...x, [k]:v })); setDirty(true); };
 
-  const ejemplo = { cliente:"David Silva", nombre:"Tarjetas personales", nroOT:12, precio:"9000", seña: foco==="msgListoPago" ? "9000" : "4500" };
-  const preview = (() => {
-    const backup = { msgListoSaldo:APP_CFG.msgListoSaldo, msgListoPago:APP_CFG.msgListoPago };
-    APP_CFG.msgListoSaldo = f.msgListoSaldo; APP_CFG.msgListoPago = f.msgListoPago;
-    const t = armarMensajeListo(ejemplo);
+  const enManana = (() => { const d = new Date(); d.setDate(d.getDate()+2); return d.toISOString().split("T")[0]; })();
+  const ejemplo = { cliente:"David Silva", nombre:"Tarjetas personales", nroOT:12, precio:"9000", seña: foco==="msgListoPago" ? "9000" : "4500",
+    fechaEntrega: enManana, notas:"500 tarjetas 9x5 cm\nPapel ilustración 300 g, laminado mate\nDoble faz" };
+  const verPreview = (tipo) => {
+    const backup = { msgListoSaldo:APP_CFG.msgListoSaldo, msgListoPago:APP_CFG.msgListoPago, msgAgendado:APP_CFG.msgAgendado };
+    APP_CFG.msgListoSaldo = f.msgListoSaldo; APP_CFG.msgListoPago = f.msgListoPago; APP_CFG.msgAgendado = f.msgAgendado;
+    const t = armarMensajeListo(ejemplo, tipo);
     Object.assign(APP_CFG, backup);
     return t;
-  })();
+  };
+  const preview = verPreview("listo");
+  const previewAgendado = verPreview("agendado");
+  const burbuja = (t) => (
+    <div style={{ background:"#e7ffdb", borderRadius:"10px 10px 10px 2px", padding:"12px 14px", fontSize:13, color:"#1a2340", whiteSpace:"pre-wrap", lineHeight:1.5, boxShadow:"0 1px 2px rgba(0,0,0,.1)" }}>
+      {t.split(/(\*[^*\n]+\*)/g).map((s,i) => s.startsWith("*")&&s.endsWith("*") ? <b key={i}>{s.slice(1,-1)}</b> : s)}
+    </div>
+  );
 
   const insertar = (marcador) => {
-    if (foco!=="msgListoSaldo" && foco!=="msgListoPago") return;
+    if (foco!=="msgListoSaldo" && foco!=="msgListoPago" && foco!=="msgAgendado") return;
     const el = document.getElementById("cfg-"+foco);
     const v = f[foco] || "";
     const pos = el ? el.selectionStart : v.length;
@@ -3670,19 +3717,46 @@ function MensajesConfig({ showToast }) {
   const restaurar = (ks) => { ks.forEach(k => set(k, APP_CFG_DEFAULT[k])); };
 
   const marcadores = [["{nombre}","Primer nombre"],["{cliente}","Nombre completo"],["{ot}","N° de OT"],["{pedido}","Nombre del pedido"],["{total}","Total"],["{saldo}","Saldo"],["{seña}","Seña"]];
+  const marcadoresAgendado = [...marcadores, ["{detalle}","Detalle / notas"], ["{entrega}","Fecha de entrega"]];
+  const botonesMarcadores = (lista) => (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+      {lista.map(([m,d]) => (
+        <button key={m} onClick={()=>insertar(m)} title={`Insertar: ${d}`}
+          style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-border)", color:"var(--c-pri)", padding:"4px 10px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"monospace" }}>
+          {m} <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:400, color:"#a09080" }}>{d}</span>
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
       <div style={cfgCard}>
-        {cfgTitulo("💬 Mensaje de pedido listo", "Es el texto que se arma al marcar un pedido como Listo. Los marcadores entre llaves se reemplazan solos. Usá *asteriscos* para negrita en WhatsApp.")}
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
-          {marcadores.map(([m,d]) => (
-            <button key={m} onClick={()=>insertar(m)} title={`Insertar: ${d}`}
-              style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-border)", color:"var(--c-pri)", padding:"4px 10px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"monospace" }}>
-              {m} <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:400, color:"#a09080" }}>{d}</span>
-            </button>
-          ))}
+        {cfgTitulo("📨 Mensaje de pedido agendado", "Se ofrece al cargar un pedido nuevo (desde Nuevo Pedido, el Calendario, una Venta o un Presupuesto aprobado), para mandarle al cliente el detalle de lo que se cargó. También está el botón 📨 Confirmación en el detalle de cada pedido.")}
+        <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#4a5568", marginBottom:14, cursor:"pointer" }}>
+          <input type="checkbox" checked={f.msgAgendadoAuto !== false} onChange={e=>set("msgAgendadoAuto", e.target.checked)} style={{ width:16, height:16, accentColor:"var(--c-pri)" }}/>
+          Mostrar este mensaje automáticamente al agendar un pedido
+        </label>
+        {botonesMarcadores(marcadoresAgendado)}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:16 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <label style={cfgLbl}>Texto del mensaje</label>
+            <textarea id="cfg-msgAgendado" rows={13} value={f.msgAgendado} onFocus={()=>setFoco("msgAgendado")} onChange={e=>set("msgAgendado",e.target.value)}
+              style={{ ...cfgInp, resize:"vertical", fontSize:13, borderColor:foco==="msgAgendado"?"var(--c-pri)":"var(--c-border)" }}/>
+            <button onClick={()=>restaurar(["msgAgendado"])}
+              style={{ alignSelf:"flex-start", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", padding:"6px 12px", borderRadius:8, fontSize:12, cursor:"pointer" }}>↺ Volver al mensaje original</button>
+          </div>
+          <div>
+            <label style={cfgLbl}>Vista previa</label>
+            {burbuja(previewAgendado)}
+            <div style={{ fontSize:11, color:"#a09080", marginTop:6 }}>{"{detalle}"} toma cada renglón de las notas del pedido. Si no hay seña, no hay notas o no hay precio, esos renglones se omiten solos.</div>
+          </div>
         </div>
+      </div>
+
+      <div style={cfgCard}>
+        {cfgTitulo("💬 Mensaje de pedido listo", "Es el texto que se arma al marcar un pedido como Listo. Los marcadores entre llaves se reemplazan solos. Usá *asteriscos* para negrita en WhatsApp.")}
+        {botonesMarcadores(marcadores)}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:16 }}>
           <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
             <div>
@@ -3707,9 +3781,7 @@ function MensajesConfig({ showToast }) {
           </div>
           <div>
             <label style={cfgLbl}>Vista previa ({foco==="msgListoPago" ? "todo pago" : "con saldo"})</label>
-            <div style={{ background:"#e7ffdb", borderRadius:"10px 10px 10px 2px", padding:"12px 14px", fontSize:13, color:"#1a2340", whiteSpace:"pre-wrap", lineHeight:1.5, boxShadow:"0 1px 2px rgba(0,0,0,.1)" }}>
-              {preview.split(/(\*[^*]+\*)/g).map((t,i) => t.startsWith("*")&&t.endsWith("*") ? <b key={i}>{t.slice(1,-1)}</b> : t)}
-            </div>
+            {burbuja(preview)}
             <div style={{ fontSize:11, color:"#a09080", marginTop:6 }}>Ejemplo con datos de prueba. Si un pedido no tiene precio cargado, los renglones con {"{total}"}, {"{saldo}"} o {"{seña}"} se omiten.</div>
           </div>
         </div>
@@ -5896,6 +5968,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
     };
     await addDoc(collection(db,"pedidos"), nuevoPedido);
     showToast("✅ Pedido creado desde la venta");
+    avisarPedidoAgendado(nuevoPedido);
     setModalAgendarVenta(false);
     setView("lista");
   };
@@ -6602,6 +6675,7 @@ function ModalAprobarPresupuesto({ pres, clientes, showToast, onClose, onDone })
       });
       showToast(`✅ ${presNum(pres)} aprobado · pedido creado`);
       onDone();
+      avisarPedidoAgendado(pedido);
     } catch(e) {
       console.error(e);
       showToast("Error al aprobar el presupuesto","error");
@@ -9000,9 +9074,10 @@ function EntregaMultipleModal({ pedidos, onConfirmar, onClose }) {
 }
 
 // ── Componente: Modal Mensaje WhatsApp ───────────────────────────────────
-function MsgModal({ pedido, copied, setCopied, onClose }) {
+function MsgModal({ pedido, tipo = "listo", copied, setCopied, onClose }) {
   const p    = pedido;
-  const msg  = armarMensajeListo(p); // plantilla editable en Configuración → Mensajes
+  const msg  = armarMensajeListo(p, tipo); // plantillas editables en Configuración → Mensajes
+  const esAgendado = tipo === "agendado";
 
   const handleCopy = () => {
     navigator.clipboard.writeText(document.getElementById("msg-cliente-textarea")?.value || msg).then(() => {
@@ -9024,10 +9099,10 @@ function MsgModal({ pedido, copied, setCopied, onClose }) {
     <div className="modal-ov" onClick={onClose}>
       <div className="msg-bx" onClick={e => e.stopPropagation()}>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
-          <div style={{ fontSize:36 }}>💬</div>
+          <div style={{ fontSize:36 }}>{esAgendado ? "📨" : "💬"}</div>
           <div>
-            <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>Mensaje para el cliente</h3>
-            <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>Copiá el mensaje o abrí WhatsApp directo</p>
+            <h3 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:21, fontWeight:700, color:"#1a2340", lineHeight:1.1 }}>{esAgendado ? "Confirmación del pedido" : "Mensaje para el cliente"}</h3>
+            <p style={{ fontSize:13, color:"#a09080", marginTop:3 }}>{esAgendado ? "Mandale al cliente el detalle de lo que cargaste" : "Copiá el mensaje o abrí WhatsApp directo"}</p>
           </div>
         </div>
         <div style={{ background:"#e8f5e9", borderRadius:8, padding:"8px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8, fontSize:13 }}>
@@ -9036,7 +9111,7 @@ function MsgModal({ pedido, copied, setCopied, onClose }) {
           {p.telefono && <span style={{ color:"#4a5568" }}>· {p.telefono}</span>}
           {p.nroOT && <span style={{ marginLeft:"auto", fontFamily:"monospace", fontWeight:700, color:"var(--c-pri)", background:"var(--c-soft)", padding:"2px 8px", borderRadius:5, border:"1px solid var(--c-border)" }}>OT-{String(p.nroOT).padStart(4,"0")}</span>}
         </div>
-        <textarea className="msg-textarea" rows={6} defaultValue={msg} id="msg-cliente-textarea"
+        <textarea className="msg-textarea" rows={esAgendado ? 12 : 6} defaultValue={msg} id="msg-cliente-textarea" key={tipo + (p.fireId||p.id||"")}
           onChange={e => e.target.value}
           style={{ width:"100%", padding:"12px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", resize:"vertical", outline:"none", boxSizing:"border-box" }}/>
         <div style={{ display:"flex", gap:10, marginTop:16, justifyContent:"flex-end" }}>
@@ -9126,6 +9201,16 @@ export default function App() {
   const [expandedCats, setExpandedCats]   = useState({});
   const [printModal, setPrintModal]       = useState(null);
   const [msgModal, setMsgModal]           = useState(null);
+  // Al agendar un pedido nuevo (desde cualquier pantalla) se ofrece el mensaje de confirmación
+  useEffect(() => {
+    const h = (e) => {
+      if (APP_CFG.msgAgendadoAuto === false || !e.detail) return;
+      setCopied(false);
+      setTimeout(() => setMsgModal({ pedido: e.detail, tipo: "agendado" }), 400);
+    };
+    window.addEventListener("pedido-agendado", h);
+    return () => window.removeEventListener("pedido-agendado", h);
+  }, []);
   const [copied, setCopied]               = useState(false);
   const [empresa, setEmpresa]             = useState(EMPTY_EMPRESA);
   const [empresaSaved, setEmpresaSaved]   = useState(false);
@@ -9295,7 +9380,8 @@ export default function App() {
       await addDoc(collection(db, "pedidos"), nuevo);
       showToast("Pedido cargado exitosamente 🎉");
       triggerPrintIfNeeded(null, nuevo);
-      triggerMsgIfNeeded(null, nuevo);
+      if (nuevo.estado === "Listo") triggerMsgIfNeeded(null, nuevo);
+      else avisarPedidoAgendado(nuevo);
     }
     setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("lista");
   };
@@ -10145,6 +10231,8 @@ export default function App() {
                 </div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   <button className="btn-imp" style={{ padding:"9px 16px", fontSize:14 }} onClick={() => imprimirOrden(p, empresa)}>🖨️ Imprimir Orden</button>
+                  <button title="Mensaje de confirmación con el detalle del pedido" onClick={() => { setCopied(false); setMsgModal({ pedido: p, tipo: "agendado" }); }}
+                    style={{ background:"#25d366", color:"#fff", border:"none", borderRadius:8, padding:"9px 14px", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>📨 Confirmación</button>
                   <button className="btn-g" onClick={() => handleEdit(p)}>✏️ Editar</button>
                   <button className="btn-d" onClick={() => handleDelete(p.fireId || p.id)}>🗑</button>
                 </div>
@@ -10343,6 +10431,7 @@ export default function App() {
       {msgModal && (
         <MsgModal
           pedido={msgModal.pedido}
+          tipo={msgModal.tipo || "listo"}
           copied={copied}
           setCopied={setCopied}
           onClose={() => setMsgModal(null)}
