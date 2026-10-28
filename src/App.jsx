@@ -3652,6 +3652,8 @@ function KonicaView({ showToast }) {
 // ── Guardar parte de la configuración general ────────────────────────────
 async function guardarAppCfg(parcial) {
   await setDoc(doc(db, "config", "app"), { ...parcial, actualizadoEn: new Date().toISOString() }, { merge: true });
+  aplicarAppCfg({ ...APP_CFG, ...parcial });
+  try { window.dispatchEvent(new Event("config-cambiada")); } catch(e) {}
 }
 const cfgCard = { background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"26px 30px" };
 const cfgInp  = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", color:"#1a2340" };
@@ -4084,10 +4086,13 @@ function CategoriasEditor({ pedidos, showToast }) {
 
     setSaving(true);
     try {
+      const listaGuardar = limpia.map(({ nombre, icono, bg, text, accent }) => ({ nombre, icono, bg, text, accent }));
       await setDoc(doc(db, "config", "categorias"), {
-        lista: limpia.map(({ nombre, icono, bg, text, accent }) => ({ nombre, icono, bg, text, accent })),
+        lista: listaGuardar,
         actualizadoEn: new Date().toISOString(),
       });
+      aplicarCategorias(listaGuardar);
+      try { window.dispatchEvent(new Event("categorias-cambiadas")); } catch(e) {}
       if (actualizarPedidos) {
         for (const r of renombradas) {
           for (const p of pedidos.filter(p => p.categoria === r.nombreOriginal)) {
@@ -4099,7 +4104,9 @@ function CategoriasEditor({ pedidos, showToast }) {
       showToast("Categorías guardadas ✅");
     } catch(e) {
       console.error(e);
-      showToast("Error al guardar las categorías","error");
+      showToast(e?.code === "permission-denied"
+        ? "Firebase no dejó guardar: revisá las reglas (config)"
+        : "Error al guardar las categorías","error");
     }
     setSaving(false);
   };
@@ -9236,22 +9243,34 @@ export default function App() {
   const [cfgVersion, setCfgVersion]               = useState(0);
 
   // ── Firebase: configuración general (mensajes, documentos, pagos, menú) ──
+  // Se conecta recién cuando hay sesión iniciada (antes Firebase rechaza la lectura y no reintenta)
   useEffect(() => {
+    if (!user) return;
     const unsub = onSnapshot(doc(db, "config", "app"), snap => {
       aplicarAppCfg(snap.exists() ? snap.data() : null);
       setCfgVersion(v => v + 1);
-    });
+    }, err => console.error("config/app:", err));
     return () => unsub();
+  }, [user]);
+
+  // Al guardar algo en Configuración se aplica al instante, sin esperar a Firebase
+  useEffect(() => {
+    const hCats = () => setCatsVersion(v => v + 1);
+    const hCfg  = () => setCfgVersion(v => v + 1);
+    window.addEventListener("categorias-cambiadas", hCats);
+    window.addEventListener("config-cambiada", hCfg);
+    return () => { window.removeEventListener("categorias-cambiadas", hCats); window.removeEventListener("config-cambiada", hCfg); };
   }, []);
 
   // ── Firebase: categorías configurables ──
   useEffect(() => {
+    if (!user) return;
     const unsub = onSnapshot(doc(db, "config", "categorias"), snap => {
       aplicarCategorias(snap.exists() ? snap.data().lista : null);
       setCatsVersion(v => v + 1);
-    });
+    }, err => console.error("config/categorias:", err));
     return () => unsub();
-  }, []);
+  }, [user]);
 
   // ── Firebase: verificar sesión ──
   useEffect(() => {
@@ -9939,6 +9958,8 @@ export default function App() {
                                   <td style={{ padding:"12px 14px" }} onClick={e => e.stopPropagation()}>
                                     <div style={{ display:"flex", gap:5 }}>
                                       <button className="btn-imp" title="Imprimir orden" onClick={() => imprimirOrden(p, empresa)}>🖨️</button>
+                                      <button title="Mensaje de confirmación del pedido" onClick={() => { setCopied(false); setMsgModal({ pedido: p, tipo: "agendado" }); }}
+                                        style={{ background:"#25d366", color:"#fff", border:"none", borderRadius:7, padding:"7px 11px", fontSize:13, cursor:"pointer" }}>📨</button>
                                       <button className="btn-g" style={{ padding:"5px 10px", fontSize:12 }} onClick={() => handleEdit(p)}>✏️</button>
                                       <button className="btn-d" onClick={() => handleDelete(p.fireId || p.id)}>🗑</button>
                                     </div>
