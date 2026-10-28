@@ -4039,6 +4039,65 @@ function ConfiguracionView({ empresa, setEmpresa, empresaSaved, setEmpresaSaved,
 }
 
 // ── Componente: Editor de categorías ─────────────────────────────────────
+// ── Selector de emoji (ícono de categorías) ─────────────────────────────
+const EMOJIS_GRUPOS = [
+  ["Gráfica e impresión", "🖨️ 📄 📃 📑 🗞️ 📰 🪧 🏷️ 🔖 📒 📓 📔 📕 📗 📘 📙 📚 📇 🗂️ 📋 🧾 ✉️ 📨 📦 🎟️ 🎫 🪪 💳"],
+  ["Diseño y corte", "🎨 🖌️ 🖍️ ✏️ ✒️ 🖊️ 🖋️ 📐 📏 ✂️ 🔪 🧷 📎 🖇️ 📌 📍 🧩 🔲 🔳 ⬛ 🟥 🟧 🟨 🟩 🟦 🟪 🌈 ✨"],
+  ["Ropa y textil", "👕 👚 👔 👗 🧢 🎽 🧥 🧦 🧤 🧣 👜 🎒 👟 🧵 🧶 🪡 🎀"],
+  ["Objetos y regalos", "☕ 🥤 🍼 🧸 🎁 🎈 🎉 🎊 🏆 🥇 🏅 🎖️ 🗝️ 🔑 🪞 🖼️ 🕯️ 💡 🔦 ⌚ 📱 💻 🖥️ ⌨️ 🖱️ 💾 📷 📸 🎥"],
+  ["Cartelería y local", "🏪 🏬 🏢 🏠 🚗 🚚 🚐 🛵 🚦 🪟 🚪 🧱 🪵 🔩 🔧 🔨 🪛 🧰 🪜 ⚙️ 🧲"],
+  ["Varios", "⭐ 🌟 💎 🔥 ⚡ 💧 🌿 🌸 🌻 🍀 🐾 ❤️ 💜 💙 💚 🧡 💛 🖤 🤍 ✅ ❗ ❓ 🆕 🔝 💲 💰 🧮 3️⃣ 🅰️"],
+];
+function EmojiPicker({ value, onChange, size = 46, fondo = "#fff" }) {
+  const [abierto, setAbierto] = useState(false);
+  const [propio, setPropio]   = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!abierto) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setAbierto(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [abierto]);
+  const elegir = (em) => { onChange(em); setAbierto(false); setPropio(""); };
+  return (
+    <div ref={ref} style={{ position:"relative", flexShrink:0 }}>
+      <button type="button" onClick={() => setAbierto(a => !a)} title="Elegir ícono"
+        style={{ width:size, height:size - 8, minHeight:34, borderRadius:8, border:`1.5px solid ${abierto ? "var(--c-pri)" : "var(--c-border)"}`,
+          background:fondo, fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", padding:0 }}>
+        {value || "📦"}
+        <span style={{ position:"absolute", right:2, bottom:0, fontSize:8, color:"#a09080" }}>▾</span>
+      </button>
+      {abierto && (
+        <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, width:320, maxHeight:340, overflowY:"auto",
+          background:"#fff", borderRadius:12, boxShadow:"0 12px 40px rgba(0,0,0,.18)", border:"1px solid var(--c-border)", padding:"10px 12px" }}>
+          {EMOJIS_GRUPOS.map(([titulo, lista]) => (
+            <div key={titulo} style={{ marginBottom:8 }}>
+              <div style={{ fontSize:10, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", margin:"2px 0 4px" }}>{titulo}</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(8, 1fr)", gap:2 }}>
+                {lista.split(" ").filter(Boolean).map(em => (
+                  <button key={em} type="button" onClick={() => elegir(em)}
+                    style={{ fontSize:20, padding:"4px 0", borderRadius:6, border:"none", cursor:"pointer",
+                      background: em === value ? "var(--c-soft)" : "transparent", outline: em === value ? "2px solid var(--c-pri)" : "none" }}
+                    onMouseOver={e => { if (em !== value) e.currentTarget.style.background = "#f3f3f3"; }}
+                    onMouseOut={e => { if (em !== value) e.currentTarget.style.background = "transparent"; }}>{em}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ borderTop:"1px solid var(--c-border)", paddingTop:8, display:"flex", gap:6, alignItems:"center" }}>
+            <input value={propio} onChange={e => setPropio(e.target.value)} maxLength={4} placeholder="Otro"
+              onKeyDown={e => { if (e.key === "Enter" && propio.trim()) elegir(propio.trim()); }}
+              style={{ width:60, padding:"6px 8px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:16, textAlign:"center", outline:"none" }}/>
+            <button type="button" onClick={() => propio.trim() && elegir(propio.trim())}
+              style={{ background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:7, padding:"7px 12px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Usar</button>
+            <span style={{ fontSize:10, color:"#a09080", lineHeight:1.3 }}>Pegá cualquier emoji (en Windows: tecla Windows + punto)</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CategoriasEditor({ pedidos, showToast }) {
   const inicial = () => CATEGORIAS.map(n => ({ nombre:n, nombreOriginal:n, icono:CATEGORIA_ICON[n], ...CATEGORIA_COLOR[n] }));
   const [lista, setLista]       = useState(inicial);
@@ -4137,8 +4196,7 @@ function CategoriasEditor({ pedidos, showToast }) {
                 <button onClick={()=>mover(i,-1)} disabled={i===0} style={{ background:"transparent", border:"none", cursor:i===0?"default":"pointer", color:i===0?"#ccc":x.text, fontSize:11, lineHeight:1, padding:"1px 4px" }}>▲</button>
                 <button onClick={()=>mover(i,1)} disabled={i===lista.length-1} style={{ background:"transparent", border:"none", cursor:i===lista.length-1?"default":"pointer", color:i===lista.length-1?"#ccc":x.text, fontSize:11, lineHeight:1, padding:"1px 4px" }}>▼</button>
               </div>
-              <input value={x.icono} onChange={e=>upd(i,{ icono:e.target.value })} maxLength={4} title="Ícono (podés pegar un emoji)"
-                style={{ ...inp, width:46, textAlign:"center", fontSize:18, padding:"5px 4px", background:"#fff" }}/>
+              <EmojiPicker value={x.icono} onChange={em=>upd(i,{ icono:em })}/>
               <input value={x.nombre} onChange={e=>upd(i,{ nombre:e.target.value })}
                 style={{ ...inp, flex:1, minWidth:140, fontWeight:700, color:x.text, background:"#fff" }}/>
               {n > 0 && <span style={{ fontSize:11, color:x.text, opacity:.8, whiteSpace:"nowrap" }}>{n} pedido{n!==1?"s":""}</span>}
@@ -4161,7 +4219,7 @@ function CategoriasEditor({ pedidos, showToast }) {
       </div>
 
       <div style={{ display:"flex", gap:8, padding:"12px", border:"1.5px dashed var(--c-border)", borderRadius:10, marginBottom:20 }}>
-        <input value={nuevoIcono} onChange={e=>setNuevoIcono(e.target.value)} maxLength={4} style={{ ...inp, width:52, textAlign:"center", fontSize:18 }}/>
+        <EmojiPicker value={nuevoIcono} onChange={setNuevoIcono} size={52}/>
         <input value={nuevoNombre} onChange={e=>setNuevoNombre(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") agregar(); }}
           placeholder="Nueva categoría (ej: Banderas)" style={{ ...inp, flex:1 }}/>
         <button onClick={agregar} style={{ background:"#1a2340", color:"#fff", border:"none", padding:"8px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>+ Agregar</button>
