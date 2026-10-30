@@ -308,6 +308,20 @@ function telWhatsapp(tel) {
   return pref + d;
 }
 
+// Número de pedido como se muestra: OT-0042
+const fmtOT = (n) => n ? `OT-${String(n).padStart(4,"0")}` : "";
+// Buscador de pedidos: nombre, cliente, teléfono o número de pedido ("42", "0042", "OT-42", "#42")
+function coincideBusqueda(p, texto) {
+  const t = (texto||"").trim();
+  if (!t) return true;
+  const q = t.toLowerCase();
+  if ((p.nombre||"").toLowerCase().includes(q) || (p.cliente||"").toLowerCase().includes(q)) return true;
+  if (p.telefono && /\d{3,}/.test(t) && p.telefono.replace(/\D/g,"").includes(t.replace(/\D/g,""))) return true;
+  const num = q.replace(/^(ot|n°|nº|nro|#)\s*-?\s*/i, "");
+  if (p.nroOT && /^\d+$/.test(num) && parseInt(num,10) === parseInt(p.nroOT,10)) return true;
+  return false;
+}
+
 const ESTADOS = ["Todos", "Pendiente", "En Producción", "Listo", "Entregado"];
 const ESTADO_COLOR = {
   Pendiente:        { bg: "#f5f5f5", text: "#616161" },
@@ -754,8 +768,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
     .sort((a,b) => (!a.fechaEntrega?1:!b.fechaEntrega?-1:a.fechaEntrega.localeCompare(b.fechaEntrega)));
 
   const filtrados = listos.filter(p => {
-    const q = busqL.toLowerCase();
-    return !busqL || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q);
+    return coincideBusqueda(p, busqL);
   });
 
   const totalCobrar = listos.reduce((s,p) => s + saldo(p), 0);
@@ -775,8 +788,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
     .sort((a,b) => b.fechaEntrega?.localeCompare(a.fechaEntrega||"")||0);
 
   const entregadosFiltrados = entregados.filter(p => {
-    const q = busqH.toLowerCase();
-    return !busqH || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q) || p.telefono?.includes(busqH);
+    return coincideBusqueda(p, busqH);
   });
 
   // Navegar a ficha de cliente
@@ -839,7 +851,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px", marginBottom:18 }}>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
-              <input placeholder="Buscar por pedido o cliente..." value={busqL} onChange={e=>setBusqL(e.target.value)}
+              <input placeholder="Buscar por N° de pedido, nombre, cliente o teléfono..." value={busqL} onChange={e=>setBusqL(e.target.value)}
                 style={{ ...inp(), paddingLeft:34, width:"100%" }}/>
             </div>
           </div>
@@ -898,7 +910,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                           <input type="checkbox" checked={seleccion.includes(p.fireId)} onChange={()=>toggleSel(p.fireId)} style={chk}/>
                         </td>
                         <td style={{ padding:"13px 16px" }}>
-                          <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nombre}</div>
+                          <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"var(--c-pri)", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }}>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
                           {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
                         </td>
                         <td style={{ padding:"13px 16px" }}>
@@ -960,7 +972,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px", marginBottom:18 }}>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
-              <input placeholder="Buscar en historial..." value={busqH} onChange={e=>setBusqH(e.target.value)}
+              <input placeholder="Buscar en historial por N° de pedido, nombre, cliente o teléfono..." value={busqH} onChange={e=>setBusqH(e.target.value)}
                 style={{ ...inp(), paddingLeft:34, width:"100%" }}/>
             </div>
           </div>
@@ -988,7 +1000,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                     return (
                       <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid var(--c-row)" }}>
                         <td style={{ padding:"11px 16px" }}>
-                          <div style={{ fontWeight:600, color:"#4a5568" }}>{p.nombre}</div>
+                          <div style={{ fontWeight:600, color:"#4a5568" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"#8a7060", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }}>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
                           {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
                         </td>
                         <td style={{ padding:"11px 16px" }}>
@@ -8233,7 +8245,7 @@ function BuscadorGlobal({ pedidos, clientes, busqueda, setBusqueda, onClose, onS
 
   const pedidosFiltrados = busqueda.length >= 2 ? pedidos.filter(p =>
     p.estado !== "Entregado" &&
-    matchTexto(`${p.nombre} ${p.cliente} ${p.telefono||""} ${p.categoria} ${p.estado}`)
+    (matchTexto(`${p.nombre} ${p.cliente} ${p.telefono||""} ${p.categoria} ${p.estado} ${fmtOT(p.nroOT)}`) || coincideBusqueda(p, busqueda))
   ).slice(0, 6) : [];
 
   const clientesFiltrados = busqueda.length >= 2 ? clientes.filter(c =>
@@ -9390,8 +9402,7 @@ export default function App() {
   const filtered = useMemo(() => pedidos.filter(p => {
     if (p.estado === "Listo") return false;     // van a Pedidos Listos
     if (p.estado === "Entregado") return false; // van al Historial
-    const q = busqueda.toLowerCase();
-    return (!busqueda || p.nombre.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q) || p.telefono?.includes(busqueda))
+    return coincideBusqueda(p, busqueda)
       && (filtroEstado    === "Todos"  || p.estado    === filtroEstado)
       && (filtroCategoria === "Todas"  || p.categoria === filtroCategoria);
   }), [pedidos, busqueda, filtroEstado, filtroCategoria]);
@@ -9920,7 +9931,7 @@ export default function App() {
               <div className="card" style={{ padding:"16px 20px", marginBottom:20, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
                 <div style={{ position:"relative", flex:"1 1 220px" }}>
                   <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
-                  <input placeholder="Buscar por pedido, cliente o teléfono..." value={busqueda}
+                  <input placeholder="Buscar por N° de pedido, nombre, cliente o teléfono..." value={busqueda}
                     onChange={e => setBusqueda(e.target.value)} style={{ ...inp(), paddingLeft:34, width:"100%" }}/>
                 </div>
                 <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)} style={{ ...inp(), width:180, cursor:"pointer" }}>
@@ -9984,7 +9995,7 @@ export default function App() {
                                   style={{ borderBottom:"1px solid #f2f4f9", background:ven?"#fff8f8":hf?"#fffdf0":"#fff" }}
                                   onClick={() => { setSelectedPedido(p); setView("detalle"); }}>
                                   <td style={{ padding:"12px 16px" }}>
-                                    <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nombre}</div>
+                                    <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"var(--c-pri)", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }}>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
                                     {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:210, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
                                   </td>
                                   <td style={{ padding:"12px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>
