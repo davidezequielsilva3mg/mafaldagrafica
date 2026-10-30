@@ -322,6 +322,156 @@ function coincideBusqueda(p, texto) {
   return false;
 }
 
+// ── Ordenar tablas tocando el título de la columna ───────────────────────
+// Funciona solo en todas las tablas de la app: 1er toque ▲ ascendente, 2do ▼ descendente,
+// 3ro vuelve al orden original. Para excluir una tabla: <table data-no-orden>.
+// Dentro de una celda, lo marcado con data-orden-ignorar no cuenta para ordenar.
+function instalarOrdenTablas() {
+  if (typeof window === "undefined" || window.__ordenTablas) return;
+  window.__ordenTablas = true;
+
+  const css = document.createElement("style");
+  css.textContent = `
+    table:not([data-no-orden]) > thead th[data-ordenable]{cursor:pointer;user-select:none;transition:color .15s}
+    table:not([data-no-orden]) > thead th[data-ordenable]:hover{color:var(--c-pri)!important}
+    table:not([data-no-orden]) > thead th[data-ordenable]::after{content:" ⇅";opacity:.35;font-size:.95em}
+    table:not([data-no-orden]) > thead th[data-orden="asc"]::after{content:" ▲";opacity:1;color:var(--c-pri)}
+    table:not([data-no-orden]) > thead th[data-orden="desc"]::after{content:" ▼";opacity:1;color:var(--c-pri)}
+    table:not([data-no-orden]) > thead th[data-orden]{color:var(--c-pri)!important}`;
+  document.head.appendChild(css);
+
+  // celda de la fila que corresponde a la columna (respeta colSpan)
+  const celdaEn = (fila, col) => {
+    let i = 0;
+    for (const c of fila.cells) { const span = c.colSpan || 1; if (col < i + span) return c; i += span; }
+    return null;
+  };
+  const columnaDe = (th) => {
+    let i = 0;
+    for (const c of th.parentElement.cells) { if (c === th) return i; i += c.colSpan || 1; }
+    return -1;
+  };
+  const textoCelda = (td) => {
+    if (!td) return "";
+    const sel = td.querySelector("select");
+    if (sel) return sel.options[sel.selectedIndex]?.text || "";
+    const inp = td.querySelector("input:not([type=checkbox]),textarea");
+    if (inp && !td.innerText.trim()) return inp.value || "";
+    const copia = td.cloneNode(true);
+    copia.querySelectorAll("[data-orden-ignorar],button").forEach(e => e.remove());
+    return (copia.textContent || "").replace(/\s+/g, " ").trim();
+  };
+  const aFecha = (t) => {
+    let m = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (m) { const y = m[3].length === 2 ? 2000 + +m[3] : +m[3]; return y * 10000 + +m[2] * 100 + +m[1]; }
+    m = t.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return +m[1] * 10000 + +m[2] * 100 + +m[3];
+    return null;
+  };
+  const aNumero = (t) => {
+    const m = t.match(/^[^\d\-−a-zA-ZáéíóúñÁÉÍÓÚÑ]*([\-−]?)\s*\$?\s*([\-−]?)(\d[\d.]*)(,\d+)?/);
+    if (!m) return null;
+    const n = parseFloat(m[3].replace(/\./g, "") + (m[4] ? "." + m[4].slice(1) : ""));
+    return (m[1] || m[2]) ? -n : n;
+  };
+
+  const ordenar = (tabla) => {
+    const st = tabla.__orden;
+    if (!st || tabla.__ordenando) return;
+    tabla.__ordenando = true;
+    for (const tbody of tabla.tBodies) {
+      const filas = [...tbody.rows];
+      if (filas.length < 2) continue;
+      // fila "normal" + las filas de detalle (con colSpan) que van pegadas debajo
+      const grupos = []; const fijas = [];
+      filas.forEach(f => {
+        const esDetalle = [...f.cells].some(c => c.colSpan > 1) || f.cells.length <= 1;
+        if (esDetalle) { if (grupos.length) grupos[grupos.length - 1].push(f); else fijas.push(f); }
+        else grupos.push([f]);
+      });
+      if (!st.original.has(tbody)) st.original.set(tbody, filas);
+      let orden;
+      if (!st.dir) {
+        const orig = st.original.get(tbody);
+        orden = [...grupos].sort((a, b) => {
+          const ia = orig.indexOf(a[0]), ib = orig.indexOf(b[0]);
+          return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
+        });
+      } else {
+        const textos = grupos.map(g => textoCelda(celdaEn(g[0], st.col)));
+        const llenos = textos.filter(Boolean);
+        const tipo = llenos.length && llenos.every(t => aFecha(t) !== null) ? "fecha"
+                   : llenos.length && llenos.every(t => aNumero(t) !== null) ? "numero" : "texto";
+        // en texto se ignoran emojis y símbolos del principio (ej: "🪧 Lona" se ordena como "Lona")
+        const valor = (t) => !t ? null : tipo === "fecha" ? aFecha(t) : tipo === "numero" ? aNumero(t) : (t.replace(/^[^\p{L}\p{N}]+/u, "") || t);
+        const vals = textos.map(valor);
+        const idx = grupos.map((_, i) => i);
+        idx.sort((i, j) => {
+          const a = vals[i], b = vals[j];
+          if (a === null && b === null) return i - j;
+          if (a === null) return 1;            // vacíos siempre al final
+          if (b === null) return -1;
+          const d = tipo === "texto" ? a.localeCompare(b, "es", { numeric:true, sensitivity:"base" }) : a - b;
+          return (st.dir === "desc" ? -d : d) || i - j;
+        });
+        orden = idx.map(i => grupos[i]);
+      }
+      const final = [...fijas, ...orden.flat()];
+      if (final.some((f, i) => tbody.rows[i] !== f)) final.forEach(f => tbody.appendChild(f));
+    }
+    tabla.__ordenando = false;
+  };
+
+  const marcarEncabezados = () => {
+    document.querySelectorAll("table:not([data-no-orden]) > thead th:not([data-ordenable]):not([data-sin-orden])").forEach(th => {
+      if (th.querySelector("input,button,select") || !th.textContent.trim()) th.setAttribute("data-sin-orden", "");
+      else th.setAttribute("data-ordenable", "");
+    });
+  };
+
+  document.addEventListener("click", (e) => {
+    const th = e.target.closest && e.target.closest("th[data-ordenable]");
+    if (!th) return;
+    const tabla = th.closest("table");
+    if (!tabla || tabla.hasAttribute("data-no-orden")) return;
+    const col = columnaDe(th);
+    const st = tabla.__orden || (tabla.__orden = { col:-1, dir:null, original:new Map() });
+    if (!st.dir) st.original = new Map();   // se toma el orden actual como "original"
+    if (st.col !== col) { st.col = col; st.dir = "asc"; }
+    else st.dir = st.dir === "asc" ? "desc" : st.dir === "desc" ? null : "asc";
+    tabla.querySelectorAll(":scope > thead th[data-orden]").forEach(x => x.removeAttribute("data-orden"));
+    if (st.dir) th.setAttribute("data-orden", st.dir);
+    ordenar(tabla);
+    if (!st.dir) tabla.__orden = null;
+  });
+
+  // si la app agrega, quita o actualiza filas, se vuelve a aplicar el orden elegido
+  let pendiente = false;
+  const tablasTocadas = new Set();
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+      if (!el) continue;
+      const tabla = el.closest("table");
+      if (tabla && tabla.__orden && !tabla.__ordenando && el.closest("tbody")) tablasTocadas.add(tabla);
+    }
+    if (pendiente) return;
+    pendiente = true;
+    requestAnimationFrame(() => {
+      pendiente = false;
+      marcarEncabezados();
+      tablasTocadas.forEach(t => { if (t.isConnected) {
+        // si React volvió a dibujar el encabezado, se repone la flecha
+        const st = t.__orden; const th = [...(t.tHead?.rows[0]?.cells || [])].find(c => columnaDe(c) === st.col);
+        if (th && st.dir && th.getAttribute("data-orden") !== st.dir) th.setAttribute("data-orden", st.dir);
+        ordenar(t);
+      }});
+      tablasTocadas.clear();
+    });
+  }).observe(document.body, { childList:true, subtree:true, characterData:true });
+  marcarEncabezados();
+}
+
 const ESTADOS = ["Todos", "Pendiente", "En Producción", "Listo", "Entregado"];
 const ESTADO_COLOR = {
   Pendiente:        { bg: "#f5f5f5", text: "#616161" },
@@ -910,7 +1060,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                           <input type="checkbox" checked={seleccion.includes(p.fireId)} onChange={()=>toggleSel(p.fireId)} style={chk}/>
                         </td>
                         <td style={{ padding:"13px 16px" }}>
-                          <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"var(--c-pri)", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }}>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
+                          <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"var(--c-pri)", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }} data-orden-ignorar>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
                           {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
                         </td>
                         <td style={{ padding:"13px 16px" }}>
@@ -1000,7 +1150,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                     return (
                       <tr key={p.fireId||p.id} style={{ borderBottom:"1px solid var(--c-row)" }}>
                         <td style={{ padding:"11px 16px" }}>
-                          <div style={{ fontWeight:600, color:"#4a5568" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"#8a7060", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }}>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
+                          <div style={{ fontWeight:600, color:"#4a5568" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"#8a7060", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }} data-orden-ignorar>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
                           {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
                         </td>
                         <td style={{ padding:"11px 16px" }}>
@@ -2246,7 +2396,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
         <div style={{ textAlign:"center", padding:40, color:"#a09080" }}>Cargando...</div>
       ) : (
         <div style={{ overflowX:"auto" }}>
-          <table style={{ borderCollapse:"collapse", width:"100%", minWidth:1040, tableLayout:"fixed" }}>
+          <table data-no-orden style={{ borderCollapse:"collapse", width:"100%", minWidth:1040, tableLayout:"fixed" }}>
             <colgroup>
               <col style={{ width:120 }}/>
               {dias.map(d => <col key={d.fecha}/>)}
@@ -9278,6 +9428,7 @@ export default function App() {
   const [expandedCats, setExpandedCats]   = useState({});
   const [printModal, setPrintModal]       = useState(null);
   const [msgModal, setMsgModal]           = useState(null);
+  useEffect(() => { instalarOrdenTablas(); }, []);
   // Al agendar un pedido nuevo (desde cualquier pantalla) se ofrece el mensaje de confirmación
   useEffect(() => {
     const h = (e) => {
@@ -9995,7 +10146,7 @@ export default function App() {
                                   style={{ borderBottom:"1px solid #f2f4f9", background:ven?"#fff8f8":hf?"#fffdf0":"#fff" }}
                                   onClick={() => { setSelectedPedido(p); setView("detalle"); }}>
                                   <td style={{ padding:"12px 16px" }}>
-                                    <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"var(--c-pri)", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }}>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
+                                    <div style={{ fontWeight:600, color:"#1a2340" }}>{p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"var(--c-pri)", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px", marginRight:7, whiteSpace:"nowrap" }} data-orden-ignorar>{fmtOT(p.nroOT)}</span>}{p.nombre}</div>
                                     {p.notas && <div style={{ fontSize:11, color:"#a09080", marginTop:2, maxWidth:210, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.notas}</div>}
                                   </td>
                                   <td style={{ padding:"12px 16px", color:"#4a5568", whiteSpace:"nowrap" }}>
