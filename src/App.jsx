@@ -9491,6 +9491,24 @@ function ImportarGestor({ cfg, guardarCfg, movs, showToast, onClose }) {
 }
 
 function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast, onImportar }) {
+  const [borrando, setBorrando] = useState(null); // progreso 0..1 mientras borra
+  const importados = movs.filter(m => m.origen === "gestor");
+  const borrarImportados = async () => {
+    if (!importados.length) return;
+    if (!window.confirm(`Se van a borrar los ${importados.length} movimientos que vinieron del Excel (incluido el saldo inicial de la importación).\nLo que cargaste a mano en la app NO se toca.\n\n¿Continuar?`)) return;
+    if (window.prompt('Para confirmar escribí BORRAR') !== "BORRAR") { showToast("No se borró nada"); return; }
+    setBorrando(0);
+    try {
+      for (let i = 0; i < importados.length; i += 400) {
+        const lote = writeBatch(db);
+        importados.slice(i, i + 400).forEach(m => lote.delete(doc(db, "cajaMovs", m.fireId)));
+        await lote.commit();
+        setBorrando(Math.min(importados.length, i + 400) / importados.length);
+      }
+      showToast(`Se borraron ${importados.length} movimientos importados ✅`);
+    } catch(e) { console.error(e); showToast("Error al borrar","error"); }
+    setBorrando(null);
+  };
   const [cuentas, setCuentas] = useState(cfg.cuentas);
   const conOrig = (l) => l.map(x => ({ ...x, subs: x.subs || [], _orig: x.nombre }));
   const [catsI, setCatsI] = useState(() => conOrig(cfg.catsIngreso));
@@ -9645,7 +9663,15 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast, onImportar }) {
           <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>📥 Importar desde Gestor de gastos</div>
           <div style={{ fontSize:13, color:"#a09080" }}>Traé tu historial desde el Excel que exporta la app. Antes de importar podés elegir a qué caja y categoría va cada cosa.</div>
         </div>
-        <button onClick={onImportar} style={{ background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, padding:"11px 20px", fontWeight:700, cursor:"pointer", fontSize:14 }}>📥 Importar Excel</button>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          {importados.length > 0 && (
+            <button onClick={borrarImportados} disabled={borrando !== null}
+              style={{ background:"#fff", color:"#c62828", border:"1.5px solid #ef9a9a", borderRadius:8, padding:"10px 16px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+              {borrando !== null ? `Borrando… ${Math.round(borrando*100)}%` : `🗑 Borrar lo importado (${importados.length})`}
+            </button>
+          )}
+          <button onClick={onImportar} style={{ background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, padding:"11px 20px", fontWeight:700, cursor:"pointer", fontSize:14 }}>📥 Importar Excel</button>
+        </div>
       </div>
 
       <div style={cajaCard}>
