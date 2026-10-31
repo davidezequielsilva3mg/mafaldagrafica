@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   collection, onSnapshot, addDoc, updateDoc,
-  deleteDoc, doc, setDoc, getDoc, getDocs, writeBatch
+  deleteDoc, doc, setDoc, getDoc, getDocs, writeBatch, query, where
 } from "firebase/firestore";
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
@@ -2197,6 +2197,8 @@ function getLunes(fecha) {
 function semanaKey(lunes) { return lunes.toISOString().split("T")[0]; }
 
 function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, clientes }) {
+  const cajaCfg = useCajaCfg();
+  const [mSeñaCuenta, setMSeñaCuenta] = useState("");
   const local = "grafica"; // único calendario (Librería eliminado)
   const [semanaInicio, setSemanaInicio] = useState(()=>getLunes(new Date()));
   const [grilla, setGrilla]             = useState({});
@@ -2348,7 +2350,14 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
     const nroOT = await getNextNroOT();
     const docData = { ...nuevoPedido };
     if (nroOT) docData.nroOT = nroOT;
-    await addDoc(collection(db,"pedidos"), docData);
+    const señaCuenta = parseFloat(mSeña) > 0 ? (mSeñaCuenta || cajaSugerida(cajaCfg, "seña")) : "";
+    if (señaCuenta) docData.señaCuenta = señaCuenta;
+    const refCal = await addDoc(collection(db,"pedidos"), docData);
+    if (señaCuenta) {
+      try { await registrarCobroCaja({ pedido: docData, pedidoId: refCal.id, cobro:"seña", monto: mSeña, cuenta: señaCuenta }); recordarCaja("seña", señaCuenta); }
+      catch(e) { console.error(e); showToast("El pedido se creó, pero la seña no entró a la caja","error"); }
+    }
+    setMSeñaCuenta("");
     showToast("Pedido creado ✅");
     avisarPedidoAgendado(docData);
     setSavingM(false);
@@ -2711,6 +2720,10 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                     style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
                 </div>
               </div>
+              {parseFloat(mSeña) > 0 && (
+                <SelectorCajaCobro cfg={cajaCfg} compacto value={mSeñaCuenta || cajaSugerida(cajaCfg, "seña")} onChange={setMSeñaCuenta}
+                  label={`¿Dónde entró la seña? ($${parseFloat(mSeña).toLocaleString("es-AR")} van a la Caja diaria)`}/>
+              )}
 
               {/* Detalle */}
               <div>
@@ -5689,6 +5702,10 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
   const [filtroFecha, setFiltroFecha] = useState("hoy");
   const [tabActiva, setTabActiva]     = useState("ventas"); // ventas | presupuestos
   const [convirtiendo, setConvirtiendo] = useState(null);
+  const cajaCfg = useCajaCfg();
+  const [convMetodo, setConvMetodo] = useState("Efectivo");
+  const [convCuenta, setConvCuenta] = useState("");
+  useEffect(() => { setConvCuenta(cajaSugerida(cajaCfg, convMetodo)); }, [convMetodo, cajaCfg]);
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, "ventas"), snap => {
@@ -5723,6 +5740,12 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
 
   const handleDelete = async (v) => {
     if (!window.confirm("¿Eliminar esta venta?")) return;
+    const cobros = await cobrosDeVenta(v.fireId).catch(() => []);
+    if (cobros.length) {
+      const tot = cobros.reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
+      if (window.confirm(`Esta venta entró a la Caja diaria ($${tot.toLocaleString("es-AR")}).\n¿La saco también de la caja?`))
+        for (const m of cobros) await deleteDoc(doc(db, "cajaMovs", m.fireId));
+    }
     await deleteDoc(doc(db, "ventas", v.fireId));
     showToast("Venta eliminada", "error");
   };
@@ -5737,7 +5760,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
     imprimirPresupuesto(p, empresa);
   };
 
-  const handleConvertirVenta = async (pres, metodoPago) => {
+  const handleConvertirVenta = async (pres, metodoPago, cuenta) => {
     setConvirtiendo(null);
     try {
       const snap = await getDocs(collection(db, "ventas"));
@@ -5754,7 +5777,14 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
         origen:        "presupuesto",
         presupuestoId: pres.fireId,
       };
-      await addDoc(collection(db, "ventas"), venta);
+      const refVenta = await addDoc(collection(db, "ventas"), venta);
+      if (metodoPago !== "Cuenta Corriente" && parseFloat(pres.total) > 0 && cuenta) {
+        try {
+          await registrarCobroCaja({ cobro:"venta", origen:"venta", ventaId: refVenta.id, clienteId: pres.clienteId||null, monto: pres.total, cuenta,
+            nota: `Venta X-${String(numero).padStart(5,"0")} · ${pres.clienteNombre||"Consumidor Final"} (presupuesto)` });
+          recordarCaja(metodoPago, cuenta);
+        } catch(e) { console.error(e); }
+      }
       // Marcar presupuesto como convertido
       await updateDoc(doc(db, "presupuestos", pres.fireId), { estado:"convertido", ventaId: pres.fireId });
       // Descontar stock
@@ -5968,16 +5998,21 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
               {convirtiendo.clienteNombre} · <strong style={{color:"var(--c-pri)"}}>${parseFloat(convirtiendo.total).toLocaleString("es-AR")}</strong>
             </div>
             <div style={{ fontWeight:600, fontSize:13, color:"#4a5568", marginBottom:12 }}>Método de pago:</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:20 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
               {getMetodosPago().map(x=>x.nombre).map(m=>(
-                <button key={m} onClick={()=>handleConvertirVenta(convirtiendo, m)}
-                  style={{ padding:"12px 8px", borderRadius:8, border:"1.5px solid var(--c-border)", background:"#fff", fontSize:12, fontWeight:600, cursor:"pointer", color:"#1a2340", transition:"all .15s" }}
-                  onMouseOver={e=>{e.currentTarget.style.background="var(--c-soft)";e.currentTarget.style.borderColor="var(--c-pri)";}}
-                  onMouseOut={e=>{e.currentTarget.style.background="#fff";e.currentTarget.style.borderColor="var(--c-border)";}}>
+                <button key={m} onClick={()=>setConvMetodo(m)}
+                  style={{ padding:"12px 8px", borderRadius:8, border:`2px solid ${convMetodo===m?"var(--c-pri)":"var(--c-border)"}`, background:convMetodo===m?"var(--c-pri)":"#fff", fontSize:12, fontWeight:700, cursor:"pointer", color:convMetodo===m?"#fff":"#1a2340", transition:"all .15s" }}>
                   {labelMetodo(m)}
                 </button>
               ))}
             </div>
+            {convMetodo !== "Cuenta Corriente" && (
+              <div style={{ marginBottom:14 }}>
+                <SelectorCajaCobro cfg={cajaCfg} compacto value={convCuenta} onChange={setConvCuenta} label="¿En qué caja entra?"/>
+              </div>
+            )}
+            <button onClick={()=>handleConvertirVenta(convirtiendo, convMetodo, convMetodo !== "Cuenta Corriente" ? convCuenta : "")}
+              style={{ width:"100%", padding:"12px", background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer", marginBottom:10 }}>✅ Confirmar venta</button>
             <button onClick={()=>setConvirtiendo(null)} style={{ width:"100%", padding:"10px", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
           </div>
         </div>
@@ -5988,6 +6023,8 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
 
 // ── Componente: Nueva Venta ───────────────────────────────────────────────
 function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }) {
+  const cajaCfg = useCajaCfg();
+  const [cuentaVenta, setCuentaVenta] = useState("");
   const [insumos, setInsumos]           = useState([]);
   const [items, setItems]               = useState([]);
   const [busqProd, setBusqProd]         = useState("");
@@ -5996,6 +6033,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
   const [clienteSelId, setClienteSelId] = useState(null);
   const [clienteNombre, setClienteNombre] = useState("");
   const [metodoPago, setMetodoPago]     = useState("Efectivo");
+  useEffect(() => { setCuentaVenta(cajaSugerida(cajaCfg, metodoPago)); }, [metodoPago, cajaCfg]);
   const [saving, setSaving]             = useState(false);
   const [tipoPrecios, setTipoPrecios]   = useState("venta"); // venta | gremio
   const [itemLibreNombre, setItemLibreNombre] = useState("");
@@ -6095,7 +6133,16 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
         total,
         creadoEn:      new Date().toISOString(),
       };
-      await addDoc(collection(db, "ventas"), venta);
+      const refVenta = await addDoc(collection(db, "ventas"), venta);
+
+      // La plata entra a la Caja diaria (salvo cuenta corriente)
+      if (metodoPago !== "Cuenta Corriente" && total > 0 && cuentaVenta) {
+        try {
+          await registrarCobroCaja({ cobro:"venta", origen:"venta", ventaId: refVenta.id, clienteId: clienteSelId||null, monto: total, cuenta: cuentaVenta,
+            nota: `Venta X-${String(numero).padStart(5,"0")} · ${clienteNombre||"Consumidor Final"}` });
+          recordarCaja(metodoPago, cuentaVenta);
+        } catch(e) { console.error(e); showToast("La venta se guardó, pero no entró a la caja","error"); }
+      }
 
       // Descontar stock de cada insumo
       for (const it of items) {
@@ -6345,6 +6392,11 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
             {metodoPago==="Cuenta Corriente" && !clienteSelId && (
               <div style={{ marginTop:10, fontSize:12, color:"#c62828", background:"#ffebee", padding:"8px 12px", borderRadius:7 }}>
                 ⚠️ Seleccioná un cliente para usar cuenta corriente
+              </div>
+            )}
+            {metodoPago !== "Cuenta Corriente" && (
+              <div style={{ marginTop:12 }}>
+                <SelectorCajaCobro cfg={cajaCfg} compacto value={cuentaVenta} onChange={setCuentaVenta} label="¿En qué caja entra?"/>
               </div>
             )}
           </div>
@@ -6869,6 +6921,8 @@ function ModalAprobarPresupuesto({ pres, clientes, showToast, onClose, onDone })
   const [telefono, setTelefono]   = useState(cliente?.telefono || "");
   const [seña, setSeña]           = useState("");
   const [saving, setSaving]       = useState(false);
+  const cajaCfg = useCajaCfg();
+  const [señaCuenta, setSeñaCuenta] = useState("");
 
   const confirmar = async () => {
     if (!categoria)    { showToast("Elegí una categoría","error"); return; }
@@ -6895,7 +6949,13 @@ function ModalAprobarPresupuesto({ pres, clientes, showToast, onClose, onDone })
         presupuestoNumero: pres.numero || null,
         ...(nroOT ? { nroOT } : {}),
       };
+      const cuentaSeña = parseFloat(seña) > 0 ? (señaCuenta || cajaSugerida(cajaCfg, "seña")) : "";
+      if (cuentaSeña) pedido.señaCuenta = cuentaSeña;
       const ref = await addDoc(collection(db, "pedidos"), pedido);
+      if (cuentaSeña) {
+        try { await registrarCobroCaja({ pedido, pedidoId: ref.id, cobro:"seña", monto: seña, cuenta: cuentaSeña }); recordarCaja("seña", cuentaSeña); }
+        catch(e) { console.error(e); }
+      }
       await updateDoc(doc(db, "presupuestos", pres.fireId), {
         estado:"aprobado", aprobadoEn:new Date().toISOString(),
         pedidoFireId:ref.id, fechaEntrega, categoria,
@@ -6942,6 +7002,10 @@ function ModalAprobarPresupuesto({ pres, clientes, showToast, onClose, onDone })
               <input type="number" value={seña} onChange={e=>setSeña(e.target.value)} placeholder="0" style={inp}/>
             </div>
           </div>
+          {parseFloat(seña) > 0 && (
+            <SelectorCajaCobro cfg={cajaCfg} compacto value={señaCuenta || cajaSugerida(cajaCfg, "seña")} onChange={setSeñaCuenta}
+              label={`¿Dónde entró la seña? ($${parseFloat(seña).toLocaleString("es-AR")} van a la Caja diaria)`}/>
+          )}
           <div>
             <label style={lbl}>Teléfono</label>
             <input value={telefono} onChange={e=>setTelefono(e.target.value)} placeholder="Se muestra en el Calendario" style={inp}/>
@@ -8035,6 +8099,8 @@ function NotasCliente({ cl, showToast }) {
 }
 
 function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClienteId, showToast, clienteDestacado, setClienteDestacado }) {
+  const cajaCfg = useCajaCfg();
+  const [cuentaPago, setCuentaPago] = useState("");
   const [busq, setBusq]           = useState("");
   const [selected, setSelected]   = useState(clienteDestacado || null);
   const [pagoModal, setPagoModal] = useState(null);
@@ -8075,7 +8141,13 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
       fecha: new Date().toISOString().split("T")[0],
       descripcion: "Pago en cuenta corriente"
     });
-    showToast(`Pago de $${monto.toLocaleString("es-AR")} registrado ✅`);
+    const cuenta = cuentaPago || cajaSugerida(cajaCfg, "ctacte");
+    try {
+      await registrarCobroCaja({ cobro:"ctacte", origen:"ctacte", clienteId: cl.fireId, monto, cuenta,
+        nota: `Pago cuenta corriente · ${`${cl.nombre||""} ${cl.apellido||""}`.trim()}` });
+      recordarCaja("ctacte", cuenta);
+    } catch(e) { console.error(e); showToast("El pago se registró, pero no entró a la caja","error"); }
+    showToast(`Pago de $${monto.toLocaleString("es-AR")} registrado y sumado a la caja ✅`);
     setPagoModal(null);
     setMontoPago("");
   };
@@ -8180,6 +8252,9 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
               <input type="number" value={montoPago} onChange={e=>setMontoPago(e.target.value)}
                 placeholder="0" autoFocus
                 style={{ width:"100%", padding:"11px 14px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:16, fontWeight:700, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", marginBottom:20 }}/>
+              <div style={{ marginBottom:16 }}>
+                <SelectorCajaCobro cfg={cajaCfg} compacto value={cuentaPago || cajaSugerida(cajaCfg, "ctacte")} onChange={setCuentaPago} label="¿En qué caja entra?"/>
+              </div>
               <div style={{ display:"flex", gap:10 }}>
                 <button onClick={() => setPagoModal(null)} style={{ flex:1, padding:"10px", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
                 <button onClick={handlePago} style={{ flex:2, padding:"10px", background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>✅ Confirmar Pago</button>
@@ -8512,6 +8587,95 @@ const CAJA_CFG_DEFAULT = {
     { nombre:"Sueldos", icono:"👷" }, { nombre:"Comida", icono:"☕" }, { nombre:"Otros", icono:"⭐" },
   ],
 };
+
+// ── Cobros de pedidos → Caja diaria ──────────────────────────────────────
+// Las señas y lo que se cobra al entregar entran solos como ingreso en la caja elegida.
+// Cada movimiento queda marcado con origen:"pedido", pedidoId y cobro:"seña"|"saldo".
+function useCajaCfg() {
+  const [cfg, setCfg] = useState(CAJA_CFG_DEFAULT);
+  useEffect(() => {
+    const u = onSnapshot(doc(db, "config", "cajaDiaria"), snap => {
+      if (snap.exists()) { const d = snap.data(); setCfg({ ...CAJA_CFG_DEFAULT, ...d, cuentas: d.cuentas?.length ? d.cuentas : CAJA_CFG_DEFAULT.cuentas, catsIngreso: d.catsIngreso?.length ? d.catsIngreso : CAJA_CFG_DEFAULT.catsIngreso }); }
+    }, () => {});
+    return () => u();
+  }, []);
+  return cfg;
+}
+async function leerCajaCfg() {
+  try { const s = await getDoc(doc(db, "config", "cajaDiaria")); if (s.exists()) { const d = s.data(); return { ...CAJA_CFG_DEFAULT, ...d, cuentas: d.cuentas?.length ? d.cuentas : CAJA_CFG_DEFAULT.cuentas, catsIngreso: d.catsIngreso?.length ? d.catsIngreso : CAJA_CFG_DEFAULT.catsIngreso }; } }
+  catch(e) { console.error(e); }
+  return CAJA_CFG_DEFAULT;
+}
+const esCajaEfectivo = (c) => /efectivo/.test(normTxt(`${c?.id} ${c?.nombre}`));
+// Caja sugerida según cómo pagó (la última elegida para ese método, o la de efectivo si es "Efectivo")
+function cajaSugerida(cfg, metodo = "Efectivo") {
+  const pesos = cfg.cuentas.filter(c => c.moneda !== "USD");
+  let guardada = ""; try { guardada = localStorage.getItem("caja_cobro_" + metodo) || ""; } catch(e) {}
+  if (pesos.some(c => c.id === guardada)) return guardada;
+  if (metodo === "Efectivo") return (pesos.find(esCajaEfectivo) || pesos[0])?.id || "";
+  return (pesos.find(c => !esCajaEfectivo(c)) || pesos[0])?.id || "";
+}
+function recordarCaja(metodo, cuentaId) { try { localStorage.setItem("caja_cobro_" + metodo, cuentaId); } catch(e) {} }
+// Categoría de ingreso que corresponde a la caja (efectivo → "Efectivo", el resto → "Transferencias")
+function categoriaCobro(cfg, cuentaId) {
+  const caja = cfg.cuentas.find(c => c.id === cuentaId);
+  const cats = cfg.catsIngreso || [];
+  const efe = cats.find(x => /efectivo/.test(normTxt(x.nombre)));
+  const tra = cats.find(x => /transfer/.test(normTxt(x.nombre)));
+  return ((esCajaEfectivo(caja) ? efe : tra) || cats[0])?.nombre || "Ventas";
+}
+const etiquetaPedido = (p) => `${p.nroOT ? fmtOT(p.nroOT) + " · " : ""}${p.nombre||"Pedido"}${p.cliente ? " (" + p.cliente + ")" : ""}`;
+const ORIGENES_AUTO = ["pedido", "venta", "ctacte"];
+const esMovAuto = (m) => ORIGENES_AUTO.includes(m.origen);
+// cobro: "seña" | "saldo" (pedidos) · "venta" (ventas) · "ctacte" (pago de cuenta corriente)
+async function registrarCobroCaja({ pedido, pedidoId, ventaId, clienteId, cobro, monto, cuenta, fecha, nota, origen }) {
+  monto = Math.round((parseFloat(monto)||0) * 100) / 100;
+  if (!monto || !cuenta) return null;
+  const cfg = await leerCajaCfg();
+  return addDoc(collection(db, "cajaMovs"), {
+    fecha: fecha || hoyISO(), tipo:"ingreso", monto, cuenta, categoria: categoriaCobro(cfg, cuenta), subcategoria:"",
+    nota: nota || `${cobro === "seña" ? "Seña" : "Cobro al entregar"} · ${etiquetaPedido(pedido||{})}`,
+    origen: origen || "pedido", pedidoId: pedidoId || pedido?.fireId || null, ventaId: ventaId || null, clienteId: clienteId || null,
+    cobro, creadoEn: new Date().toISOString(),
+  });
+}
+async function cobrosDeVenta(ventaId) {
+  if (!ventaId) return [];
+  const s = await getDocs(query(collection(db, "cajaMovs"), where("ventaId", "==", ventaId)));
+  return s.docs.map(d => ({ ...d.data(), fireId: d.id }));
+}
+async function cobrosDePedido(pedidoId) {
+  if (!pedidoId) return [];
+  const s = await getDocs(query(collection(db, "cajaMovs"), where("pedidoId", "==", pedidoId)));
+  return s.docs.map(d => ({ ...d.data(), fireId: d.id }));
+}
+// Cuando cambia la seña de un pedido ya cargado: si subió, entra la diferencia hoy; si bajó, se descuenta de las señas registradas
+async function ajustarSeñaEnCaja(pedido, señaAnterior, señaNueva, cuenta) {
+  const dif = Math.round(((parseFloat(señaNueva)||0) - (parseFloat(señaAnterior)||0)) * 100) / 100;
+  if (!dif) return;
+  if (dif > 0) { await registrarCobroCaja({ pedido, cobro:"seña", monto:dif, cuenta: cuenta || pedido.señaCuenta }); return; }
+  let falta = -dif;
+  const señas = (await cobrosDePedido(pedido.fireId)).filter(m => m.cobro === "seña").sort((a,b) => (b.creadoEn||"").localeCompare(a.creadoEn||""));
+  for (const m of señas) {
+    if (falta <= 0) break;
+    const v = parseFloat(m.monto)||0;
+    if (v <= falta) { await deleteDoc(doc(db, "cajaMovs", m.fireId)); falta -= v; }
+    else { await updateDoc(doc(db, "cajaMovs", m.fireId), { monto: Math.round((v - falta) * 100) / 100 }); falta = 0; }
+  }
+}
+// Selector de caja para cobros (solo cajas en pesos)
+function SelectorCajaCobro({ cfg, value, onChange, label = "¿Dónde entró?", compacto }) {
+  const pesos = cfg.cuentas.filter(c => c.moneda !== "USD");
+  return (
+    <div>
+      {label && <label style={{ display:"block", fontSize: compacto ? 12 : 13, fontWeight:600, color:"#4a5568", marginBottom: compacto ? 5 : 6 }}>{label}</label>}
+      <select value={value || ""} onChange={e => onChange(e.target.value)}
+        style={{ width:"100%", padding: compacto ? "10px 12px" : "11px 14px", borderRadius:8, border:"1.5px solid #a5d6a7", background:"#f1f8e9", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", color:"#1b5e20", fontWeight:600 }}>
+        {pesos.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
+      </select>
+    </div>
+  );
+}
 const hoyISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().split("T")[0]; };
 // "15.000" · "15000,50" · "15000.5" → número
 function parseMonto(v) {
@@ -8692,6 +8856,8 @@ function CajaDia({ fecha, setFecha, movs, cfg, ventas, nombreCuenta, monedaDe, i
   const suma = (tipo, moneda) => delDia.filter(m => m.tipo === tipo && monedaDe(m.cuenta) === moneda).reduce((t,m) => t + (parseFloat(m.monto)||0), 0);
   const ingARS = suma("ingreso","ARS"), egrARS = suma("egreso","ARS");
   const ingUSD = suma("ingreso","USD"), egrUSD = suma("egreso","USD");
+  const autoDia = delDia.filter(esMovAuto);
+  const cuantos = (k) => autoDia.filter(m => m.cobro === k).length;
   const ventasHoy = ventas.filter(v => v.fecha === fecha && v.metodoPago !== "Cuenta Corriente");
   const porMetodo = {};
   ventasHoy.forEach(v => { porMetodo[v.metodoPago||"Otro"] = (porMetodo[v.metodoPago||"Otro"]||0) + (parseFloat(v.total)||0); });
@@ -8730,17 +8896,24 @@ function CajaDia({ fecha, setFecha, movs, cfg, ventas, nombreCuenta, monedaDe, i
           ))}
         </div>
 
-        {/* Referencia del sistema */}
-        <div style={{ ...cajaCard, background:"var(--c-softer)" }}>
-          <div style={{ fontSize:13, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Referencia: cobrado en la app</div>
-          <div style={{ fontSize:12, color:"#a09080", marginBottom:10 }}>Ventas y entregas registradas este día. Las señas cobradas al tomar el pedido no aparecen acá.</div>
-          {Object.keys(porMetodo).length === 0
-            ? <div style={{ fontSize:13, color:"#a09080" }}>Sin ventas registradas este día.</div>
-            : Object.entries(porMetodo).map(([met, tot]) => (
-              <div key={met} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", fontSize:14 }}>
-                <span style={{ color:"#4a5568" }}>{labelMetodo(met)}</span><span style={{ fontWeight:700 }}>{fmtMoneda(tot)}</span>
-              </div>
-            ))}
+        {/* Cobros que entraron solos desde Pedidos */}
+        <div style={{ ...cajaCard, background:"#f1f8e9" }}>
+          <div style={{ fontSize:13, fontWeight:700, color:"#558b2f", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>🤖 Entró solo desde la app</div>
+          <div style={{ fontSize:12, color:"#7c9a5c", marginBottom:10 }}>Señas, entregas, ventas y pagos de cuenta corriente de este día. Ya están sumados en la caja: no los cargues de nuevo.</div>
+          {autoDia.length === 0
+            ? <div style={{ fontSize:13, color:"#7c9a5c" }}>Nada todavía este día.</div>
+            : <>
+                {cfg.cuentas.filter(c => autoDia.some(m => m.cuenta === c.id)).map(c => (
+                  <div key={c.id} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", fontSize:14 }}>
+                    <span style={{ color:"#4a5568" }}>{c.icono} {c.nombre}</span>
+                    <span style={{ fontWeight:700 }}>{fmtMoneda(autoDia.filter(m => m.cuenta === c.id).reduce((s,m) => s + (parseFloat(m.monto)||0), 0))}</span>
+                  </div>
+                ))}
+                <div style={{ display:"flex", justifyContent:"space-between", borderTop:"1.5px solid #c5e1a5", marginTop:6, paddingTop:8, fontSize:13, color:"#558b2f" }}>
+                  <span>{[["seña","seña","señas"],["saldo","entrega","entregas"],["venta","venta","ventas"],["ctacte","pago cta. cte.","pagos cta. cte."]].filter(([k]) => cuantos(k)).map(([k,s,pl]) => `${cuantos(k)} ${cuantos(k)===1 ? s : pl}`).join(" · ")}</span>
+                  <b>{fmtMoneda(autoDia.reduce((s,m) => s + (parseFloat(m.monto)||0), 0))}</b>
+                </div>
+              </>}
         </div>
       </div>
 
@@ -8778,7 +8951,10 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
                 <td style={{ padding:"10px 14px", color:"#4a5568", whiteSpace:"nowrap" }}>
                   {nombreCuenta(m.cuenta)}{m.tipo==="transferencia" && <> → {nombreCuenta(m.cuentaDestino)}</>}
                 </td>
-                <td style={{ padding:"10px 14px", color:"#4a5568", maxWidth:260 }}>{m.nota||""}</td>
+                <td style={{ padding:"10px 14px", color:"#4a5568", maxWidth:300 }}>
+                  {esMovAuto(m) && <span title="Entró solo desde la app" style={{ background:"#f1f8e9", color:"#558b2f", border:"1px solid #c5e1a5", borderRadius:5, padding:"0 5px", fontSize:10, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>🤖 auto</span>}
+                  {m.nota||""}
+                </td>
                 <td style={{ padding:"10px 14px", textAlign:"right", fontWeight:800, whiteSpace:"nowrap", color: m.tipo==="egreso" ? "#c62828" : m.tipo==="ingreso" ? "#2e7d32" : "#1a2340" }}>
                   {fmtMoneda(signo * (parseFloat(m.monto)||0), mon)}
                   {m.tipo==="transferencia" && monedaDe(m.cuentaDestino) !== mon && m.montoDestino
@@ -10172,6 +10348,11 @@ function CambiarPin({ showToast }) {
 function EntregaModal({ pedido, onConfirmar, onClose }) {
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const saldo = parseFloat(pedido.precio||0) - parseFloat(pedido.seña||0);
+  const cajaCfg = useCajaCfg();
+  const [cuenta, setCuenta] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setCuenta(cajaSugerida(cajaCfg, metodoPago)); }, [metodoPago, cajaCfg]);
+  const vaACaja = metodoPago !== "Cuenta Corriente" && saldo > 0;
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:600 }} onClick={onClose}>
@@ -10217,14 +10398,20 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
           </div>
         </div>
 
+        {vaACaja && (
+          <div style={{ marginBottom:20 }}>
+            <SelectorCajaCobro cfg={cajaCfg} value={cuenta} onChange={setCuenta} label={`¿En qué caja entran los $${saldo.toLocaleString("es-AR")}?`}/>
+          </div>
+        )}
+
         <div style={{ display:"flex", gap:10 }}>
           <button onClick={onClose}
             style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>
             Cancelar
           </button>
-          <button onClick={()=>onConfirmar(pedido, metodoPago)}
+          <button disabled={saving} onClick={async ()=>{ setSaving(true); try { await onConfirmar(pedido, metodoPago, vaACaja ? cuenta : ""); } catch(e) { console.error(e); setSaving(false); } }}
             style={{ flex:2, padding:"11px", background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
-            ✅ Confirmar Entrega
+            {saving ? "Registrando..." : "✅ Confirmar Entrega"}
           </button>
         </div>
       </div>
@@ -10236,13 +10423,16 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
 function EntregaMultipleModal({ pedidos, onConfirmar, onClose }) {
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const [saving, setSaving]         = useState(false);
+  const cajaCfg = useCajaCfg();
+  const [cuenta, setCuenta] = useState("");
+  useEffect(() => { setCuenta(cajaSugerida(cajaCfg, metodoPago)); }, [metodoPago, cajaCfg]);
   const saldoDe = p => parseFloat(p.precio||0) - parseFloat(p.seña||0);
   const total   = pedidos.reduce((s,p) => s + saldoDe(p), 0);
   const sinCliente = pedidos.filter(p => !p.clienteId).length;
 
   const confirmar = async () => {
     setSaving(true);
-    try { await onConfirmar(pedidos, metodoPago); }
+    try { await onConfirmar(pedidos, metodoPago, metodoPago !== "Cuenta Corriente" ? cuenta : ""); }
     catch(e) { console.error(e); alert("Hubo un error al registrar las entregas."); setSaving(false); }
   };
 
@@ -10283,6 +10473,11 @@ function EntregaMultipleModal({ pedidos, onConfirmar, onClose }) {
         {metodoPago==="Cuenta Corriente" && sinCliente>0 && (
           <div style={{ fontSize:12, color:"#c62828", background:"#ffebee", padding:"8px 12px", borderRadius:7, marginBottom:16 }}>
             ⚠️ {sinCliente} pedido{sinCliente!==1?"s no tienen":" no tiene"} cliente vinculado: se marcan entregados pero no suman a ninguna cuenta corriente.
+          </div>
+        )}
+        {metodoPago !== "Cuenta Corriente" && total > 0 && (
+          <div style={{ marginBottom:14 }}>
+            <SelectorCajaCobro cfg={cajaCfg} value={cuenta} onChange={setCuenta} label={`¿En qué caja entran los $${total.toLocaleString("es-AR")}?`}/>
           </div>
         )}
         <div style={{ fontSize:12, color:"#a09080", marginBottom:16 }}>
@@ -10431,6 +10626,7 @@ export default function App() {
   const [printModal, setPrintModal]       = useState(null);
   const [msgModal, setMsgModal]           = useState(null);
   useEffect(() => { instalarOrdenTablas(); }, []);
+  const cajaCfg = useCajaCfg();
   // Al agendar un pedido nuevo (desde cualquier pantalla) se ofrece el mensaje de confirmación
   useEffect(() => {
     const h = (e) => {
@@ -10610,6 +10806,8 @@ export default function App() {
       const prev    = pedidos.find(p => p.fireId === editingId || p.id === editingId);
       const updated = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: prev?.id, clienteId: selectedClienteId||prev?.clienteId||null });
       await updateDoc(doc(db, "pedidos", editingId), updated);
+      try { await ajustarSeñaEnCaja({ ...prev, ...updated, fireId: editingId }, prev?.seña, updated.seña, formData.señaCuenta || prev?.señaCuenta || cajaSugerida(cajaCfg, "seña")); }
+      catch(e) { console.error(e); showToast("El pedido se guardó, pero no se pudo actualizar la seña en la caja","error"); }
       showToast("Pedido actualizado correctamente");
       triggerPrintIfNeeded(prev, updated);
       triggerMsgIfNeeded(prev, updated);
@@ -10617,8 +10815,13 @@ export default function App() {
       const ids = pedidos.map(p => typeof p.id === "number" ? p.id : 0);
       const newId = ids.length ? Math.max(...ids, 0) + 1 : 1;
       const nroOT = await getNextNroOT();
-      const nuevo = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: newId, ...(nroOT ? {nroOT} : {}), clienteId: selectedClienteId||null });
-      await addDoc(collection(db, "pedidos"), nuevo);
+      const señaCuenta = parseFloat(formData.seña) > 0 ? (formData.señaCuenta || cajaSugerida(cajaCfg, "seña")) : "";
+      const nuevo = limpiar({ ...formData, señaCuenta, notas: notasStr || formData.notas, notasItems: undefined, id: newId, ...(nroOT ? {nroOT} : {}), clienteId: selectedClienteId||null });
+      const refNuevo = await addDoc(collection(db, "pedidos"), nuevo);
+      if (parseFloat(nuevo.seña) > 0) {
+        try { await registrarCobroCaja({ pedido: nuevo, pedidoId: refNuevo.id, cobro:"seña", monto: nuevo.seña, cuenta: señaCuenta, fecha: nuevo.fechaPedido || hoyISO() }); recordarCaja("seña", señaCuenta); }
+        catch(e) { console.error(e); showToast("El pedido se guardó, pero la seña no entró a la caja","error"); }
+      }
       showToast("Pedido cargado exitosamente 🎉");
       triggerPrintIfNeeded(null, nuevo);
       if (nuevo.estado === "Listo") triggerMsgIfNeeded(null, nuevo);
@@ -10633,6 +10836,14 @@ export default function App() {
     if (nuevoEstado === "Entregado" && prev.estado !== "Entregado") {
       setEntregaModal({ pedido: prev });
       return;
+    }
+    if (prev.estado === "Entregado" && nuevoEstado !== "Entregado") {
+      const cobrosSaldo = (await cobrosDePedido(prev.fireId).catch(() => [])).filter(m => m.cobro === "saldo");
+      if (cobrosSaldo.length) {
+        const tot = cobrosSaldo.reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
+        if (window.confirm(`Al entregarlo entraron $${tot.toLocaleString("es-AR")} a la caja.\n¿Los saco de la caja, ya que deja de estar entregado?`))
+          for (const m of cobrosSaldo) await deleteDoc(doc(db, "cajaMovs", m.fireId));
+      }
     }
     const updated = { ...prev, estado: nuevoEstado };
     let estadoCalendario = prev.estadoCalendario || 0;
@@ -10671,20 +10882,24 @@ export default function App() {
 
   const [entregaMultiple, setEntregaMultiple] = useState(null); // array de pedidos
 
-  const confirmarEntrega = async (pedido, metodoPago) => {
-    await registrarEntrega(pedido, metodoPago);
+  const saldoPedido = (p) => Math.max(0, parseFloat(p.precio||0) - parseFloat(p.seña||0));
+  const confirmarEntrega = async (pedido, metodoPago, cuenta) => {
+    await registrarEntrega(pedido, metodoPago, cuenta);
     setEntregaModal(null);
-    showToast(`Pedido entregado · $${parseFloat(pedido.precio||0).toLocaleString("es-AR")} registrado en Finanzas ✅`);
+    const s = saldoPedido(pedido);
+    showToast(metodoPago === "Cuenta Corriente" ? `Pedido entregado · $${s.toLocaleString("es-AR")} a cuenta corriente ✅`
+      : s > 0 ? `Pedido entregado · $${s.toLocaleString("es-AR")} entraron a la caja ✅` : "Pedido entregado ✅");
   };
 
-  const confirmarEntregaMultiple = async (lista, metodoPago) => {
-    for (const p of lista) await registrarEntrega(p, metodoPago);
-    const total = lista.reduce((s,p) => s + parseFloat(p.precio||0), 0);
+  const confirmarEntregaMultiple = async (lista, metodoPago, cuenta) => {
+    for (const p of lista) await registrarEntrega(p, metodoPago, cuenta);
+    const total = lista.reduce((s,p) => s + saldoPedido(p), 0);
     setEntregaMultiple(null);
-    showToast(`${lista.length} pedido${lista.length!==1?"s":""} entregado${lista.length!==1?"s":""} · $${total.toLocaleString("es-AR")} registrado en Finanzas ✅`);
+    showToast(`${lista.length} pedido${lista.length!==1?"s":""} entregado${lista.length!==1?"s":""} · $${total.toLocaleString("es-AR")} ${metodoPago === "Cuenta Corriente" ? "a cuenta corriente" : "entraron a la caja"} ✅`);
   };
 
-  const registrarEntrega = async (pedido, metodoPago) => {
+  const registrarEntrega = async (pedido, metodoPago, cuenta) => {
+    const saldoEnt = saldoPedido(pedido);
     // 1. Marcar pedido como entregado
     await updateDoc(doc(db, "pedidos", pedido.fireId), { estado: "Entregado" });
     // 2. Registrar en ventas de finanzas
@@ -10700,13 +10915,20 @@ export default function App() {
       pedidoId:      pedido.fireId,
       items:         [{ nombre: pedido.nombre, cantidad: 1, precio: parseFloat(pedido.precio||0) }],
       total:         parseFloat(pedido.precio||0),
+      seña:          parseFloat(pedido.seña||0),
+      cobradoAlEntregar: saldoEnt,
       creadoEn:      new Date().toISOString(),
     });
-    // 3. Si es cuenta corriente, sumar al saldo del cliente
+    // 3. Lo que se cobra al entregar entra a la Caja diaria
+    if (metodoPago !== "Cuenta Corriente" && saldoEnt > 0 && cuenta) {
+      try { await registrarCobroCaja({ pedido, cobro:"saldo", monto: saldoEnt, cuenta }); recordarCaja(metodoPago, cuenta); }
+      catch(e) { console.error(e); showToast("Se entregó, pero el cobro no entró a la caja","error"); }
+    }
+    // 4. Si es cuenta corriente, sumar al cliente lo que falta pagar (la seña ya la pagó)
     if (metodoPago === "Cuenta Corriente" && pedido.clienteId) {
       const clSnap = await getDoc(doc(db, "clientes", pedido.clienteId));
       if (clSnap.exists()) {
-        const nuevoSaldo = (parseFloat(clSnap.data().saldoCuenta)||0) + parseFloat(pedido.precio||0);
+        const nuevoSaldo = (parseFloat(clSnap.data().saldoCuenta)||0) + saldoEnt;
         await updateDoc(doc(db, "clientes", pedido.clienteId), { saldoCuenta: nuevoSaldo });
       }
     }
@@ -10725,6 +10947,12 @@ export default function App() {
     const p = pedidos.find(x => x.fireId === id) || pedidos.find(x => x.id === id);
     if (!p?.fireId) { showToast("No se encontró el pedido","error"); return; }
     try {
+      const cobros = await cobrosDePedido(p.fireId).catch(() => []);
+      if (cobros.length) {
+        const tot = cobros.reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
+        if (window.confirm(`Este pedido tiene ${cobros.length} cobro${cobros.length>1?"s":""} en la Caja diaria ($${tot.toLocaleString("es-AR")}).\n\n¿Los borro también?\n(Aceptar = borrar · Cancelar = dejarlos en la caja)`))
+          for (const m of cobros) await deleteDoc(doc(db, "cajaMovs", m.fireId));
+      }
       await deleteDoc(doc(db, "pedidos", p.fireId));
       if (selectedPedido?.fireId === p.fireId) { setSelectedPedido(null); setView("lista"); }
       showToast("Pedido eliminado", "error");
@@ -11372,6 +11600,23 @@ export default function App() {
                 <input type="number" value={formData.seña} onChange={e=>setFormData(p=>({...p,seña:e.target.value}))} placeholder="0.00" style={inp()}/>
               </div>
 
+              {parseFloat(formData.seña) > 0 && (() => {
+                const prevP = editingId !== null ? pedidos.find(p => p.fireId === editingId) : null;
+                const cambio = !prevP || parseFloat(prevP.seña||0) !== parseFloat(formData.seña||0);
+                if (!cambio) return null;
+                return (
+                  <div style={{ gridColumn:"1 / -1", display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"end", background:"#f1f8e9", borderRadius:10, padding:"12px 14px" }}>
+                    <SelectorCajaCobro cfg={cajaCfg} value={formData.señaCuenta || cajaSugerida(cajaCfg, "seña")} onChange={v => setFormData(p => ({ ...p, señaCuenta:v }))}
+                      label={prevP ? "La diferencia de seña entra en" : "¿Dónde entró la seña?"}/>
+                    <div style={{ fontSize:12, color:"#558b2f", paddingBottom:10 }}>
+                      💰 {prevP
+                        ? `Se ${parseFloat(formData.seña) > parseFloat(prevP.seña||0) ? "suman" : "descuentan"} $${Math.abs(parseFloat(formData.seña) - parseFloat(prevP.seña||0)).toLocaleString("es-AR")} en la Caja diaria.`
+                        : `Se cargan $${parseFloat(formData.seña).toLocaleString("es-AR")} como ingreso en la Caja diaria.`}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {(formData.precio||formData.seña) && (
                 <div style={{ gridColumn:"1 / -1", background:"var(--c-soft)", borderRadius:10, padding:"12px 18px", display:"flex", gap:24 }}>
                   <div><span style={{ fontSize:12, color:"#a09080" }}>Total: </span><strong>${parseFloat(formData.precio||0).toLocaleString("es-AR")}</strong></div>
@@ -11518,7 +11763,11 @@ export default function App() {
                       color={f.color}
                       onSave={async (val) => {
                         await updateDoc(doc(db,"pedidos",p.fireId), { [f.field]: val });
-                        showToast(`${f.label} actualizado ✅`);
+                        if (f.field === "seña") {
+                          try { await ajustarSeñaEnCaja(p, p.seña, val, p.señaCuenta || cajaSugerida(cajaCfg, "seña")); } catch(e) { console.error(e); }
+                          const dif = (parseFloat(val)||0) - (parseFloat(p.seña)||0);
+                          showToast(dif ? `Seña actualizada · ${dif > 0 ? "+" : "-"}$${Math.abs(dif).toLocaleString("es-AR")} en la caja ✅` : "Seña actualizada ✅");
+                        } else showToast(`${f.label} actualizado ✅`);
                       }}
                     />
                   </div>
