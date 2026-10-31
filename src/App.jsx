@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   collection, onSnapshot, addDoc, updateDoc,
-  deleteDoc, doc, setDoc, getDoc, getDocs
+  deleteDoc, doc, setDoc, getDoc, getDocs, writeBatch
 } from "firebase/firestore";
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
@@ -8569,6 +8569,7 @@ function CajaDiariaView({ showToast }) {
   const [fecha, setFecha]   = useState(hoyISO());
   const [form, setForm]     = useState(null);   // { tipo, ...campos } (modal de carga/edición)
   const [ventasDia, setVentasDia] = useState([]);
+  const [importando, setImportando] = useState(false);
 
   useEffect(() => {
     const u1 = onSnapshot(doc(db, "config", "cajaDiaria"), snap => {
@@ -8674,11 +8675,12 @@ function CajaDiariaView({ showToast }) {
         <CajaResumen movs={movs} cfg={cfg} monedaDe={monedaDe} iconoCat={iconoCat}/>
       )}
       {cargado && vista === "ajustes" && (
-        <CajaAjustes cfg={cfg} guardarCfg={guardarCfg} saldos={saldos} movs={movs} showToast={showToast}/>
+        <CajaAjustes key={JSON.stringify(cfg)} cfg={cfg} guardarCfg={guardarCfg} saldos={saldos} movs={movs} showToast={showToast} onImportar={() => setImportando(true)}/>
       )}
 
+      {importando && <ImportarGestor cfg={cfg} guardarCfg={guardarCfg} movs={movs} showToast={showToast} onClose={() => setImportando(false)}/>}
       {form && (
-        <ModalMovCaja inicial={form} cfg={cfg} monedaDe={monedaDe} showToast={showToast} onClose={() => setForm(null)}/>
+        <ModalMovCaja inicial={form} cfg={cfg} guardarCfg={guardarCfg} monedaDe={monedaDe} showToast={showToast} onClose={() => setForm(null)}/>
       )}
     </div>
   );
@@ -8771,7 +8773,8 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
               <tr key={m.fireId} style={{ borderTop:"1px solid var(--c-row)" }}>
                 {mostrarFecha && <td style={{ padding:"10px 14px", whiteSpace:"nowrap", color:"#4a5568" }}>{fechaCorta(m.fecha)}</td>}
                 <td style={{ padding:"10px 14px" }}><span style={{ background:t.bg, color:t.color, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{t.icono} {t.label}</span></td>
-                <td style={{ padding:"10px 14px", fontWeight:600, color:"#1a2340" }}>{m.tipo==="transferencia" ? "—" : m.tipo==="ajuste" ? "Ajuste de saldo" : `${iconoCat(m.tipo, m.categoria)} ${m.categoria||"—"}`}</td>
+                <td style={{ padding:"10px 14px", fontWeight:600, color:"#1a2340" }}>{m.tipo==="transferencia" ? "—" : m.tipo==="ajuste" ? "Ajuste de saldo" : `${iconoCat(m.tipo, m.categoria)} ${m.categoria||"—"}`}
+                  {m.subcategoria ? <div style={{ fontSize:11, fontWeight:500, color:"#a09080" }}>↳ {m.subcategoria}</div> : null}</td>
                 <td style={{ padding:"10px 14px", color:"#4a5568", whiteSpace:"nowrap" }}>
                   {nombreCuenta(m.cuenta)}{m.tipo==="transferencia" && <> → {nombreCuenta(m.cuentaDestino)}</>}
                 </td>
@@ -8795,13 +8798,19 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
 }
 
 // ── Modal de carga / edición ─────────────────────────────────────────────
-function ModalMovCaja({ inicial, cfg, monedaDe, showToast, onClose }) {
+function ModalMovCaja({ inicial, cfg, guardarCfg, monedaDe, showToast, onClose }) {
   const tipo = inicial.tipo;
-  const cats = tipo === "ingreso" ? cfg.catsIngreso : cfg.catsEgreso;
+  const claveCats = tipo === "ingreso" ? "catsIngreso" : "catsEgreso";
+  const cats = cfg[claveCats] || [];
+  // Crear categoría / subcategoría / caja sin salir de la carga
+  const [nuevaCat, setNuevaCat]   = useState(null);  // { nombre, icono } mientras se escribe
+  const [nuevaSub, setNuevaSub]   = useState(null);  // texto
+  const [nuevaCaja, setNuevaCaja] = useState(null);  // { para:"cuenta"|"cuentaDestino", nombre, icono, moneda }
   const ultimaCaja = (() => { try { return localStorage.getItem("caja_ultima_" + tipo) || ""; } catch(e) { return ""; } })();
   const [f, setF] = useState({
     fecha: inicial.fecha || hoyISO(),
     categoria: inicial.categoria || (cats[0]?.nombre || ""),
+    subcategoria: inicial.subcategoria || "",
     cuenta: inicial.cuenta || (cfg.cuentas.some(c => c.id === ultimaCaja) ? ultimaCaja : cfg.cuentas[0]?.id),
     cuentaDestino: inicial.cuentaDestino || cfg.cuentas[1]?.id || cfg.cuentas[0]?.id,
     monto: inicial.monto !== undefined ? String(inicial.monto).replace(".", ",") : "",
@@ -8822,7 +8831,7 @@ function ModalMovCaja({ inicial, cfg, monedaDe, showToast, onClose }) {
     if (distintaMoneda && !parseMonto(f.montoDestino)) { showToast(`Ingresá cuánto entra en ${monDestino === "USD" ? "dólares" : "pesos"}`,"error"); return; }
     const data = {
       fecha: f.fecha, tipo, monto, cuenta: f.cuenta, nota: f.nota.trim(),
-      ...(tipo === "ingreso" || tipo === "egreso" ? { categoria: f.categoria } : {}),
+      ...(tipo === "ingreso" || tipo === "egreso" ? { categoria: f.categoria, subcategoria: f.subcategoria || "" } : {}),
       ...(tipo === "transferencia" ? { cuentaDestino: f.cuentaDestino, montoDestino: distintaMoneda ? parseMonto(f.montoDestino) : monto } : {}),
     };
     setSaving(true);
@@ -8836,6 +8845,37 @@ function ModalMovCaja({ inicial, cfg, monedaDe, showToast, onClose }) {
     } catch(e) { console.error(e); showToast("Error al guardar","error"); }
     setSaving(false);
   };
+
+  const subsDe = (nombre) => (cats.find(x => x.nombre === nombre)?.subs) || [];
+  const crearCat = async () => {
+    const n = (nuevaCat?.nombre||"").trim(); if (!n) return;
+    if (cats.some(x => x.nombre.toLowerCase() === n.toLowerCase())) { showToast("Esa categoría ya existe","error"); return; }
+    await guardarCfg({ ...cfg, [claveCats]: [...cats, { nombre:n, icono:nuevaCat.icono||"📦", subs:[] }] });
+    setF(x => ({ ...x, categoria:n, subcategoria:"" })); setNuevaCat(null); showToast(`Categoría "${n}" creada ✅`);
+  };
+  const crearSub = async () => {
+    const n = (nuevaSub||"").trim(); if (!n || !f.categoria) return;
+    if (subsDe(f.categoria).some(s => s.toLowerCase() === n.toLowerCase())) { setF(x => ({ ...x, subcategoria:n })); setNuevaSub(null); return; }
+    await guardarCfg({ ...cfg, [claveCats]: cats.map(x => x.nombre === f.categoria ? { ...x, subs:[...(x.subs||[]), n] } : x) });
+    setF(x => ({ ...x, subcategoria:n })); setNuevaSub(null); showToast(`Subcategoría "${n}" creada ✅`);
+  };
+  const crearCaja = async () => {
+    const n = (nuevaCaja?.nombre||"").trim(); if (!n) return;
+    if (cfg.cuentas.some(x => x.nombre.toLowerCase() === n.toLowerCase())) { showToast("Esa caja ya existe","error"); return; }
+    const id = n.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g,"") + "_" + Date.now().toString(36);
+    await guardarCfg({ ...cfg, cuentas:[...cfg.cuentas, { id, nombre:n, icono:nuevaCaja.icono||"🏦", moneda:nuevaCaja.moneda||"ARS" }] });
+    setF(x => ({ ...x, [nuevaCaja.para]: id })); setNuevaCaja(null); showToast(`Caja "${n}" creada ✅`);
+  };
+  const selCaja = (campo) => (
+    <select value={f[campo]} onChange={e => { if (e.target.value === "__nueva") setNuevaCaja({ para:campo, nombre:"", icono:"🏦", moneda:"ARS" }); else set(campo, e.target.value); }} style={cajaInp}>
+      {cfg.cuentas.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}{c.moneda==="USD" ? " (US$)" : ""}</option>)}
+      <option value="__nueva">➕ Nueva caja…</option>
+    </select>
+  );
+  const chip = (activo, color, bg) => ({ padding:"7px 12px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer",
+    border:`1.5px solid ${activo ? color : "var(--c-border)"}`, background: activo ? bg : "#fff", color: activo ? color : "#4a5568" });
+  const chipNuevo = { padding:"7px 12px", borderRadius:20, fontSize:13, fontWeight:700, cursor:"pointer", border:"1.5px dashed var(--c-border)", background:"#fff", color:"var(--c-pri)" };
+  const btnMini = { background:"#1a2340", color:"#fff", border:"none", borderRadius:8, padding:"8px 12px", fontWeight:700, cursor:"pointer", fontSize:13 };
 
   const cotiz = distintaMoneda && parseMonto(f.monto) && parseMonto(f.montoDestino)
     ? (monOrigen === "ARS" ? parseMonto(f.monto) / parseMonto(f.montoDestino) : parseMonto(f.montoDestino) / parseMonto(f.monto)) : null;
@@ -8855,34 +8895,76 @@ function ModalMovCaja({ inicial, cfg, monedaDe, showToast, onClose }) {
           </div>
           <div>
             <label style={cajaLbl}>{tipo === "transferencia" ? "Sale de" : tipo === "ingreso" ? "Entra a la caja" : "Sale de la caja"}</label>
-            <select value={f.cuenta} onChange={e => set("cuenta", e.target.value)} style={cajaInp}>
-              {cfg.cuentas.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}{c.moneda==="USD" ? " (US$)" : ""}</option>)}
-            </select>
+            {selCaja("cuenta")}
           </div>
         </div>
+
+        {nuevaCaja && (
+          <div style={{ background:"var(--c-softer)", border:"1.5px dashed var(--c-border)", borderRadius:10, padding:10, marginBottom:12 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:"#4a5568", marginBottom:6 }}>Nueva caja</div>
+            <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
+              <EmojiPicker value={nuevaCaja.icono} onChange={em => setNuevaCaja(x => ({ ...x, icono:em }))}/>
+              <input autoFocus value={nuevaCaja.nombre} onChange={e => setNuevaCaja(x => ({ ...x, nombre:e.target.value }))} placeholder="Ej: Banco Nación"
+                onKeyDown={e => { if (e.key === "Enter") crearCaja(); }} style={{ ...cajaInp, flex:"1 1 140px" }}/>
+              <select value={nuevaCaja.moneda} onChange={e => setNuevaCaja(x => ({ ...x, moneda:e.target.value }))} style={{ ...cajaInp, width:100 }}>
+                <option value="ARS">Pesos</option><option value="USD">Dólares</option>
+              </select>
+              <button type="button" onClick={crearCaja} style={btnMini}>Crear</button>
+              <button type="button" onClick={() => setNuevaCaja(null)} style={{ ...btnMini, background:"transparent", color:"#a09080" }}>✕</button>
+            </div>
+          </div>
+        )}
 
         {(tipo === "ingreso" || tipo === "egreso") && (
           <div style={{ marginBottom:12 }}>
             <label style={cajaLbl}>Categoría</label>
             <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
               {cats.map(c => (
-                <button key={c.nombre} onClick={() => set("categoria", c.nombre)} type="button"
-                  style={{ padding:"7px 12px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer",
-                    border:`1.5px solid ${f.categoria===c.nombre ? t.color : "var(--c-border)"}`,
-                    background: f.categoria===c.nombre ? t.bg : "#fff", color: f.categoria===c.nombre ? t.color : "#4a5568" }}>
+                <button key={c.nombre} onClick={() => setF(x => ({ ...x, categoria:c.nombre, subcategoria: x.categoria === c.nombre ? x.subcategoria : "" }))} type="button"
+                  style={chip(f.categoria===c.nombre, t.color, t.bg)}>
                   {c.icono} {c.nombre}
                 </button>
               ))}
+              {!nuevaCat && <button type="button" onClick={() => setNuevaCat({ nombre:"", icono: tipo === "ingreso" ? "⬆️" : "📦" })} style={chipNuevo}>+ Nueva</button>}
             </div>
+            {nuevaCat && (
+              <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:8 }}>
+                <EmojiPicker value={nuevaCat.icono} onChange={em => setNuevaCat(x => ({ ...x, icono:em }))}/>
+                <input autoFocus value={nuevaCat.nombre} onChange={e => setNuevaCat(x => ({ ...x, nombre:e.target.value }))} placeholder="Nombre de la categoría"
+                  onKeyDown={e => { if (e.key === "Enter") crearCat(); }} style={{ ...cajaInp, flex:1 }}/>
+                <button type="button" onClick={crearCat} style={btnMini}>Crear</button>
+                <button type="button" onClick={() => setNuevaCat(null)} style={{ ...btnMini, background:"transparent", color:"#a09080" }}>✕</button>
+              </div>
+            )}
+            {f.categoria && (
+              <div style={{ marginTop:10, paddingLeft:12, borderLeft:`3px solid ${t.bg}` }}>
+                <label style={{ ...cajaLbl, color:"#a09080" }}>Subcategoría <span style={{ fontWeight:400 }}>(opcional)</span></label>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                  {subsDe(f.categoria).map(s => (
+                    <button key={s} type="button" onClick={() => set("subcategoria", f.subcategoria === s ? "" : s)}
+                      style={{ ...chip(f.subcategoria===s, t.color, t.bg), padding:"5px 10px", fontSize:12 }}>{s}</button>
+                  ))}
+                  {f.subcategoria && !subsDe(f.categoria).includes(f.subcategoria) && (
+                    <button type="button" style={{ ...chip(true, t.color, t.bg), padding:"5px 10px", fontSize:12 }}>{f.subcategoria}</button>
+                  )}
+                  {nuevaSub === null
+                    ? <button type="button" onClick={() => setNuevaSub("")} style={{ ...chipNuevo, padding:"5px 10px", fontSize:12 }}>+ Nueva</button>
+                    : <span style={{ display:"inline-flex", gap:4 }}>
+                        <input autoFocus value={nuevaSub} onChange={e => setNuevaSub(e.target.value)} placeholder="Ej: Papel"
+                          onKeyDown={e => { if (e.key === "Enter") crearSub(); if (e.key === "Escape") setNuevaSub(null); }}
+                          style={{ ...cajaInp, width:150, padding:"6px 10px", fontSize:13 }}/>
+                        <button type="button" onClick={crearSub} style={{ ...btnMini, padding:"6px 10px" }}>Crear</button>
+                      </span>}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {tipo === "transferencia" && (
           <div style={{ marginBottom:12 }}>
             <label style={cajaLbl}>Entra a</label>
-            <select value={f.cuentaDestino} onChange={e => set("cuentaDestino", e.target.value)} style={cajaInp}>
-              {cfg.cuentas.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}{c.moneda==="USD" ? " (US$)" : ""}</option>)}
-            </select>
+            {selCaja("cuentaDestino")}
           </div>
         )}
 
@@ -8935,7 +9017,7 @@ function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar
     .filter(m => tipo === "todos" || m.tipo === tipo)
     .filter(m => cat === "todas" || m.categoria === cat)
     .filter(m => cuenta === "todas" || m.cuenta === cuenta || m.cuentaDestino === cuenta)
-    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
+    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""} ${m.subcategoria||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
     .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""));
   const cats = [...new Set([...cfg.catsIngreso, ...cfg.catsEgreso].map(c => c.nombre).concat(movs.map(m => m.categoria).filter(Boolean)))];
   const tot = (t, mon) => lista.filter(m => m.tipo === t && monedaDe(m.cuenta) === mon).reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
@@ -8994,6 +9076,15 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
     delMes.filter(m => m.tipo === tipo && monedaDe(m.cuenta) === moneda).forEach(m => { r[m.categoria||"Sin categoría"] = (r[m.categoria||"Sin categoría"]||0) + (parseFloat(m.monto)||0); });
     return Object.entries(r).sort((a,b) => b[1]-a[1]);
   };
+  // detalle por subcategoría dentro de una categoría
+  const subsPor = (tipo, moneda, cat) => {
+    const r = {};
+    delMes.filter(m => m.tipo === tipo && monedaDe(m.cuenta) === moneda && (m.categoria||"Sin categoría") === cat)
+      .forEach(m => { const k = m.subcategoria || ""; r[k] = (r[k]||0) + (parseFloat(m.monto)||0); });
+    const filas = Object.entries(r).sort((a,b) => b[1]-a[1]);
+    return filas.some(([k]) => k) ? filas.map(([k,v]) => [k || "Sin subcategoría", v]) : [];
+  };
+  const [abiertas, setAbiertas] = useState({});
   const ingCats = sumaPor("ingreso","ARS"), egrCats = sumaPor("egreso","ARS");
   const ingUSD = sumaPor("ingreso","USD"), egrUSD = sumaPor("egreso","USD");
   const total = (arr) => arr.reduce((s,[,v]) => s+v, 0);
@@ -9017,17 +9108,29 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
           <div style={{ fontSize:17, fontWeight:800, color }}>{fmtMoneda(tot, moneda)}</div>
         </div>
         {filas.length === 0 && <div style={{ fontSize:13, color:"#a09080" }}>Sin movimientos.</div>}
-        {filas.map(([cat, v]) => (
+        {filas.map(([cat, v]) => {
+          const subs = subsPor(tipo, moneda, cat);
+          const clave = `${tipo}|${moneda}|${cat}`;
+          const abierta = abiertas[clave];
+          return (
           <div key={cat} style={{ marginBottom:9 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:3 }}>
-              <span style={{ color:"#1a2340", fontWeight:600 }}>{iconoCat(tipo, cat)} {cat}</span>
+            <div onClick={() => subs.length && setAbiertas(a => ({ ...a, [clave]: !a[clave] }))}
+              style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:3, cursor: subs.length ? "pointer" : "default" }}>
+              <span style={{ color:"#1a2340", fontWeight:600 }}>{iconoCat(tipo, cat)} {cat}{subs.length ? <span style={{ color:"#a09080", fontSize:11, marginLeft:5 }}>{abierta ? "▲" : "▼"} {subs.length} sub</span> : null}</span>
               <span style={{ color:"#4a5568" }}><b>{fmtMoneda(v, moneda)}</b> · {tot ? Math.round(v/tot*100) : 0}%</span>
             </div>
             <div style={{ height:8, background:"var(--c-soft)", borderRadius:4, overflow:"hidden" }}>
               <div style={{ width:`${tot ? v/tot*100 : 0}%`, height:"100%", background:color, borderRadius:4 }}/>
             </div>
+            {abierta && subs.map(([s, sv]) => (
+              <div key={s} style={{ display:"flex", justifyContent:"space-between", fontSize:12, padding:"4px 0 0 18px", color:"#4a5568" }}>
+                <span>↳ {s}</span>
+                <span>{fmtMoneda(sv, moneda)} · {v ? Math.round(sv/v*100) : 0}%</span>
+              </div>
+            ))}
           </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -9078,10 +9181,322 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
 }
 
 // ── Cajas, categorías y ajuste de saldos ─────────────────────────────────
-function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast }) {
+// ── Importar desde "Gestor de gastos" (Excel con hojas Ingresos / Gastos / Transferencias) ──
+const normTxt = (s) => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+const EMOJI_SUGERIDO = [
+  [/aliment|comida|super/, "🍔"], [/sueldo|salario|emplead/, "👷"], [/casa|hogar|alquiler/, "🏠"], [/auto|nafta|combust/, "🚗"],
+  [/salud|medic|farmac/, "💊"], [/ocio|salida|diversion/, "🎉"], [/vacacion|viaje/, "🏖️"], [/regalo/, "🎁"], [/familia/, "❤️"],
+  [/transporte|colectivo|uber/, "🚌"], [/tarjeta/, "💳"], [/administr|impuesto|afip|monotrib/, "🧾"], [/maquin|equipo/, "⚙️"],
+  [/insumo|material/, "📦"], [/rutina/, "🔁"], [/dolar|usd/, "💲"], [/efectivo/, "💵"], [/transfer/, "📲"], [/ahorro/, "🐷"],
+  [/banco|bbva|galicia|nacion|santander|macro|brubank|uala/, "🏦"], [/mercado ?pago|mp/, "📲"], [/caja/, "💵"],
+];
+const emojiPara = (nombre, def="⭐") => (EMOJI_SUGERIDO.find(([re]) => re.test(normTxt(nombre))) || [null, def])[1];
+// fecha de Excel (número de serie o texto dd/mm/aaaa) → "aaaa-mm-dd"
+function fechaExcel(v, XLSX) {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") { const d = XLSX.SSF.parse_date_code(v); return d ? `${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}` : null; }
+  const s = String(v); let m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) return `${m[3].length===2 ? "20"+m[3] : m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  return null;
+}
+const numExcel = (v) => typeof v === "number" ? v : parseMonto(v);
+
+function ImportarGestor({ cfg, guardarCfg, movs, showToast, onClose }) {
+  const [paso, setPaso]   = useState("archivo");   // archivo | mapeo | importando | listo
+  const [error, setError] = useState("");
+  const [datos, setDatos] = useState(null);        // { ingresos:[], gastos:[], transf:[], cuentas:{nombre:moneda}, catsI:{}, catsE:{} }
+  const [mapCuentas, setMapCuentas] = useState({}); // nombreExcel → id de caja | "__nueva"
+  const [mapCatsI, setMapCatsI] = useState({});     // nombreExcel → nombre categoría app | "__nueva" | "__ajuste"
+  const [mapCatsE, setMapCatsE] = useState({});
+  const [saldosReales, setSaldosReales] = useState({}); // nombreExcel → saldo actual (opcional)
+  const [progreso, setProgreso] = useState(0);
+  const [resultado, setResultado] = useState(null);
+
+  const clavesExistentes = useMemo(() => new Set(movs.map(m => m.importKey).filter(Boolean)), [movs]);
+
+  const leer = async (file) => {
+    setError("");
+    try {
+      const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+      const wb = XLSX.read(await file.arrayBuffer());
+      const hoja = (re) => wb.SheetNames.find(n => re.test(normTxt(n)));
+      const filas = (nombre) => {
+        if (!nombre) return [];
+        const arr = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header:1, raw:true, defval:"" });
+        const iHead = arr.findIndex(r => r.some(c => /fecha/i.test(String(c))));
+        if (iHead < 0) return [];
+        const head = arr[iHead].map(h => normTxt(h));
+        return arr.slice(iHead + 1).filter(r => r.some(c => c !== "")).map(r => Object.fromEntries(head.map((h,i) => [h, r[i]])));
+      };
+      // busca la columna: primero nombre exacto, después que empiece igual, y por último que lo contenga
+      const col = (obj, ...pistas) => {
+        const ks = Object.keys(obj);
+        const k = ks.find(k => pistas.includes(k)) || ks.find(k => pistas.some(p => k.startsWith(p))) || ks.find(k => pistas.some(p => k.includes(p)));
+        return k ? obj[k] : "";
+      };
+      const cuentas = {};
+      const leerMovs = (lista) => lista.map((r, i) => {
+        const cuenta = String(col(r, "cuenta")).trim();
+        const moneda = String(col(r, "divisa de la cuenta")).trim().toUpperCase() || "ARS";
+        if (cuenta) cuentas[cuenta] = cuentas[cuenta] || (moneda === "USD" ? "USD" : "ARS");
+        return {
+          fecha: fechaExcel(col(r, "fecha"), XLSX), categoria: String(col(r, "categoria")).trim() || "Otros", cuenta,
+          monto: Math.abs(numExcel(col(r, "cantidad en la divisa de la cuenta")) || numExcel(col(r, "cantidad en la divisa predeterminada"))),
+          nota: String(col(r, "comentario")).trim(),
+        };
+      }).filter(m => m.fecha && m.cuenta && m.monto);
+      const ingresos = leerMovs(filas(hoja(/ingreso/)));
+      const gastos   = leerMovs(filas(hoja(/gasto|egreso/)));
+      const transf = filas(hoja(/transfer/)).map(r => {
+        const sale = String(col(r, "saliente")).trim(), entra = String(col(r, "entrante")).trim();
+        const monS = String(col(r, "divisa saliente")).trim().toUpperCase() || "ARS";
+        const monE = String(col(r, "divisa entrante")).trim().toUpperCase() || monS;
+        if (sale) cuentas[sale] = cuentas[sale] || (monS === "USD" ? "USD" : "ARS");
+        if (entra) cuentas[entra] = cuentas[entra] || (monE === "USD" ? "USD" : "ARS");
+        const mS = Math.abs(numExcel(col(r, "cantidad en divisa saliente")));
+        const mE = col(r, "cantidad en divisa entrante") !== "" ? Math.abs(numExcel(col(r, "cantidad en divisa entrante"))) : mS;
+        return { fecha: fechaExcel(col(r, "fecha"), XLSX), sale, entra, monto: mS, montoDestino: mE, nota: String(col(r, "comentario")).trim() };
+      }).filter(t => t.fecha && t.sale && t.entra && t.monto);
+      if (!ingresos.length && !gastos.length && !transf.length) { setError("No encontré movimientos en el archivo. ¿Es el Excel exportado del gestor de gastos?"); return; }
+
+      // Propuesta de mapeo: cajas
+      const mc = {};
+      Object.entries(cuentas).forEach(([n, mon]) => {
+        const nn = normTxt(n);
+        const igual = cfg.cuentas.find(c => normTxt(c.nombre) === nn);
+        const p1 = nn.split(" ")[0], pc = (c) => normTxt(c.nombre).split(" ")[0];
+        const parecida = cfg.cuentas.find(c => c.moneda === mon && (nn.includes(normTxt(c.nombre)) || normTxt(c.nombre).includes(nn)))
+                      || cfg.cuentas.find(c => c.moneda === mon && p1.length > 2 && (pc(c).startsWith(p1) || p1.startsWith(pc(c))));
+        mc[n] = (igual || parecida)?.id || "__nueva";
+      });
+      // Propuesta de mapeo: categorías
+      const propCats = (lista, catsApp) => {
+        const m = {};
+        [...new Set(lista.map(x => x.categoria))].forEach(n => {
+          const nn = normTxt(n);
+          if (/ajuste/.test(nn)) { m[n] = "__ajuste"; return; }
+          const igual = catsApp.find(c => normTxt(c.nombre) === nn);
+          const contiene = catsApp.find(c => normTxt(c.nombre).length > 3 && (nn.includes(normTxt(c.nombre)) || normTxt(c.nombre).includes(nn)));
+          m[n] = (igual || contiene)?.nombre || "__nueva";
+        });
+        return m;
+      };
+      setMapCuentas(mc);
+      setMapCatsI(propCats(ingresos, cfg.catsIngreso));
+      setMapCatsE(propCats(gastos, cfg.catsEgreso));
+      const fechas = [...ingresos, ...gastos, ...transf].map(x => x.fecha).sort();
+      setDatos({ ingresos, gastos, transf, cuentas, desde: fechas[0], hasta: fechas[fechas.length-1] });
+      setPaso("mapeo");
+    } catch (e) { console.error(e); setError("No pude leer el archivo: " + (e.message || e)); }
+  };
+
+  const contar = (lista, campo="categoria") => { const r = {}; lista.forEach(x => { r[x[campo]] = (r[x[campo]]||0) + 1; }); return r; };
+
+  const importar = async () => {
+    setPaso("importando"); setProgreso(0);
+    try {
+      // 1) cajas y categorías nuevas
+      // Si la caja está vacía (primera importación), las cajas y categorías de ejemplo que no se usan se descartan
+      const primera = movs.length === 0;
+      const usadasC = new Set(Object.values(mapCuentas));
+      const cuentas = cfg.cuentas.filter(c => !primera || usadasC.has(c.id));
+      const idCaja = {};
+      Object.entries(mapCuentas).forEach(([n, dest]) => {
+        if (dest === "__nueva") {
+          const id = normTxt(n).replace(/ /g,"") + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+          cuentas.push({ id, nombre:n, icono:emojiPara(n, "🏦"), moneda:datos.cuentas[n] || "ARS" });
+          idCaja[n] = id;
+        } else idCaja[n] = dest;
+      });
+      const nuevasCats = (mapa, catsApp, def) => {
+        const usadas = new Set(Object.values(mapa));
+        const lista = catsApp.filter(c => !primera || usadas.has(c.nombre)).map(c => ({ ...c }));
+        const nombre = {};
+        Object.entries(mapa).forEach(([n, dest]) => {
+          if (dest === "__nueva") { if (!lista.some(c => c.nombre === n)) lista.push({ nombre:n, icono:emojiPara(n, def), subs:[] }); nombre[n] = n; }
+          else nombre[n] = dest;
+        });
+        return { lista, nombre };
+      };
+      const ci = nuevasCats(mapCatsI, cfg.catsIngreso, "⬆️");
+      const ce = nuevasCats(mapCatsE, cfg.catsEgreso, "⭐");
+      await guardarCfg({ cuentas, catsIngreso: ci.lista, catsEgreso: ce.lista });
+
+      // 2) armar movimientos (con clave para no duplicar si se importa de nuevo)
+      const vistos = {};
+      const clave = (partes) => { const k = partes.join("|"); vistos[k] = (vistos[k]||0) + 1; return k + "|" + vistos[k]; };
+      const ahora = new Date().toISOString();
+      const docs = [];
+      datos.ingresos.forEach(m => {
+        const dest = ci.nombre[m.categoria];
+        const k = clave(["gestor","ing",m.fecha,m.cuenta,m.categoria,m.monto,m.nota]);
+        docs.push(dest === "__ajuste"
+          ? { fecha:m.fecha, tipo:"ajuste", monto:m.monto, cuenta:idCaja[m.cuenta], nota:m.nota || m.categoria, origen:"gestor", importKey:k, creadoEn:ahora }
+          : { fecha:m.fecha, tipo:"ingreso", monto:m.monto, cuenta:idCaja[m.cuenta], categoria:dest, subcategoria:"", nota:m.nota, origen:"gestor", importKey:k, creadoEn:ahora });
+      });
+      datos.gastos.forEach(m => {
+        const dest = ce.nombre[m.categoria];
+        const k = clave(["gestor","gas",m.fecha,m.cuenta,m.categoria,m.monto,m.nota]);
+        docs.push(dest === "__ajuste"
+          ? { fecha:m.fecha, tipo:"ajuste", monto:-m.monto, cuenta:idCaja[m.cuenta], nota:m.nota || m.categoria, origen:"gestor", importKey:k, creadoEn:ahora }
+          : { fecha:m.fecha, tipo:"egreso", monto:m.monto, cuenta:idCaja[m.cuenta], categoria:dest, subcategoria:"", nota:m.nota, origen:"gestor", importKey:k, creadoEn:ahora });
+      });
+      datos.transf.forEach(t => {
+        const k = clave(["gestor","tra",t.fecha,t.sale,t.entra,t.monto,t.montoDestino,t.nota]);
+        docs.push({ fecha:t.fecha, tipo:"transferencia", monto:t.monto, montoDestino:t.montoDestino, cuenta:idCaja[t.sale], cuentaDestino:idCaja[t.entra], nota:t.nota, origen:"gestor", importKey:k, creadoEn:ahora });
+      });
+      const nuevos = docs.filter(d => !clavesExistentes.has(d.importKey));
+      const repetidos = docs.length - nuevos.length;
+
+      // 3) saldos iniciales: para que el saldo de hoy coincida con el del gestor
+      const efecto = {};
+      [...movs, ...nuevos].forEach(m => cuentas.forEach(c => { efecto[c.id] = (efecto[c.id]||0) + efectoEnCuenta(m, c.id); }));
+      const diaAntes = moverDia(datos.desde, -1);
+      const ajustesIni = [];
+      Object.entries(saldosReales).forEach(([n, v]) => {
+        if (v === "" || v === undefined) return;
+        const id = idCaja[n]; if (!id) return;
+        const dif = Math.round((parseMonto(v) - (efecto[id]||0)) * 100) / 100;
+        if (dif) ajustesIni.push({ fecha:diaAntes, tipo:"ajuste", monto:dif, cuenta:id, nota:"Saldo inicial (importación)", origen:"gestor", importKey:`gestor|saldoini|${id}|${datos.desde}`, creadoEn:ahora });
+      });
+      const todos = [...ajustesIni.filter(a => !clavesExistentes.has(a.importKey)), ...nuevos];
+
+      // 4) grabar en tandas
+      for (let i = 0; i < todos.length; i += 400) {
+        const lote = writeBatch(db);
+        todos.slice(i, i + 400).forEach(d => lote.set(doc(collection(db, "cajaMovs")), d));
+        await lote.commit();
+        setProgreso(Math.min(todos.length, i + 400) / todos.length);
+      }
+      setResultado({ importados: nuevos.length, repetidos, ajustes: ajustesIni.length,
+        ing: nuevos.filter(d => d.tipo==="ingreso").length, egr: nuevos.filter(d => d.tipo==="egreso").length,
+        tra: nuevos.filter(d => d.tipo==="transferencia").length, aju: nuevos.filter(d => d.tipo==="ajuste").length });
+      setPaso("listo");
+      showToast(`Importación terminada: ${nuevos.length} movimientos ✅`);
+    } catch (e) { console.error(e); setError("Error al importar: " + (e.message || e)); setPaso("mapeo"); }
+  };
+
+  const th = { padding:"8px 10px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", background:"var(--c-soft)" };
+  const td = { padding:"7px 10px", borderTop:"1px solid var(--c-row)", fontSize:13 };
+  const TablaMapeo = ({ titulo, nombres, conteo, mapa, setMapa, opciones, conAjuste, extra }) => (
+    <div style={{ marginBottom:18 }}>
+      <div style={{ fontSize:15, fontWeight:700, color:"#1a2340", marginBottom:6 }}>{titulo}</div>
+      <div style={{ border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
+        <table data-no-orden style={{ width:"100%", borderCollapse:"collapse" }}>
+          <thead><tr><th style={th}>En el gestor</th><th style={th}>Mov.</th><th style={th}>En la app</th>{extra && <th style={th}>{extra.titulo}</th>}</tr></thead>
+          <tbody>
+            {nombres.map(n => (
+              <tr key={n}>
+                <td style={{ ...td, fontWeight:600 }}>{n}</td>
+                <td style={{ ...td, color:"#a09080" }}>{conteo[n] || 0}</td>
+                <td style={td}>
+                  <select value={mapa[n]} onChange={e => setMapa(m => ({ ...m, [n]: e.target.value }))} style={{ ...cajaInp, padding:"6px 8px", fontSize:13 }}>
+                    <option value="__nueva">➕ Crear «{n}»</option>
+                    {conAjuste && <option value="__ajuste">⚖️ Tomar como ajuste de saldo (no cuenta como {conAjuste})</option>}
+                    {opciones.map(o => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                  </select>
+                </td>
+                {extra && <td style={td}>{extra.render(n)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="modal-ov" onClick={paso === "importando" ? undefined : onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"26px 28px", width:"min(820px, 96vw)", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
+        <div style={{ fontSize:21, fontWeight:800, color:"#1a2340", marginBottom:4 }}>📥 Importar desde Gestor de gastos</div>
+        <div style={{ fontSize:13, color:"#a09080", marginBottom:18 }}>Subí el Excel que exporta la app (con las hojas Ingresos, Gastos y Transferencias). Si lo importás de nuevo más adelante, lo que ya está cargado no se duplica.</div>
+        {error && <div style={{ background:"#ffebee", color:"#c62828", borderRadius:8, padding:"10px 14px", marginBottom:14, fontSize:13, fontWeight:600 }}>{error}</div>}
+
+        {paso === "archivo" && (
+          <label style={{ display:"block", border:"2px dashed var(--c-border)", borderRadius:14, padding:"40px 20px", textAlign:"center", cursor:"pointer", background:"var(--c-softer)" }}>
+            <div style={{ fontSize:40 }}>📄</div>
+            <div style={{ fontWeight:700, color:"#1a2340", marginTop:6 }}>Elegí el archivo .xlsx</div>
+            <input type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={e => e.target.files[0] && leer(e.target.files[0])}/>
+          </label>
+        )}
+
+        {paso === "mapeo" && datos && (() => {
+          const cajasOpc = cfg.cuentas.map(c => ({ valor:c.id, label:`${c.icono} ${c.nombre}${c.moneda==="USD" ? " (US$)" : ""}` }));
+          const nombresCajas = Object.keys(datos.cuentas);
+          const contCajas = {};
+          [...datos.ingresos, ...datos.gastos].forEach(m => { contCajas[m.cuenta] = (contCajas[m.cuenta]||0) + 1; });
+          datos.transf.forEach(t => { contCajas[t.sale] = (contCajas[t.sale]||0) + 1; contCajas[t.entra] = (contCajas[t.entra]||0) + 1; });
+          return (
+            <>
+              <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:18 }}>
+                {[["⬆️ Ingresos", datos.ingresos.length, "#2e7d32"], ["⬇️ Egresos", datos.gastos.length, "#c62828"], ["🔁 Entre cajas", datos.transf.length, "#1565c0"]].map(([l,n,col]) => (
+                  <div key={l} style={{ background:"var(--c-softer)", borderRadius:10, padding:"10px 16px" }}>
+                    <div style={{ fontSize:12, color:"#a09080", fontWeight:600 }}>{l}</div><div style={{ fontSize:20, fontWeight:800, color:col }}>{n}</div>
+                  </div>
+                ))}
+                <div style={{ background:"var(--c-softer)", borderRadius:10, padding:"10px 16px" }}>
+                  <div style={{ fontSize:12, color:"#a09080", fontWeight:600 }}>📅 Período</div><div style={{ fontSize:15, fontWeight:800, color:"#1a2340", marginTop:3 }}>{fechaCorta(datos.desde)} al {fechaCorta(datos.hasta)}</div>
+                </div>
+              </div>
+
+              {TablaMapeo({ titulo:"🏦 Cajas", nombres:nombresCajas, conteo:contCajas, mapa:mapCuentas, setMapa:setMapCuentas, opciones:cajasOpc,
+                extra:{ titulo:"Saldo de hoy en el gestor (opcional)", render:(n) => (
+                  <input inputMode="decimal" value={saldosReales[n]||""} onChange={e => setSaldosReales(s => ({ ...s, [n]: e.target.value }))}
+                    placeholder={datos.cuentas[n] === "USD" ? "US$" : "$"} style={{ ...cajaInp, padding:"6px 8px", fontSize:13, width:130 }}/>
+                ) } })}
+              <div style={{ fontSize:12, color:"#a09080", margin:"-10px 0 18px" }}>El Excel trae los movimientos desde {fechaCorta(datos.desde)}, pero no con cuánta plata arrancó cada caja. Si ponés el saldo que te muestra hoy el gestor, se carga un "Saldo inicial" al {fechaCorta(moverDia(datos.desde,-1))} para que la app quede igual. Si lo dejás vacío, lo podés ajustar después.</div>
+
+              {TablaMapeo({ titulo:"⬆️ Categorías de ingreso", nombres:Object.keys(mapCatsI), conteo:contar(datos.ingresos), mapa:mapCatsI, setMapa:setMapCatsI,
+                opciones:cfg.catsIngreso.map(c => ({ valor:c.nombre, label:`${c.icono} ${c.nombre}` })), conAjuste:"ingreso" })}
+              {TablaMapeo({ titulo:"⬇️ Categorías de egreso", nombres:Object.keys(mapCatsE), conteo:contar(datos.gastos), mapa:mapCatsE, setMapa:setMapCatsE,
+                opciones:cfg.catsEgreso.map(c => ({ valor:c.nombre, label:`${c.icono} ${c.nombre}` })), conAjuste:"egreso" })}
+
+              <div style={{ display:"flex", justifyContent:"flex-end", gap:8, position:"sticky", bottom:-26, background:"#fff", padding:"12px 0 4px" }}>
+                <button className="btn-g" onClick={() => { setPaso("archivo"); setDatos(null); }}>← Otro archivo</button>
+                <button onClick={importar} style={{ background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, padding:"11px 22px", fontWeight:700, cursor:"pointer", fontSize:15 }}>
+                  📥 Importar {datos.ingresos.length + datos.gastos.length + datos.transf.length} movimientos
+                </button>
+              </div>
+            </>
+          );
+        })()}
+
+        {paso === "importando" && (
+          <div style={{ padding:"30px 0", textAlign:"center" }}>
+            <div style={{ fontWeight:700, color:"#1a2340", marginBottom:12 }}>Importando… no cierres esta ventana</div>
+            <div style={{ height:12, background:"var(--c-soft)", borderRadius:6, overflow:"hidden" }}>
+              <div style={{ width:`${Math.round(progreso*100)}%`, height:"100%", background:"var(--c-pri)", transition:"width .3s" }}/>
+            </div>
+            <div style={{ fontSize:13, color:"#a09080", marginTop:8 }}>{Math.round(progreso*100)}%</div>
+          </div>
+        )}
+
+        {paso === "listo" && resultado && (
+          <div style={{ textAlign:"center", padding:"10px 0" }}>
+            <div style={{ fontSize:44 }}>✅</div>
+            <div style={{ fontSize:19, fontWeight:800, color:"#1a2340", margin:"6px 0 12px" }}>Se importaron {resultado.importados} movimientos</div>
+            <div style={{ fontSize:14, color:"#4a5568", lineHeight:1.8 }}>
+              ⬆️ {resultado.ing} ingresos · ⬇️ {resultado.egr} egresos · 🔁 {resultado.tra} entre cajas{resultado.aju ? ` · ⚖️ ${resultado.aju} ajustes` : ""}<br/>
+              {resultado.ajustes ? `Se cargó el saldo inicial de ${resultado.ajustes} caja${resultado.ajustes>1?"s":""}.` : ""}
+              {resultado.repetidos ? <><br/>{resultado.repetidos} ya estaban cargados y se saltearon.</> : null}
+            </div>
+            <button onClick={onClose} style={{ marginTop:20, background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, padding:"11px 26px", fontWeight:700, cursor:"pointer", fontSize:15 }}>Listo</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast, onImportar }) {
   const [cuentas, setCuentas] = useState(cfg.cuentas);
-  const [catsI, setCatsI] = useState(cfg.catsIngreso);
-  const [catsE, setCatsE] = useState(cfg.catsEgreso);
+  const conOrig = (l) => l.map(x => ({ ...x, subs: x.subs || [], _orig: x.nombre }));
+  const [catsI, setCatsI] = useState(() => conOrig(cfg.catsIngreso));
+  const [catsE, setCatsE] = useState(() => conOrig(cfg.catsEgreso));
+  const [subsAbiertas, setSubsAbiertas] = useState({});
+  const [subNueva, setSubNueva] = useState({});
   const [dirty, setDirty] = useState(false);
   const [nuevaCaja, setNuevaCaja] = useState({ nombre:"", icono:"🏦", moneda:"ARS" });
   const [nuevaI, setNuevaI] = useState({ nombre:"", icono:"⬆️" });
@@ -9091,7 +9506,29 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast }) {
 
   const usos = (campo, valor) => movs.filter(m => m[campo] === valor || (campo === "cuenta" && m.cuentaDestino === valor)).length;
   const guardar = async () => {
-    try { await guardarCfg({ cuentas, catsIngreso: catsI, catsEgreso: catsE }); setDirty(false); showToast("Configuración de caja guardada ✅"); }
+    const limpiar = (l) => l.map(({ _orig, ...x }) => ({ ...x, nombre: x.nombre.trim() })).filter(x => x.nombre);
+    for (const [l, tit] of [[catsI, "ingreso"], [catsE, "egreso"]]) {
+      const ns = l.map(x => x.nombre.trim().toLowerCase()).filter(Boolean);
+      if (ns.length !== new Set(ns).size) { showToast(`Hay dos categorías de ${tit} con el mismo nombre`,"error"); return; }
+    }
+    // categorías renombradas que ya tienen movimientos
+    const renombradas = [...catsI.map(x => ({ ...x, tipo:"ingreso" })), ...catsE.map(x => ({ ...x, tipo:"egreso" }))]
+      .filter(x => x._orig && x._orig !== x.nombre.trim() && x.nombre.trim() && movs.some(m => m.tipo === x.tipo && m.categoria === x._orig));
+    let actualizar = false;
+    if (renombradas.length) {
+      const det = renombradas.map(x => `• ${x._orig} → ${x.nombre.trim()} (${movs.filter(m => m.tipo === x.tipo && m.categoria === x._orig).length} mov.)`).join("\n");
+      actualizar = window.confirm(`Renombraste categorías que ya tienen movimientos:\n${det}\n\n¿Actualizo también esos movimientos al nombre nuevo?`);
+    }
+    try {
+      await guardarCfg({ cuentas, catsIngreso: limpiar(catsI), catsEgreso: limpiar(catsE) });
+      if (actualizar) {
+        for (const x of renombradas)
+          for (const m of movs.filter(m => m.tipo === x.tipo && m.categoria === x._orig))
+            await updateDoc(doc(db, "cajaMovs", m.fireId), { categoria: x.nombre.trim() });
+      }
+      setCatsI(l => conOrig(limpiar(l))); setCatsE(l => conOrig(limpiar(l)));
+      setDirty(false); showToast("Configuración de caja guardada ✅");
+    }
     catch(e) { console.error(e); showToast("Error al guardar","error"); }
   };
   const ajustarSaldo = async (c) => {
@@ -9105,14 +9542,49 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast }) {
     showToast("Saldo ajustado ✅");
   };
 
-  const filaCat = (lista, setLista, campoUso) => lista.map((c, i) => (
-    <div key={i} style={{ display:"flex", gap:8, alignItems:"center", marginBottom:6 }}>
-      <EmojiPicker value={c.icono} onChange={marca(em => setLista(l => l.map((x,j) => j===i ? { ...x, icono:em } : x)))}/>
-      <input value={c.nombre} onChange={marca(e => setLista(l => l.map((x,j) => j===i ? { ...x, nombre:e.target.value } : x)))} style={{ ...cajaInp, flex:1 }}/>
-      <span style={{ fontSize:11, color:"#a09080", whiteSpace:"nowrap" }}>{usos("categoria", c.nombre)} mov.</span>
-      <button onClick={marca(() => setLista(l => l.filter((_,j) => j!==i)))} title="Quitar" style={{ background:"#ffebee", border:"none", borderRadius:7, padding:"7px 9px", cursor:"pointer" }}>🗑</button>
+  const mover = (setLista, i, d) => { setLista(l => { const j = i + d; if (j < 0 || j >= l.length) return l; const a = [...l]; [a[i], a[j]] = [a[j], a[i]]; return a; }); setDirty(true); };
+  const filaCat = (lista, setLista, tipo) => lista.map((c, i) => {
+    const clave = tipo + i;
+    const abierta = subsAbiertas[clave];
+    const agregarSub = () => {
+      const n = (subNueva[clave]||"").trim(); if (!n) return;
+      if ((c.subs||[]).some(s => s.toLowerCase() === n.toLowerCase())) { showToast("Esa subcategoría ya existe","error"); return; }
+      setLista(l => l.map((x,j) => j===i ? { ...x, subs:[...(x.subs||[]), n] } : x)); setSubNueva(s => ({ ...s, [clave]:"" })); setDirty(true);
+    };
+    return (
+    <div key={i} style={{ marginBottom:6 }}>
+      <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+        <div style={{ display:"flex", flexDirection:"column" }}>
+          <button onClick={() => mover(setLista, i, -1)} disabled={i===0} style={{ background:"transparent", border:"none", cursor:"pointer", color:i===0?"#ddd":"#a09080", fontSize:10, padding:"0 3px", lineHeight:1 }}>▲</button>
+          <button onClick={() => mover(setLista, i, 1)} disabled={i===lista.length-1} style={{ background:"transparent", border:"none", cursor:"pointer", color:i===lista.length-1?"#ddd":"#a09080", fontSize:10, padding:"0 3px", lineHeight:1 }}>▼</button>
+        </div>
+        <EmojiPicker value={c.icono} onChange={marca(em => setLista(l => l.map((x,j) => j===i ? { ...x, icono:em } : x)))}/>
+        <input value={c.nombre} onChange={marca(e => setLista(l => l.map((x,j) => j===i ? { ...x, nombre:e.target.value } : x)))} style={{ ...cajaInp, flex:1, minWidth:0 }}/>
+        <button onClick={() => setSubsAbiertas(s => ({ ...s, [clave]: !s[clave] }))} title="Subcategorías"
+          style={{ background: abierta ? "var(--c-soft)" : "#fff", border:"1.5px solid var(--c-border)", borderRadius:7, padding:"6px 8px", cursor:"pointer", fontSize:11, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>
+          {(c.subs||[]).length ? `${c.subs.length} sub` : "+ sub"} {abierta ? "▲" : "▼"}
+        </button>
+        <span style={{ fontSize:11, color:"#a09080", whiteSpace:"nowrap" }}>{usos("categoria", c._orig || c.nombre)} mov.</span>
+        <button onClick={() => { const n = usos("categoria", c._orig || c.nombre); if (n && !window.confirm(`"${c.nombre}" tiene ${n} movimientos. Esos movimientos no se borran, pero la categoría deja de aparecer para cargar. ¿Continuar?`)) return; setLista(l => l.filter((_,j) => j!==i)); setDirty(true); }}
+          title="Quitar" style={{ background:"#ffebee", border:"none", borderRadius:7, padding:"7px 9px", cursor:"pointer" }}>🗑</button>
+      </div>
+      {abierta && (
+        <div style={{ margin:"6px 0 10px 64px", display:"flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
+          {(c.subs||[]).map((s, k) => (
+            <span key={k} style={{ background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:20, padding:"4px 6px 4px 11px", fontSize:12, display:"inline-flex", alignItems:"center", gap:4 }}>
+              {s}
+              <button onClick={() => { setLista(l => l.map((x,j) => j===i ? { ...x, subs:x.subs.filter((_,q) => q!==k) } : x)); setDirty(true); }}
+                title="Quitar subcategoría" style={{ background:"transparent", border:"none", cursor:"pointer", color:"#c62828", fontSize:12, padding:"0 3px" }}>✕</button>
+            </span>
+          ))}
+          <input value={subNueva[clave]||""} onChange={e => setSubNueva(s => ({ ...s, [clave]:e.target.value }))} placeholder="Nueva subcategoría"
+            onKeyDown={e => { if (e.key === "Enter") agregarSub(); }} style={{ ...cajaInp, width:170, padding:"6px 10px", fontSize:12 }}/>
+          <button onClick={agregarSub} style={{ background:"#1a2340", color:"#fff", border:"none", borderRadius:7, padding:"6px 10px", fontWeight:700, cursor:"pointer", fontSize:12 }}>+</button>
+        </div>
+      )}
     </div>
-  ));
+    );
+  });
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
@@ -9144,17 +9616,18 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast }) {
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:16, alignItems:"start" }}>
-        {[["⬆️ Categorías de ingreso", catsI, setCatsI, nuevaI, setNuevaI], ["⬇️ Categorías de egreso", catsE, setCatsE, nuevaE, setNuevaE]].map(([tit, lista, setLista, nueva, setNueva]) => (
+        {[["⬆️ Categorías de ingreso", catsI, setCatsI, nuevaI, setNuevaI, "i"], ["⬇️ Categorías de egreso", catsE, setCatsE, nuevaE, setNuevaE, "e"]].map(([tit, lista, setLista, nueva, setNueva, tipo]) => (
           <div key={tit} style={cajaCard}>
-            <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:12 }}>{tit}</div>
-            {filaCat(lista, setLista)}
+            <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{tit}</div>
+            <div style={{ fontSize:12, color:"#a09080", marginBottom:12 }}>Tocá "+ sub" para agregarle subcategorías. Con ▲▼ cambiás el orden en que aparecen al cargar.</div>
+            {filaCat(lista, setLista, tipo)}
             <div style={{ display:"flex", gap:8, alignItems:"center", padding:8, border:"1.5px dashed var(--c-border)", borderRadius:10, marginTop:8 }}>
               <EmojiPicker value={nueva.icono} onChange={em => setNueva(x => ({ ...x, icono:em }))}/>
               <input value={nueva.nombre} onChange={e => setNueva(x => ({ ...x, nombre:e.target.value }))} placeholder="Nueva categoría"
-                onKeyDown={e => { if (e.key === "Enter" && nueva.nombre.trim()) { setLista(l => [...l, { nombre:nueva.nombre.trim(), icono:nueva.icono }]); setNueva(x => ({ ...x, nombre:"" })); setDirty(true); } }}
+                onKeyDown={e => { if (e.key === "Enter" && nueva.nombre.trim()) { setLista(l => [...l, { nombre:nueva.nombre.trim(), icono:nueva.icono, subs:[] }]); setNueva(x => ({ ...x, nombre:"" })); setDirty(true); } }}
                 style={{ ...cajaInp, flex:1 }}/>
               <button onClick={() => { if (!nueva.nombre.trim()) return; if (lista.some(c => c.nombre.toLowerCase() === nueva.nombre.trim().toLowerCase())) { showToast("Esa categoría ya existe","error"); return; }
-                  setLista(l => [...l, { nombre:nueva.nombre.trim(), icono:nueva.icono }]); setNueva(x => ({ ...x, nombre:"" })); setDirty(true); }}
+                  setLista(l => [...l, { nombre:nueva.nombre.trim(), icono:nueva.icono, subs:[] }]); setNueva(x => ({ ...x, nombre:"" })); setDirty(true); }}
                 style={{ background:"#1a2340", color:"#fff", border:"none", borderRadius:8, padding:"9px 14px", fontWeight:700, cursor:"pointer" }}>+</button>
             </div>
           </div>
@@ -9165,6 +9638,14 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast }) {
         {dirty && <span style={{ fontSize:12, color:"var(--c-pri)", fontWeight:600 }}>Hay cambios sin guardar</span>}
         <button onClick={guardar} disabled={!dirty}
           style={{ background: dirty ? "var(--c-pri)" : "var(--c-border)", color:"#fff", border:"none", padding:"11px 26px", borderRadius:8, fontSize:15, fontWeight:700, cursor: dirty ? "pointer" : "default" }}>💾 Guardar cajas y categorías</button>
+      </div>
+
+      <div style={{ ...cajaCard, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+        <div style={{ flex:"1 1 300px" }}>
+          <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>📥 Importar desde Gestor de gastos</div>
+          <div style={{ fontSize:13, color:"#a09080" }}>Traé tu historial desde el Excel que exporta la app. Antes de importar podés elegir a qué caja y categoría va cada cosa.</div>
+        </div>
+        <button onClick={onImportar} style={{ background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, padding:"11px 20px", fontWeight:700, cursor:"pointer", fontSize:14 }}>📥 Importar Excel</button>
       </div>
 
       <div style={cajaCard}>
