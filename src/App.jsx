@@ -8491,10 +8491,703 @@ function BuscadorGlobal({ pedidos, clientes, busqueda, setBusqueda, onClose, onS
 }
 
 // ── Componente: Finanzas ─────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// ── CAJA DIARIA (Finanzas) ────────────────────────────────────────────────
+// Movimientos en la colección "cajaMovs": { fecha, tipo, monto, cuenta, cuentaDestino, montoDestino, categoria, nota }
+//   tipo: "ingreso" | "egreso" | "transferencia" | "ajuste"
+//   monto va siempre en la moneda de la caja (ARS o USD). En transferencias, montoDestino en la moneda de la caja destino.
+// Configuración en config/cajaDiaria: { cuentas:[{id,nombre,icono,moneda}], catsIngreso:[...], catsEgreso:[...] }
+// ══════════════════════════════════════════════════════════════════════════
+const CAJA_CFG_DEFAULT = {
+  cuentas: [
+    { id:"efectivo",    nombre:"Caja efectivo",   icono:"💵", moneda:"ARS" },
+    { id:"mercadopago", nombre:"Mercado Pago",    icono:"📲", moneda:"ARS" },
+    { id:"bbva",        nombre:"BBVA",            icono:"🏦", moneda:"ARS" },
+    { id:"ahorros",     nombre:"Ahorros",         icono:"🐷", moneda:"ARS" },
+    { id:"ahorrosusd",  nombre:"Ahorros dólares", icono:"💲", moneda:"USD" },
+  ],
+  catsIngreso: [ { nombre:"Efectivo", icono:"💵" }, { nombre:"Transferencias", icono:"📲" } ],
+  catsEgreso: [
+    { nombre:"Insumos varios", icono:"📦" }, { nombre:"Casa", icono:"🏠" }, { nombre:"Familia", icono:"❤️" },
+    { nombre:"Sueldos", icono:"👷" }, { nombre:"Comida", icono:"☕" }, { nombre:"Otros", icono:"⭐" },
+  ],
+};
+const hoyISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().split("T")[0]; };
+// "15.000" · "15000,50" · "15000.5" → número
+function parseMonto(v) {
+  if (typeof v === "number") return v;
+  let s = String(v||"").replace(/[^\d.,\-]/g, "");
+  if (!s) return 0;
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  else if (/\.\d{3}(\.|$)/.test(s)) s = s.replace(/\./g, "");
+  return parseFloat(s) || 0;
+}
+const fmtMoneda = (n, moneda="ARS") => {
+  const v = Math.round((parseFloat(n)||0) * 100) / 100;
+  const txt = Math.abs(v).toLocaleString("es-AR", { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  return `${v < 0 ? "-" : ""}${moneda === "USD" ? "US$ " : "$"}${txt}`;
+};
+const MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const nombreMes = (ym) => { const [y,m] = ym.split("-"); return `${MESES_ES[+m-1]} ${y}`; };
+const fechaCorta = (f) => { if (!f) return ""; const [y,m,d] = f.split("-"); return `${d}/${m}/${y}`; };
+const fechaConDia = (f) => {
+  const [y,m,d] = f.split("-").map(Number);
+  const dia = new Date(y, m-1, d).toLocaleDateString("es-AR", { weekday:"long" });
+  return `${dia.charAt(0).toUpperCase()+dia.slice(1)} ${String(d).padStart(2,"0")}/${String(m).padStart(2,"0")}/${y}`;
+};
+const moverDia = (f, n) => { const [y,m,d] = f.split("-").map(Number); const x = new Date(y, m-1, d+n); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`; };
+
+// Efecto de un movimiento sobre una caja (en la moneda de esa caja)
+function efectoEnCuenta(m, cuentaId) {
+  const monto = parseFloat(m.monto)||0;
+  if (m.tipo === "ingreso" || m.tipo === "ajuste") return m.cuenta === cuentaId ? monto : 0;
+  if (m.tipo === "egreso") return m.cuenta === cuentaId ? -monto : 0;
+  if (m.tipo === "transferencia") {
+    let r = 0;
+    if (m.cuenta === cuentaId) r -= monto;
+    if (m.cuentaDestino === cuentaId) r += (m.montoDestino !== undefined && m.montoDestino !== null && m.montoDestino !== "" ? parseFloat(m.montoDestino)||0 : monto);
+    return r;
+  }
+  return 0;
+}
+
+const cajaCard = { background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"20px 22px" };
+const cajaInp  = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", color:"#1a2340", background:"#fff" };
+const cajaLbl  = { display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 };
+const TIPO_MOV = {
+  ingreso:       { label:"Ingreso",       icono:"⬆️", color:"#2e7d32", bg:"#e8f5e9" },
+  egreso:        { label:"Egreso",        icono:"⬇️", color:"#c62828", bg:"#ffebee" },
+  transferencia: { label:"Entre cajas",   icono:"🔁", color:"#1565c0", bg:"#e3f2fd" },
+  ajuste:        { label:"Ajuste",        icono:"⚖️", color:"#6a1b9a", bg:"#f3e5f5" },
+};
+
+function CajaDiariaView({ showToast }) {
+  const [cfg, setCfg]       = useState(CAJA_CFG_DEFAULT);
+  const [movs, setMovs]     = useState([]);
+  const [cargado, setCargado] = useState(false);
+  const [vista, setVista]   = useState("dia"); // dia | movimientos | resumen | ajustes
+  const [fecha, setFecha]   = useState(hoyISO());
+  const [form, setForm]     = useState(null);   // { tipo, ...campos } (modal de carga/edición)
+  const [ventasDia, setVentasDia] = useState([]);
+
+  useEffect(() => {
+    const u1 = onSnapshot(doc(db, "config", "cajaDiaria"), snap => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setCfg({
+          cuentas:     d.cuentas?.length     ? d.cuentas     : CAJA_CFG_DEFAULT.cuentas,
+          catsIngreso: d.catsIngreso?.length ? d.catsIngreso : CAJA_CFG_DEFAULT.catsIngreso,
+          catsEgreso:  d.catsEgreso?.length  ? d.catsEgreso  : CAJA_CFG_DEFAULT.catsEgreso,
+        });
+      }
+    }, err => console.error("config/cajaDiaria:", err));
+    const u2 = onSnapshot(collection(db, "cajaMovs"), snap => {
+      setMovs(snap.docs.map(d => ({ ...d.data(), fireId:d.id })));
+      setCargado(true);
+    }, err => { console.error("cajaMovs:", err); setCargado(true); });
+    return () => { u1(); u2(); };
+  }, []);
+
+  // Referencia: lo que registró el sistema ese día (ventas y entregas)
+  useEffect(() => {
+    const u = onSnapshot(collection(db, "ventas"), snap => setVentasDia(snap.docs.map(d => d.data())), () => {});
+    return () => u();
+  }, []);
+
+  const guardarCfg = async (nuevo) => {
+    setCfg(nuevo);
+    await setDoc(doc(db, "config", "cajaDiaria"), { ...nuevo, actualizadoEn:new Date().toISOString() });
+  };
+
+  const cuentaPorId = (id) => cfg.cuentas.find(c => c.id === id);
+  const monedaDe    = (id) => cuentaPorId(id)?.moneda || "ARS";
+  const nombreCuenta = (id) => { const c = cuentaPorId(id); return c ? `${c.icono||""} ${c.nombre}`.trim() : (id || "—"); };
+  const iconoCat = (tipo, nombre) => ((tipo === "ingreso" ? cfg.catsIngreso : cfg.catsEgreso).find(c => c.nombre === nombre)?.icono) || (tipo === "ingreso" ? "⬆️" : "⬇️");
+
+  const saldos = useMemo(() => {
+    const s = {};
+    cfg.cuentas.forEach(c => { s[c.id] = 0; });
+    movs.forEach(m => cfg.cuentas.forEach(c => { s[c.id] += efectoEnCuenta(m, c.id); }));
+    return s;
+  }, [movs, cfg.cuentas]);
+  const totalARS = cfg.cuentas.filter(c => c.moneda !== "USD").reduce((t,c) => t + (saldos[c.id]||0), 0);
+  const totalUSD = cfg.cuentas.filter(c => c.moneda === "USD").reduce((t,c) => t + (saldos[c.id]||0), 0);
+
+  const borrar = async (m) => {
+    if (!window.confirm("¿Eliminar este movimiento?")) return;
+    await deleteDoc(doc(db, "cajaMovs", m.fireId));
+    showToast("Movimiento eliminado");
+  };
+
+  const pestañas = [
+    ["dia","📅 Día"], ["movimientos","📋 Movimientos"], ["resumen","📊 Resumen"], ["ajustes","⚙️ Cajas y categorías"],
+  ];
+
+  return (
+    <div>
+      {/* Saldos de las cajas */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:10, marginBottom:14 }}>
+        {cfg.cuentas.map(c => {
+          const v = saldos[c.id]||0;
+          return (
+            <div key={c.id} style={{ ...cajaCard, padding:"14px 16px" }}>
+              <div style={{ fontSize:12, color:"#a09080", fontWeight:600, marginBottom:4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.icono} {c.nombre}</div>
+              <div style={{ fontSize:19, fontWeight:800, color: v < 0 ? "#c62828" : c.moneda==="USD" ? "#2e7d32" : "#1a2340" }}>{fmtMoneda(v, c.moneda)}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
+        <div style={{ ...cajaCard, padding:"12px 18px", background:"#1a2340", display:"flex", alignItems:"baseline", gap:10 }}>
+          <span style={{ fontSize:12, color:"rgba(255,255,255,.7)", fontWeight:600 }}>TOTAL EN PESOS</span>
+          <span style={{ fontSize:22, fontWeight:800, color:"#fff" }}>{fmtMoneda(totalARS)}</span>
+        </div>
+        {cfg.cuentas.some(c => c.moneda === "USD") && (
+          <div style={{ ...cajaCard, padding:"12px 18px", background:"#1b5e20", display:"flex", alignItems:"baseline", gap:10 }}>
+            <span style={{ fontSize:12, color:"rgba(255,255,255,.7)", fontWeight:600 }}>TOTAL EN DÓLARES</span>
+            <span style={{ fontSize:22, fontWeight:800, color:"#fff" }}>{fmtMoneda(totalUSD, "USD")}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Sub-pestañas */}
+      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
+        {pestañas.map(([id, lbl]) => (
+          <button key={id} onClick={() => setVista(id)}
+            style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background: vista===id ? "#1a2340" : "#fff", color: vista===id ? "#fff" : "#4a5568", boxShadow:"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>{lbl}</button>
+        ))}
+      </div>
+
+      {!cargado && <div style={{ ...cajaCard, textAlign:"center", color:"#a09080" }}>Cargando caja…</div>}
+
+      {cargado && vista === "dia" && (
+        <CajaDia fecha={fecha} setFecha={setFecha} movs={movs} cfg={cfg} ventas={ventasDia}
+          nombreCuenta={nombreCuenta} monedaDe={monedaDe} iconoCat={iconoCat}
+          onNuevo={(tipo) => setForm({ tipo, fecha })} onEditar={(m) => setForm({ ...m })} onBorrar={borrar}/>
+      )}
+      {cargado && vista === "movimientos" && (
+        <CajaMovimientos movs={movs} cfg={cfg} nombreCuenta={nombreCuenta} monedaDe={monedaDe} iconoCat={iconoCat}
+          onEditar={(m) => setForm({ ...m })} onBorrar={borrar}/>
+      )}
+      {cargado && vista === "resumen" && (
+        <CajaResumen movs={movs} cfg={cfg} monedaDe={monedaDe} iconoCat={iconoCat}/>
+      )}
+      {cargado && vista === "ajustes" && (
+        <CajaAjustes cfg={cfg} guardarCfg={guardarCfg} saldos={saldos} movs={movs} showToast={showToast}/>
+      )}
+
+      {form && (
+        <ModalMovCaja inicial={form} cfg={cfg} monedaDe={monedaDe} showToast={showToast} onClose={() => setForm(null)}/>
+      )}
+    </div>
+  );
+}
+
+// ── Día: lo que se carga cada noche ──────────────────────────────────────
+function CajaDia({ fecha, setFecha, movs, cfg, ventas, nombreCuenta, monedaDe, iconoCat, onNuevo, onEditar, onBorrar }) {
+  const delDia = movs.filter(m => m.fecha === fecha).sort((a,b) => (a.creadoEn||"").localeCompare(b.creadoEn||""));
+  const suma = (tipo, moneda) => delDia.filter(m => m.tipo === tipo && monedaDe(m.cuenta) === moneda).reduce((t,m) => t + (parseFloat(m.monto)||0), 0);
+  const ingARS = suma("ingreso","ARS"), egrARS = suma("egreso","ARS");
+  const ingUSD = suma("ingreso","USD"), egrUSD = suma("egreso","USD");
+  const ventasHoy = ventas.filter(v => v.fecha === fecha && v.metodoPago !== "Cuenta Corriente");
+  const porMetodo = {};
+  ventasHoy.forEach(v => { porMetodo[v.metodoPago||"Otro"] = (porMetodo[v.metodoPago||"Otro"]||0) + (parseFloat(v.total)||0); });
+  const btn = (bg) => ({ background:bg, color:"#fff", border:"none", borderRadius:10, padding:"12px 18px", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", flex:"1 1 150px" });
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {/* Selector de día */}
+      <div style={{ ...cajaCard, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+        <button onClick={() => setFecha(moverDia(fecha,-1))} style={{ ...cajaInp, width:42, cursor:"pointer", fontWeight:700 }}>‹</button>
+        <div style={{ fontSize:18, fontWeight:700, color:"#1a2340", minWidth:220 }}>{fechaConDia(fecha)}</div>
+        <button onClick={() => setFecha(moverDia(fecha,1))} style={{ ...cajaInp, width:42, cursor:"pointer", fontWeight:700 }}>›</button>
+        <input type="date" value={fecha} onChange={e => e.target.value && setFecha(e.target.value)} style={{ ...cajaInp, width:160 }}/>
+        {fecha !== hoyISO() && <button onClick={() => setFecha(hoyISO())} style={{ background:"transparent", border:"1.5px solid var(--c-border)", color:"var(--c-pri)", borderRadius:8, padding:"8px 12px", fontWeight:700, cursor:"pointer" }}>Hoy</button>}
+      </div>
+
+      {/* Botones de carga */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+        <button onClick={() => onNuevo("ingreso")} style={btn("#2e7d32")}>⬆️ Cargar ingreso</button>
+        <button onClick={() => onNuevo("egreso")} style={btn("#c62828")}>⬇️ Cargar egreso</button>
+        <button onClick={() => onNuevo("transferencia")} style={btn("#1565c0")}>🔁 Entre cajas</button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:16, alignItems:"start" }}>
+        {/* Totales del día */}
+        <div style={cajaCard}>
+          <div style={{ fontSize:13, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:12 }}>Totales del día</div>
+          {[["Ingresos", ingARS, ingUSD, "#2e7d32"], ["Egresos", egrARS, egrUSD, "#c62828"], ["Resultado", ingARS-egrARS, ingUSD-egrUSD, null]].map(([l, a, u, col]) => (
+            <div key={l} style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", padding:"8px 0", borderTop: l==="Resultado" ? "1.5px solid var(--c-border)" : "none" }}>
+              <span style={{ fontWeight: l==="Resultado" ? 800 : 600, color:"#4a5568" }}>{l}</span>
+              <span style={{ textAlign:"right" }}>
+                <span style={{ fontSize:18, fontWeight:800, color: col || (a < 0 ? "#c62828" : "#1a2340") }}>{fmtMoneda(a)}</span>
+                {(ingUSD || egrUSD) ? <span style={{ display:"block", fontSize:13, fontWeight:700, color:"#2e7d32" }}>{fmtMoneda(u,"USD")}</span> : null}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Referencia del sistema */}
+        <div style={{ ...cajaCard, background:"var(--c-softer)" }}>
+          <div style={{ fontSize:13, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:4 }}>Referencia: cobrado en la app</div>
+          <div style={{ fontSize:12, color:"#a09080", marginBottom:10 }}>Ventas y entregas registradas este día. Las señas cobradas al tomar el pedido no aparecen acá.</div>
+          {Object.keys(porMetodo).length === 0
+            ? <div style={{ fontSize:13, color:"#a09080" }}>Sin ventas registradas este día.</div>
+            : Object.entries(porMetodo).map(([met, tot]) => (
+              <div key={met} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", fontSize:14 }}>
+                <span style={{ color:"#4a5568" }}>{labelMetodo(met)}</span><span style={{ fontWeight:700 }}>{fmtMoneda(tot)}</span>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      {/* Movimientos del día */}
+      <div style={{ ...cajaCard, padding:0, overflow:"hidden" }}>
+        <div style={{ padding:"14px 18px", fontWeight:700, color:"#1a2340", borderBottom:"1px solid var(--c-border)" }}>Movimientos del día ({delDia.length})</div>
+        {delDia.length === 0
+          ? <div style={{ padding:"28px", textAlign:"center", color:"#a09080", fontSize:14 }}>Todavía no cargaste nada este día.</div>
+          : <TablaMovsCaja lista={delDia} mostrarFecha={false} nombreCuenta={nombreCuenta} monedaDe={monedaDe} iconoCat={iconoCat} onEditar={onEditar} onBorrar={onBorrar}/>}
+      </div>
+    </div>
+  );
+}
+
+function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, onEditar, onBorrar }) {
+  return (
+    <div style={{ overflowX:"auto" }}>
+      <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+        <thead><tr style={{ background:"var(--c-soft)" }}>
+          {[...(mostrarFecha ? ["Fecha"] : []), "Tipo", "Categoría", "Caja", "Detalle", "Monto", ""].map(h => (
+            <th key={h} style={{ padding:"10px 14px", textAlign: h==="Monto" ? "right" : "left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", whiteSpace:"nowrap" }}>{h}</th>
+          ))}
+        </tr></thead>
+        <tbody>
+          {lista.map(m => {
+            const t = TIPO_MOV[m.tipo] || TIPO_MOV.ajuste;
+            const mon = monedaDe(m.cuenta);
+            const signo = m.tipo === "egreso" ? -1 : 1;
+            return (
+              <tr key={m.fireId} style={{ borderTop:"1px solid var(--c-row)" }}>
+                {mostrarFecha && <td style={{ padding:"10px 14px", whiteSpace:"nowrap", color:"#4a5568" }}>{fechaCorta(m.fecha)}</td>}
+                <td style={{ padding:"10px 14px" }}><span style={{ background:t.bg, color:t.color, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{t.icono} {t.label}</span></td>
+                <td style={{ padding:"10px 14px", fontWeight:600, color:"#1a2340" }}>{m.tipo==="transferencia" ? "—" : m.tipo==="ajuste" ? "Ajuste de saldo" : `${iconoCat(m.tipo, m.categoria)} ${m.categoria||"—"}`}</td>
+                <td style={{ padding:"10px 14px", color:"#4a5568", whiteSpace:"nowrap" }}>
+                  {nombreCuenta(m.cuenta)}{m.tipo==="transferencia" && <> → {nombreCuenta(m.cuentaDestino)}</>}
+                </td>
+                <td style={{ padding:"10px 14px", color:"#4a5568", maxWidth:260 }}>{m.nota||""}</td>
+                <td style={{ padding:"10px 14px", textAlign:"right", fontWeight:800, whiteSpace:"nowrap", color: m.tipo==="egreso" ? "#c62828" : m.tipo==="ingreso" ? "#2e7d32" : "#1a2340" }}>
+                  {fmtMoneda(signo * (parseFloat(m.monto)||0), mon)}
+                  {m.tipo==="transferencia" && monedaDe(m.cuentaDestino) !== mon && m.montoDestino
+                    ? <div style={{ fontSize:11, color:"#2e7d32" }}>→ {fmtMoneda(m.montoDestino, monedaDe(m.cuentaDestino))}</div> : null}
+                </td>
+                <td style={{ padding:"10px 14px", whiteSpace:"nowrap" }}>
+                  <button onClick={() => onEditar(m)} title="Editar" style={{ background:"transparent", border:"1.5px solid var(--c-border)", borderRadius:7, padding:"4px 8px", cursor:"pointer", marginRight:4 }}>✏️</button>
+                  <button onClick={() => onBorrar(m)} title="Eliminar" style={{ background:"#ffebee", border:"none", borderRadius:7, padding:"5px 8px", cursor:"pointer" }}>🗑</button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Modal de carga / edición ─────────────────────────────────────────────
+function ModalMovCaja({ inicial, cfg, monedaDe, showToast, onClose }) {
+  const tipo = inicial.tipo;
+  const cats = tipo === "ingreso" ? cfg.catsIngreso : cfg.catsEgreso;
+  const ultimaCaja = (() => { try { return localStorage.getItem("caja_ultima_" + tipo) || ""; } catch(e) { return ""; } })();
+  const [f, setF] = useState({
+    fecha: inicial.fecha || hoyISO(),
+    categoria: inicial.categoria || (cats[0]?.nombre || ""),
+    cuenta: inicial.cuenta || (cfg.cuentas.some(c => c.id === ultimaCaja) ? ultimaCaja : cfg.cuentas[0]?.id),
+    cuentaDestino: inicial.cuentaDestino || cfg.cuentas[1]?.id || cfg.cuentas[0]?.id,
+    monto: inicial.monto !== undefined ? String(inicial.monto).replace(".", ",") : "",
+    montoDestino: inicial.montoDestino !== undefined && inicial.montoDestino !== null ? String(inicial.montoDestino).replace(".", ",") : "",
+    nota: inicial.nota || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setF(x => ({ ...x, [k]:v }));
+  const t = TIPO_MOV[tipo];
+  const monOrigen = monedaDe(f.cuenta), monDestino = monedaDe(f.cuentaDestino);
+  const distintaMoneda = tipo === "transferencia" && monOrigen !== monDestino;
+  const editando = !!inicial.fireId;
+
+  const guardar = async (seguir) => {
+    const monto = parseMonto(f.monto);
+    if (!monto) { showToast("Ingresá el monto","error"); return; }
+    if (tipo === "transferencia" && f.cuenta === f.cuentaDestino) { showToast("Elegí dos cajas distintas","error"); return; }
+    if (distintaMoneda && !parseMonto(f.montoDestino)) { showToast(`Ingresá cuánto entra en ${monDestino === "USD" ? "dólares" : "pesos"}`,"error"); return; }
+    const data = {
+      fecha: f.fecha, tipo, monto, cuenta: f.cuenta, nota: f.nota.trim(),
+      ...(tipo === "ingreso" || tipo === "egreso" ? { categoria: f.categoria } : {}),
+      ...(tipo === "transferencia" ? { cuentaDestino: f.cuentaDestino, montoDestino: distintaMoneda ? parseMonto(f.montoDestino) : monto } : {}),
+    };
+    setSaving(true);
+    try {
+      if (editando) await updateDoc(doc(db, "cajaMovs", inicial.fireId), data);
+      else await addDoc(collection(db, "cajaMovs"), { ...data, creadoEn: new Date().toISOString() });
+      try { localStorage.setItem("caja_ultima_" + tipo, f.cuenta); } catch(e) {}
+      showToast(editando ? "Movimiento actualizado ✅" : `${t.label} cargado ✅`);
+      if (seguir) setF(x => ({ ...x, monto:"", montoDestino:"", nota:"" }));
+      else onClose();
+    } catch(e) { console.error(e); showToast("Error al guardar","error"); }
+    setSaving(false);
+  };
+
+  const cotiz = distintaMoneda && parseMonto(f.monto) && parseMonto(f.montoDestino)
+    ? (monOrigen === "ARS" ? parseMonto(f.monto) / parseMonto(f.montoDestino) : parseMonto(f.montoDestino) / parseMonto(f.monto)) : null;
+
+  return (
+    <div className="modal-ov" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"26px 28px", width:"min(480px, 94vw)", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
+          <span style={{ background:t.bg, color:t.color, borderRadius:10, padding:"6px 10px", fontSize:20 }}>{t.icono}</span>
+          <div style={{ fontSize:20, fontWeight:800, color:"#1a2340" }}>{editando ? "Editar" : "Cargar"} {tipo === "transferencia" ? "movimiento entre cajas" : tipo === "ajuste" ? "ajuste" : t.label.toLowerCase()}</div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+          <div>
+            <label style={cajaLbl}>Fecha</label>
+            <input type="date" value={f.fecha} onChange={e => set("fecha", e.target.value)} style={cajaInp}/>
+          </div>
+          <div>
+            <label style={cajaLbl}>{tipo === "transferencia" ? "Sale de" : tipo === "ingreso" ? "Entra a la caja" : "Sale de la caja"}</label>
+            <select value={f.cuenta} onChange={e => set("cuenta", e.target.value)} style={cajaInp}>
+              {cfg.cuentas.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}{c.moneda==="USD" ? " (US$)" : ""}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {(tipo === "ingreso" || tipo === "egreso") && (
+          <div style={{ marginBottom:12 }}>
+            <label style={cajaLbl}>Categoría</label>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {cats.map(c => (
+                <button key={c.nombre} onClick={() => set("categoria", c.nombre)} type="button"
+                  style={{ padding:"7px 12px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer",
+                    border:`1.5px solid ${f.categoria===c.nombre ? t.color : "var(--c-border)"}`,
+                    background: f.categoria===c.nombre ? t.bg : "#fff", color: f.categoria===c.nombre ? t.color : "#4a5568" }}>
+                  {c.icono} {c.nombre}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tipo === "transferencia" && (
+          <div style={{ marginBottom:12 }}>
+            <label style={cajaLbl}>Entra a</label>
+            <select value={f.cuentaDestino} onChange={e => set("cuentaDestino", e.target.value)} style={cajaInp}>
+              {cfg.cuentas.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}{c.moneda==="USD" ? " (US$)" : ""}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div style={{ display:"grid", gridTemplateColumns: distintaMoneda ? "1fr 1fr" : "1fr", gap:12, marginBottom:6 }}>
+          <div>
+            <label style={cajaLbl}>Monto {monOrigen === "USD" ? "(dólares)" : "(pesos)"}{distintaMoneda ? " que sale" : ""}</label>
+            <input autoFocus inputMode="decimal" value={f.monto} onChange={e => set("monto", e.target.value)} placeholder="0"
+              onKeyDown={e => { if (e.key === "Enter") guardar(false); }}
+              style={{ ...cajaInp, fontSize:20, fontWeight:700 }}/>
+          </div>
+          {distintaMoneda && (
+            <div>
+              <label style={cajaLbl}>Entra {monDestino === "USD" ? "(dólares)" : "(pesos)"}</label>
+              <input inputMode="decimal" value={f.montoDestino} onChange={e => set("montoDestino", e.target.value)} placeholder="0"
+                style={{ ...cajaInp, fontSize:20, fontWeight:700 }}/>
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize:12, color:"#a09080", marginBottom:12, minHeight:16 }}>
+          {f.monto ? fmtMoneda(parseMonto(f.monto), monOrigen) : ""}
+          {cotiz ? ` · cotización: $${cotiz.toLocaleString("es-AR", { maximumFractionDigits:2 })} por dólar` : ""}
+        </div>
+
+        <label style={cajaLbl}>Detalle (opcional)</label>
+        <input value={f.nota} onChange={e => set("nota", e.target.value)} placeholder={tipo === "egreso" ? "Ej: Papel ilustración, luz, almuerzo…" : "Ej: cobros del día"}
+          onKeyDown={e => { if (e.key === "Enter") guardar(false); }} style={{ ...cajaInp, marginBottom:20 }}/>
+
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap" }}>
+          <button className="btn-g" onClick={onClose}>Cancelar</button>
+          {!editando && <button onClick={() => guardar(true)} disabled={saving}
+            style={{ background:"#fff", color:t.color, border:`1.5px solid ${t.color}`, borderRadius:8, padding:"10px 16px", fontWeight:700, cursor:"pointer", fontSize:14 }}>Guardar y cargar otro</button>}
+          <button onClick={() => guardar(false)} disabled={saving}
+            style={{ background:t.color, color:"#fff", border:"none", borderRadius:8, padding:"10px 20px", fontWeight:700, cursor:"pointer", fontSize:14 }}>{saving ? "Guardando…" : "Guardar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Todos los movimientos (con filtros) ──────────────────────────────────
+function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar, onBorrar }) {
+  const meses = [...new Set(movs.map(m => (m.fecha||"").slice(0,7)).filter(Boolean))].sort().reverse();
+  const [mes, setMes]     = useState(meses[0] || hoyISO().slice(0,7));
+  const [tipo, setTipo]   = useState("todos");
+  const [cat, setCat]     = useState("todas");
+  const [cuenta, setCuenta] = useState("todas");
+  const [busq, setBusq]   = useState("");
+  const lista = movs
+    .filter(m => mes === "todos" || (m.fecha||"").startsWith(mes))
+    .filter(m => tipo === "todos" || m.tipo === tipo)
+    .filter(m => cat === "todas" || m.categoria === cat)
+    .filter(m => cuenta === "todas" || m.cuenta === cuenta || m.cuentaDestino === cuenta)
+    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
+    .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""));
+  const cats = [...new Set([...cfg.catsIngreso, ...cfg.catsEgreso].map(c => c.nombre).concat(movs.map(m => m.categoria).filter(Boolean)))];
+  const tot = (t, mon) => lista.filter(m => m.tipo === t && monedaDe(m.cuenta) === mon).reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
+  const sel = { ...cajaInp, width:"auto", minWidth:140 };
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div style={{ ...cajaCard, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        <select value={mes} onChange={e => setMes(e.target.value)} style={sel}>
+          <option value="todos">Todos los meses</option>
+          {meses.map(m => <option key={m} value={m}>{nombreMes(m)}</option>)}
+        </select>
+        <select value={tipo} onChange={e => setTipo(e.target.value)} style={sel}>
+          <option value="todos">Todos los tipos</option>
+          {Object.entries(TIPO_MOV).map(([k,v]) => <option key={k} value={k}>{v.icono} {v.label}</option>)}
+        </select>
+        <select value={cat} onChange={e => setCat(e.target.value)} style={sel}>
+          <option value="todas">Todas las categorías</option>
+          {cats.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={cuenta} onChange={e => setCuenta(e.target.value)} style={sel}>
+          <option value="todas">Todas las cajas</option>
+          {cfg.cuentas.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
+        </select>
+        <input value={busq} onChange={e => setBusq(e.target.value)} placeholder="🔍 Buscar en el detalle…" style={{ ...cajaInp, flex:1, minWidth:180 }}/>
+      </div>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+        {[["Ingresos", "ingreso", "#2e7d32"], ["Egresos", "egreso", "#c62828"]].map(([l, t, col]) => (
+          <div key={t} style={{ ...cajaCard, padding:"12px 18px" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{l}</div>
+            <div style={{ fontSize:19, fontWeight:800, color:col }}>{fmtMoneda(tot(t,"ARS"))}</div>
+            {tot(t,"USD") ? <div style={{ fontSize:13, fontWeight:700, color:"#2e7d32" }}>{fmtMoneda(tot(t,"USD"),"USD")}</div> : null}
+          </div>
+        ))}
+        <div style={{ ...cajaCard, padding:"12px 18px" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>Movimientos</div>
+          <div style={{ fontSize:19, fontWeight:800, color:"#1a2340" }}>{lista.length}</div>
+        </div>
+      </div>
+      <div style={{ ...cajaCard, padding:0, overflow:"hidden" }}>
+        {lista.length === 0
+          ? <div style={{ padding:"28px", textAlign:"center", color:"#a09080" }}>No hay movimientos con estos filtros.</div>
+          : <TablaMovsCaja lista={lista.slice(0, 500)} mostrarFecha nombreCuenta={nombreCuenta} monedaDe={monedaDe} iconoCat={iconoCat} onEditar={onEditar} onBorrar={onBorrar}/>}
+        {lista.length > 500 && <div style={{ padding:"10px 16px", fontSize:12, color:"#a09080" }}>Se muestran los últimos 500. Usá los filtros para ver el resto.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── Resumen mensual ──────────────────────────────────────────────────────
+function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
+  const meses = [...new Set(movs.map(m => (m.fecha||"").slice(0,7)).filter(Boolean))].sort().reverse();
+  const [mes, setMes] = useState(meses[0] || hoyISO().slice(0,7));
+  const delMes = movs.filter(m => (m.fecha||"").startsWith(mes));
+  const sumaPor = (tipo, moneda) => {
+    const r = {};
+    delMes.filter(m => m.tipo === tipo && monedaDe(m.cuenta) === moneda).forEach(m => { r[m.categoria||"Sin categoría"] = (r[m.categoria||"Sin categoría"]||0) + (parseFloat(m.monto)||0); });
+    return Object.entries(r).sort((a,b) => b[1]-a[1]);
+  };
+  const ingCats = sumaPor("ingreso","ARS"), egrCats = sumaPor("egreso","ARS");
+  const ingUSD = sumaPor("ingreso","USD"), egrUSD = sumaPor("egreso","USD");
+  const total = (arr) => arr.reduce((s,[,v]) => s+v, 0);
+  const ingT = total(ingCats), egrT = total(egrCats);
+
+  // Últimos 12 meses (pesos)
+  const ult12 = [...meses].slice(0,12).reverse().map(ym => {
+    const ms = movs.filter(m => (m.fecha||"").startsWith(ym) && monedaDe(m.cuenta) === "ARS");
+    const ing = ms.filter(m => m.tipo === "ingreso").reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
+    const egr = ms.filter(m => m.tipo === "egreso").reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
+    return { ym, ing, egr };
+  });
+  const maxM = Math.max(1, ...ult12.map(x => Math.max(x.ing, x.egr)));
+
+  const Barras = ({ titulo, filas, color, moneda="ARS", tipo }) => {
+    const tot = total(filas);
+    return (
+      <div style={cajaCard}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a2340" }}>{titulo}</div>
+          <div style={{ fontSize:17, fontWeight:800, color }}>{fmtMoneda(tot, moneda)}</div>
+        </div>
+        {filas.length === 0 && <div style={{ fontSize:13, color:"#a09080" }}>Sin movimientos.</div>}
+        {filas.map(([cat, v]) => (
+          <div key={cat} style={{ marginBottom:9 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:3 }}>
+              <span style={{ color:"#1a2340", fontWeight:600 }}>{iconoCat(tipo, cat)} {cat}</span>
+              <span style={{ color:"#4a5568" }}><b>{fmtMoneda(v, moneda)}</b> · {tot ? Math.round(v/tot*100) : 0}%</span>
+            </div>
+            <div style={{ height:8, background:"var(--c-soft)", borderRadius:4, overflow:"hidden" }}>
+              <div style={{ width:`${tot ? v/tot*100 : 0}%`, height:"100%", background:color, borderRadius:4 }}/>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ ...cajaCard, display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+        <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...cajaInp, width:"auto", minWidth:180, fontWeight:700 }}>
+          {(meses.length ? meses : [mes]).map(m => <option key={m} value={m}>{nombreMes(m)}</option>)}
+        </select>
+        <div style={{ display:"flex", gap:22, flexWrap:"wrap", marginLeft:"auto" }}>
+          {[["Ingresos", ingT, "#2e7d32"], ["Egresos", egrT, "#c62828"], ["Resultado", ingT-egrT, ingT-egrT < 0 ? "#c62828" : "#1a2340"]].map(([l,v,col]) => (
+            <div key={l}><div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{l}</div><div style={{ fontSize:20, fontWeight:800, color:col }}>{fmtMoneda(v)}</div></div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:16, alignItems:"start" }}>
+        <Barras titulo="⬇️ Egresos por categoría" filas={egrCats} color="#c62828" tipo="egreso"/>
+        <Barras titulo="⬆️ Ingresos por categoría" filas={ingCats} color="#2e7d32" tipo="ingreso"/>
+        {(ingUSD.length > 0 || egrUSD.length > 0) && <Barras titulo="💲 Ingresos en dólares" filas={ingUSD} color="#2e7d32" moneda="USD" tipo="ingreso"/>}
+        {egrUSD.length > 0 && <Barras titulo="💲 Egresos en dólares" filas={egrUSD} color="#c62828" moneda="USD" tipo="egreso"/>}
+      </div>
+
+      {ult12.length > 1 && (
+        <div style={cajaCard}>
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a2340", marginBottom:4 }}>Mes a mes (pesos)</div>
+          <div style={{ display:"flex", gap:14, fontSize:12, color:"#4a5568", marginBottom:12 }}>
+            <span><span style={{ display:"inline-block", width:10, height:10, background:"#2e7d32", borderRadius:2, marginRight:4 }}/>Ingresos</span>
+            <span><span style={{ display:"inline-block", width:10, height:10, background:"#e57373", borderRadius:2, marginRight:4 }}/>Egresos</span>
+          </div>
+          <div style={{ display:"flex", alignItems:"flex-end", gap:10, height:180, overflowX:"auto", paddingBottom:4 }}>
+            {ult12.map(x => (
+              <div key={x.ym} onClick={() => setMes(x.ym)} title={`${nombreMes(x.ym)}\nIngresos: ${fmtMoneda(x.ing)}\nEgresos: ${fmtMoneda(x.egr)}\nResultado: ${fmtMoneda(x.ing-x.egr)}`}
+                style={{ flex:"1 0 48px", maxWidth:90, display:"flex", flexDirection:"column", alignItems:"center", cursor:"pointer", height:"100%", justifyContent:"flex-end" }}>
+                <div style={{ display:"flex", gap:3, alignItems:"flex-end", height:"100%", width:"100%", justifyContent:"center" }}>
+                  <div style={{ width:"40%", height:`${x.ing/maxM*100}%`, minHeight:2, background:"#2e7d32", borderRadius:"3px 3px 0 0" }}/>
+                  <div style={{ width:"40%", height:`${x.egr/maxM*100}%`, minHeight:2, background:"#e57373", borderRadius:"3px 3px 0 0" }}/>
+                </div>
+                <div style={{ fontSize:11, marginTop:5, fontWeight: x.ym===mes ? 800 : 500, color: x.ym===mes ? "var(--c-pri)" : "#4a5568", whiteSpace:"nowrap" }}>{MESES_ES[+x.ym.slice(5)-1].slice(0,3)} {x.ym.slice(2,4)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Cajas, categorías y ajuste de saldos ─────────────────────────────────
+function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast }) {
+  const [cuentas, setCuentas] = useState(cfg.cuentas);
+  const [catsI, setCatsI] = useState(cfg.catsIngreso);
+  const [catsE, setCatsE] = useState(cfg.catsEgreso);
+  const [dirty, setDirty] = useState(false);
+  const [nuevaCaja, setNuevaCaja] = useState({ nombre:"", icono:"🏦", moneda:"ARS" });
+  const [nuevaI, setNuevaI] = useState({ nombre:"", icono:"⬆️" });
+  const [nuevaE, setNuevaE] = useState({ nombre:"", icono:"📦" });
+  const [ajustes, setAjustes] = useState({});
+  const marca = (fn) => (...a) => { fn(...a); setDirty(true); };
+
+  const usos = (campo, valor) => movs.filter(m => m[campo] === valor || (campo === "cuenta" && m.cuentaDestino === valor)).length;
+  const guardar = async () => {
+    try { await guardarCfg({ cuentas, catsIngreso: catsI, catsEgreso: catsE }); setDirty(false); showToast("Configuración de caja guardada ✅"); }
+    catch(e) { console.error(e); showToast("Error al guardar","error"); }
+  };
+  const ajustarSaldo = async (c) => {
+    const real = parseMonto(ajustes[c.id]);
+    if (ajustes[c.id] === undefined || ajustes[c.id] === "") return;
+    const dif = Math.round((real - (saldos[c.id]||0)) * 100) / 100;
+    if (!dif) { showToast("El saldo ya coincide"); return; }
+    if (!window.confirm(`${c.nombre}: el sistema dice ${fmtMoneda(saldos[c.id]||0, c.moneda)} y vos tenés ${fmtMoneda(real, c.moneda)}.\nSe va a cargar un ajuste de ${fmtMoneda(dif, c.moneda)}. ¿Continuar?`)) return;
+    await addDoc(collection(db, "cajaMovs"), { fecha: hoyISO(), tipo:"ajuste", monto: dif, cuenta: c.id, nota:"Ajuste de saldo", creadoEn:new Date().toISOString() });
+    setAjustes(a => ({ ...a, [c.id]:"" }));
+    showToast("Saldo ajustado ✅");
+  };
+
+  const filaCat = (lista, setLista, campoUso) => lista.map((c, i) => (
+    <div key={i} style={{ display:"flex", gap:8, alignItems:"center", marginBottom:6 }}>
+      <EmojiPicker value={c.icono} onChange={marca(em => setLista(l => l.map((x,j) => j===i ? { ...x, icono:em } : x)))}/>
+      <input value={c.nombre} onChange={marca(e => setLista(l => l.map((x,j) => j===i ? { ...x, nombre:e.target.value } : x)))} style={{ ...cajaInp, flex:1 }}/>
+      <span style={{ fontSize:11, color:"#a09080", whiteSpace:"nowrap" }}>{usos("categoria", c.nombre)} mov.</span>
+      <button onClick={marca(() => setLista(l => l.filter((_,j) => j!==i)))} title="Quitar" style={{ background:"#ffebee", border:"none", borderRadius:7, padding:"7px 9px", cursor:"pointer" }}>🗑</button>
+    </div>
+  ));
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={cajaCard}>
+        <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>🏦 Cajas</div>
+        <div style={{ fontSize:13, color:"#a09080", marginBottom:14 }}>Las cajas en dólares se suman aparte, nunca se mezclan con los pesos.</div>
+        {cuentas.map((c, i) => (
+          <div key={c.id} style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8, flexWrap:"wrap" }}>
+            <EmojiPicker value={c.icono} onChange={marca(em => setCuentas(l => l.map((x,j) => j===i ? { ...x, icono:em } : x)))}/>
+            <input value={c.nombre} onChange={marca(e => setCuentas(l => l.map((x,j) => j===i ? { ...x, nombre:e.target.value } : x)))} style={{ ...cajaInp, flex:"1 1 160px" }}/>
+            <select value={c.moneda} onChange={marca(e => setCuentas(l => l.map((x,j) => j===i ? { ...x, moneda:e.target.value } : x)))} style={{ ...cajaInp, width:110 }}>
+              <option value="ARS">Pesos</option><option value="USD">Dólares</option>
+            </select>
+            <button onClick={() => { if (usos("cuenta", c.id) && !window.confirm(`"${c.nombre}" tiene movimientos. Si la quitás, esos movimientos quedan pero la caja deja de aparecer. ¿Continuar?`)) return; marca(() => setCuentas(l => l.filter((_,j) => j!==i)))(); }}
+              title="Quitar" style={{ background:"#ffebee", border:"none", borderRadius:7, padding:"7px 9px", cursor:"pointer" }}>🗑</button>
+          </div>
+        ))}
+        <div style={{ display:"flex", gap:8, alignItems:"center", padding:10, border:"1.5px dashed var(--c-border)", borderRadius:10, flexWrap:"wrap" }}>
+          <EmojiPicker value={nuevaCaja.icono} onChange={em => setNuevaCaja(x => ({ ...x, icono:em }))}/>
+          <input value={nuevaCaja.nombre} onChange={e => setNuevaCaja(x => ({ ...x, nombre:e.target.value }))} placeholder="Nueva caja (ej: Naranja X)" style={{ ...cajaInp, flex:"1 1 160px" }}/>
+          <select value={nuevaCaja.moneda} onChange={e => setNuevaCaja(x => ({ ...x, moneda:e.target.value }))} style={{ ...cajaInp, width:110 }}>
+            <option value="ARS">Pesos</option><option value="USD">Dólares</option>
+          </select>
+          <button onClick={() => { const n = nuevaCaja.nombre.trim(); if (!n) return;
+              const id = n.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g,"") + "_" + Date.now().toString(36);
+              setCuentas(l => [...l, { id, nombre:n, icono:nuevaCaja.icono, moneda:nuevaCaja.moneda }]); setNuevaCaja({ nombre:"", icono:"🏦", moneda:"ARS" }); setDirty(true); }}
+            style={{ background:"#1a2340", color:"#fff", border:"none", borderRadius:8, padding:"9px 16px", fontWeight:700, cursor:"pointer" }}>+ Agregar</button>
+        </div>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:16, alignItems:"start" }}>
+        {[["⬆️ Categorías de ingreso", catsI, setCatsI, nuevaI, setNuevaI], ["⬇️ Categorías de egreso", catsE, setCatsE, nuevaE, setNuevaE]].map(([tit, lista, setLista, nueva, setNueva]) => (
+          <div key={tit} style={cajaCard}>
+            <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:12 }}>{tit}</div>
+            {filaCat(lista, setLista)}
+            <div style={{ display:"flex", gap:8, alignItems:"center", padding:8, border:"1.5px dashed var(--c-border)", borderRadius:10, marginTop:8 }}>
+              <EmojiPicker value={nueva.icono} onChange={em => setNueva(x => ({ ...x, icono:em }))}/>
+              <input value={nueva.nombre} onChange={e => setNueva(x => ({ ...x, nombre:e.target.value }))} placeholder="Nueva categoría"
+                onKeyDown={e => { if (e.key === "Enter" && nueva.nombre.trim()) { setLista(l => [...l, { nombre:nueva.nombre.trim(), icono:nueva.icono }]); setNueva(x => ({ ...x, nombre:"" })); setDirty(true); } }}
+                style={{ ...cajaInp, flex:1 }}/>
+              <button onClick={() => { if (!nueva.nombre.trim()) return; if (lista.some(c => c.nombre.toLowerCase() === nueva.nombre.trim().toLowerCase())) { showToast("Esa categoría ya existe","error"); return; }
+                  setLista(l => [...l, { nombre:nueva.nombre.trim(), icono:nueva.icono }]); setNueva(x => ({ ...x, nombre:"" })); setDirty(true); }}
+                style={{ background:"#1a2340", color:"#fff", border:"none", borderRadius:8, padding:"9px 14px", fontWeight:700, cursor:"pointer" }}>+</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display:"flex", justifyContent:"flex-end", alignItems:"center", gap:12 }}>
+        {dirty && <span style={{ fontSize:12, color:"var(--c-pri)", fontWeight:600 }}>Hay cambios sin guardar</span>}
+        <button onClick={guardar} disabled={!dirty}
+          style={{ background: dirty ? "var(--c-pri)" : "var(--c-border)", color:"#fff", border:"none", padding:"11px 26px", borderRadius:8, fontSize:15, fontWeight:700, cursor: dirty ? "pointer" : "default" }}>💾 Guardar cajas y categorías</button>
+      </div>
+
+      <div style={cajaCard}>
+        <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>⚖️ Ajustar saldos</div>
+        <div style={{ fontSize:13, color:"#a09080", marginBottom:14 }}>Si contás la plata y no coincide con lo que dice la app (o para cargar el saldo inicial), poné el saldo real. Se carga un movimiento de "Ajuste" por la diferencia, así queda registrado.</div>
+        {cfg.cuentas.map(c => (
+          <div key={c.id} style={{ display:"flex", gap:10, alignItems:"center", marginBottom:8, flexWrap:"wrap" }}>
+            <div style={{ flex:"1 1 160px", fontWeight:600, color:"#1a2340" }}>{c.icono} {c.nombre}</div>
+            <div style={{ width:150, color:"#4a5568", fontSize:13 }}>App: <b>{fmtMoneda(saldos[c.id]||0, c.moneda)}</b></div>
+            <input inputMode="decimal" value={ajustes[c.id]||""} onChange={e => setAjustes(a => ({ ...a, [c.id]:e.target.value }))} placeholder="Saldo real" style={{ ...cajaInp, width:150 }}/>
+            <button onClick={() => ajustarSaldo(c)} disabled={!ajustes[c.id]}
+              style={{ background: ajustes[c.id] ? "#6a1b9a" : "var(--c-border)", color:"#fff", border:"none", borderRadius:8, padding:"9px 14px", fontWeight:700, cursor: ajustes[c.id] ? "pointer" : "default" }}>Ajustar</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showToast }) {
   const [pin, setPin]               = useState("");
   const [pinError, setPinError]     = useState(false);
-  const [tabActiva, setTabActiva]   = useState("resumen");
+  const [tabActiva, setTabActiva]   = useState("caja");
   const [ventas, setVentas]         = useState([]);
   const [gastos, setGastos]         = useState([]);
   const [movCaja, setMovCaja]       = useState([]);
@@ -8597,10 +9290,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
   }
 
   const TABS = [
-    {id:"resumen",   label:"📊 Resumen"},
-    {id:"caja",      label:"🏦 Caja"},
-    {id:"gastos",    label:"💸 Gastos"},
-    {id:"ventas",    label:"🧾 Ventas"},
+    {id:"caja",      label:"🏦 Caja diaria"},
     {id:"empleados", label:"👷 RRHH"},
     {id:"config",    label:"⚙️ Config"},
   ];
@@ -8629,205 +9319,10 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
             {t.label}
           </button>
         ))}
-        {/* Selector período */}
-        <div style={{ marginLeft:"auto", display:"flex", gap:6 }}>
-          {["hoy","semana","mes","total"].map(p=>(
-            <button key={p} onClick={()=>setPeriodoFin(p)}
-              style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer", border:"none",
-                background:periodoFin===p?"#1a2340":"#fff", color:periodoFin===p?"#fff":"#4a5568" }}>
-              {p==="hoy"?"Hoy":p==="semana"?"Semana":p==="mes"?"Mes":"Total"}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {/* ── TAB: RESUMEN ── */}
-      {tabActiva==="resumen" && (
-        <div>
-          {/* KPIs */}
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>
-            {[
-              {label:"Ventas",    value:`$${totalVentas.toLocaleString("es-AR")}`,   color:"var(--c-pri)", icon:"💰"},
-              {label:"Gastos",    value:`$${totalGastos.toLocaleString("es-AR")}`,   color:"#c62828", icon:"💸"},
-              {label:"Ganancia",  value:`$${ganancia.toLocaleString("es-AR")}`,      color:ganancia>=0?"#2e7d32":"#c62828", icon:"📈"},
-              {label:"Saldo Caja",value:`$${saldoCaja.toLocaleString("es-AR")}`,     color:"#1565c0", icon:"🏦"},
-            ].map((k,i)=>(
-              <div key={i} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"18px 20px" }}>
-                <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:8 }}>{k.label}</div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, color:k.color }}>{k.value}</div>
-                  <span style={{ fontSize:24 }}>{k.icon}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Métodos de pago */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:24 }}>
-            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"20px 24px" }}>
-              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:16 }}>💳 Ventas por método de pago</div>
-              {metodosConHistorial(ventas).map(m => ({ ...m,
-                  value: ventasFilt.filter(v=>v.metodoPago===m.nombre).reduce((s,v)=>s+parseFloat(v.total||0),0) }))
-                .filter(m => m.value>0 || getMetodosPago().some(x=>x.nombre===m.nombre))
-                .map((m,i)=>(
-                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid var(--c-row)" }}>
-                  <span style={{ background:m.bg, color:m.color, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{m.label}</span>
-                  <span style={{ fontWeight:700, color:m.color, fontSize:15 }}>${m.value.toLocaleString("es-AR")}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Resumen por día — últimos 7 días */}
-            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"20px 24px" }}>
-              <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:4 }}>📅 Resumen por día</div>
-              <div style={{ fontSize:12, color:"#a09080", marginBottom:14 }}>Últimos 7 días — se reinicia cada día automáticamente</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-                {ultimos7.slice().reverse().map((d,i)=>{
-                  const esHoy = d.fecha === hoy;
-                  const porMetodo = metodosConHistorial(ventas).map(m => ({ ...m,
-                    value: ventas.filter(v=>v.fecha===d.fecha&&v.metodoPago===m.nombre).reduce((s,v)=>s+parseFloat(v.total||0),0) }))
-                    .filter(m => m.value>0);
-                  return (
-                    <div key={d.fecha} style={{ borderBottom:i<6?"1px solid var(--c-row)":"none", padding:"10px 0" }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: d.total>0?6:0 }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          {esHoy && <span style={{ background:"var(--c-pri)", color:"#fff", padding:"1px 7px", borderRadius:20, fontSize:10, fontWeight:700 }}>HOY</span>}
-                          <span style={{ fontSize:13, fontWeight:esHoy?700:500, color:esHoy?"#1a2340":"#4a5568" }}>{d.dia}</span>
-                        </div>
-                        <span style={{ fontWeight:700, fontSize:14, color:d.total>0?"var(--c-pri)":"#a09080" }}>
-                          {d.total>0?`$${d.total.toLocaleString("es-AR")}`:"—"}
-                        </span>
-                      </div>
-                      {d.total>0 && (
-                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                          {porMetodo.map(m => (
-                            <span key={m.nombre} style={{ background:m.bg, color:m.color, padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:600 }}>{m.label.split(" ")[0]} ${m.value.toLocaleString("es-AR")}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Ventas recientes */}
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"20px 24px" }}>
-            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>🧾 Últimas ventas</div>
-            {ventasFilt.length===0 ? <div style={{ color:"#a09080", fontSize:14, textAlign:"center", padding:"20px 0" }}>Sin ventas en este período</div> :
-              ventasFilt.slice(0,8).map(v=>(
-                <div key={v.fireId} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 0", borderBottom:"1px solid var(--c-row)" }}>
-                  <div>
-                    <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</div>
-                    <div style={{ fontSize:11, color:"#a09080" }}>{v.fecha} · {v.items?.length||0} producto{v.items?.length!==1?"s":""} · {v.metodoPago}</div>
-                  </div>
-                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:"var(--c-pri)" }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</div>
-                </div>
-              ))
-            }
-          </div>
-        </div>
-      )}
-
-      {/* ── TAB: CAJA ── */}
-      {tabActiva==="caja" && (
-        <div>
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"24px 28px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div>
-              <div style={{ fontSize:12, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:6 }}>Saldo en caja</div>
-              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:36, fontWeight:700, color:saldoCaja>=0?"#2e7d32":"#c62828" }}>${saldoCaja.toLocaleString("es-AR")}</div>
-              <div style={{ fontSize:12, color:"#a09080", marginTop:4 }}>Incluye ventas en efectivo + movimientos manuales</div>
-            </div>
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={()=>setModalCaja("ingreso")} style={{ background:"#e8f5e9", border:"1.5px solid #2e7d32", color:"#2e7d32", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Ingreso</button>
-              <button onClick={()=>setModalCaja("egreso")}  style={{ background:"#ffebee", border:"1.5px solid #c62828", color:"#c62828", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>− Egreso</button>
-            </div>
-          </div>
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
-            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-              <thead><tr style={{ background:"var(--c-softer)" }}>
-                {["Fecha","Tipo","Descripción","Monto"].map(h=><th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid var(--c-row2)" }}>{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {[...movCaja,...ventasFilt.filter(v=>v.metodoPago==="Efectivo").map(v=>({tipo:"ingreso",descripcion:`Venta - ${v.clienteNombre||"Consumidor Final"}`,monto:v.total,fecha:v.fecha,fireId:v.fireId+"_v"}))].sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).slice(0,30).map((m,i)=>(
-                  <tr key={i} style={{ borderBottom:"1px solid var(--c-row)" }}>
-                    <td style={{ padding:"10px 16px", color:"#a09080" }}>{m.fecha}</td>
-                    <td style={{ padding:"10px 16px" }}><span style={{ background:m.tipo==="ingreso"?"#e8f5e9":"#ffebee", color:m.tipo==="ingreso"?"#2e7d32":"#c62828", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:700 }}>{m.tipo==="ingreso"?"↑ Ingreso":"↓ Egreso"}</span></td>
-                    <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{m.descripcion||"—"}</td>
-                    <td style={{ padding:"10px 16px", fontWeight:700, color:m.tipo==="ingreso"?"#2e7d32":"#c62828" }}>${parseFloat(m.monto||0).toLocaleString("es-AR")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── TAB: GASTOS ── */}
-      {tabActiva==="gastos" && (
-        <div>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340" }}>
-              💸 Gastos — <span style={{ color:"#c62828" }}>${totalGastos.toLocaleString("es-AR")}</span>
-            </div>
-            <button onClick={()=>setModalGasto(true)} style={{ background:"var(--c-pri)", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Cargar Gasto</button>
-          </div>
-          {gastosFilt.length===0 ? (
-            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"52px", textAlign:"center", color:"#a09080" }}>Sin gastos en este período</div>
-          ) : (
-            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
-              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-                <thead><tr style={{ background:"var(--c-softer)" }}>
-                  {["Fecha","Categoría","Descripción","Monto",""].map(h=><th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid var(--c-row2)" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>
-                  {gastosFilt.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(g=>(
-                    <tr key={g.fireId} style={{ borderBottom:"1px solid var(--c-row)" }}>
-                      <td style={{ padding:"10px 16px", color:"#a09080" }}>{g.fecha}</td>
-                      <td style={{ padding:"10px 16px" }}><span style={{ background:"#ffebee", color:"#c62828", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{g.categoria||"Varios"}</span></td>
-                      <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{g.descripcion}</td>
-                      <td style={{ padding:"10px 16px", fontWeight:700, color:"#c62828" }}>${parseFloat(g.monto||0).toLocaleString("es-AR")}</td>
-                      <td style={{ padding:"10px 14px" }}><button onClick={async()=>{ await deleteDoc(doc(db,"gastos",g.fireId)); showToast("Gasto eliminado","error"); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, cursor:"pointer", fontSize:12 }}>🗑</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── TAB: VENTAS DETALLE ── */}
-      {tabActiva==="ventas" && (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
-          <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--c-row2)", fontWeight:700, fontSize:15, color:"#1a2340" }}>
-            🧾 Detalle de ventas — {ventasFilt.length} venta{ventasFilt.length!==1?"s":""} · ${totalVentas.toLocaleString("es-AR")}
-          </div>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-            <thead><tr style={{ background:"var(--c-softer)" }}>
-              {["N°","Fecha","Cliente","Items","Método","Total"].map(h=><th key={h} style={{ padding:"10px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid var(--c-row2)" }}>{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {ventasFilt.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(v=>(
-                <tr key={v.fireId} style={{ borderBottom:"1px solid var(--c-row)" }}>
-                  <td style={{ padding:"10px 16px", color:"#a09080", fontFamily:"monospace", fontSize:12 }}>X-{String(v.numero||1).padStart(5,"0")}</td>
-                  <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.fecha}</td>
-                  <td style={{ padding:"10px 16px", fontWeight:600, color:"#1a2340" }}>{v.clienteNombre||"Consumidor Final"}</td>
-                  <td style={{ padding:"10px 16px", color:"#4a5568" }}>{v.items?.map(i=>`${i.cantidad}x ${i.nombre}`).join(", ").slice(0,50)||"—"}</td>
-                  <td style={{ padding:"10px 16px" }}><span style={{ background:"var(--c-tint)", color:"var(--c-pri)", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.metodoPago}</span></td>
-                  <td style={{ padding:"10px 16px" }}>
-                    <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                      <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, color:"var(--c-pri)", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</span>
-                      {v.origen==="pedido" && <span style={{ background:"#e8eaf6", color:"#3949ab", padding:"2px 7px", borderRadius:10, fontSize:10, fontWeight:700 }}>PEDIDO</span>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* ── TAB: CAJA DIARIA ── */}
+      {tabActiva==="caja" && <CajaDiariaView showToast={showToast}/>}
 
       {/* ── TAB: EMPLEADOS / RRHH ── */}
       {tabActiva==="empleados" && (
