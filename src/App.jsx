@@ -5604,6 +5604,14 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
   const [facturas, setFacturas]         = useState([]);
   const [tabActiva, setTabActiva]       = useState("pedidos");
   const [nuevoPedItem, setNuevoPedItem] = useState("");
+  const [compras, setCompras]           = useState([]);
+  const [anioCompras, setAnioCompras]   = useState(String(new Date().getFullYear()));
+  useEffect(() => {
+    const u = onSnapshot(query(collection(db, "cajaMovs"), where("proveedorId", "==", prov.fireId)),
+      snap => setCompras(snap.docs.map(d => ({ ...d.data(), fireId:d.id })).filter(m => m.tipo === "egreso").sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""))),
+      () => {});
+    return () => u();
+  }, [prov.fireId]);
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db,"pedidosProveedor"), snap => {
@@ -5675,7 +5683,7 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
 
       {/* Tabs */}
       <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-        {[["pedidos","📋 Lista de pedidos"],["facturas","🧾 Facturas"],["historial","📦 Historial"]].map(([tab,lbl])=>(
+        {[["pedidos","📋 Lista de pedidos"],["compras","💸 Compras"],["facturas","🧾 Facturas"],["historial","📦 Historial"]].map(([tab,lbl])=>(
           <button key={tab} onClick={()=>setTabActiva(tab)}
             style={{ padding:"8px 18px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
               background:tabActiva===tab?"var(--c-pri)":"#fff", color:tabActiva===tab?"#fff":"#4a5568",
@@ -5684,6 +5692,58 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
           </button>
         ))}
       </div>
+
+      {/* Tab: Compras (egresos de la Caja diaria con este proveedor) */}
+      {tabActiva==="compras" && (() => {
+        const anios = [...new Set([String(new Date().getFullYear()), ...compras.map(m => (m.fecha||"").slice(0,4)).filter(Boolean)])].sort().reverse();
+        const delAnio = compras.filter(m => (m.fecha||"").startsWith(anioCompras));
+        const tot = (l) => l.reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
+        const mesAct = hoyISO().slice(0,7);
+        const porMes = Array.from({ length:12 }, (_, i) => { const ym = `${anioCompras}-${String(i+1).padStart(2,"0")}`; return { ym, i, total: tot(delAnio.filter(m => m.fecha.startsWith(ym))) }; });
+        const maxM = Math.max(1, ...porMes.map(x => x.total));
+        const mesesConCompra = porMes.filter(x => x.total > 0).length;
+        const card = { background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"18px 22px" };
+        return (
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            <div style={{ ...card, display:"flex", gap:22, flexWrap:"wrap", alignItems:"center" }}>
+              <select value={anioCompras} onChange={e => setAnioCompras(e.target.value)} style={{ padding:"9px 12px", borderRadius:8, border:"1.5px solid var(--c-border)", fontWeight:700, fontSize:14 }}>
+                {anios.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+              {[["Este mes", fmtMoneda(tot(compras.filter(m => (m.fecha||"").startsWith(mesAct)))), "#c62828"],
+                [`Total ${anioCompras}`, fmtMoneda(tot(delAnio)), "#1a2340"],
+                ["Compras", delAnio.length, "#4a5568"],
+                ["Promedio por mes", fmtMoneda(mesesConCompra ? tot(delAnio) / mesesConCompra : 0), "#4a5568"]].map(([l,v,col]) => (
+                <div key={l}><div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{l}</div><div style={{ fontSize:20, fontWeight:800, color:col }}>{v}</div></div>
+              ))}
+            </div>
+            <div style={card}>
+              <div style={{ fontWeight:700, color:"#1a2340", marginBottom:12 }}>Mes a mes · {anioCompras}</div>
+              <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:150 }}>
+                {porMes.map(x => (
+                  <div key={x.ym} title={`${nombreMes(x.ym)}: ${fmtMoneda(x.total)}`} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", height:"100%", justifyContent:"flex-end" }}>
+                    <div style={{ width:"70%", height:`${x.total/maxM*100}%`, minHeight: x.total ? 3 : 1, background: x.ym === mesAct ? "var(--c-pri)" : "#90a4ae", borderRadius:"3px 3px 0 0" }}/>
+                    <div style={{ fontSize:10, color:"#4a5568", marginTop:4 }}>{MESES_ES[x.i].slice(0,3)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ ...card, padding:0, overflow:"hidden" }}>
+              {delAnio.length === 0
+                ? <div style={{ padding:28, textAlign:"center", color:"#a09080", fontSize:14 }}>Sin compras registradas en {anioCompras}. Al cargar un egreso en la Caja diaria, elegí este proveedor.</div>
+                : delAnio.map(m => (
+                  <div key={m.fireId} style={{ display:"flex", gap:12, alignItems:"center", padding:"11px 18px", borderTop:"1px solid var(--c-row)" }}>
+                    <div style={{ width:80, fontSize:13, color:"#4a5568", flexShrink:0 }}>{fechaCorta(m.fecha)}</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, color:"#1a2340", fontSize:14 }}>{m.categoria}{m.subcategoria ? ` › ${m.subcategoria}` : ""}</div>
+                      {m.nota && <div style={{ fontSize:12, color:"#a09080", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.nota}</div>}
+                    </div>
+                    <div style={{ fontWeight:800, color:"#c62828", whiteSpace:"nowrap" }}>{fmtMoneda(m.monto)}</div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Tab: Lista de pedidos */}
       {tabActiva==="pedidos" && (
@@ -8868,6 +8928,12 @@ function CajaDiariaView({ showToast }) {
   const [form, setForm]     = useState(null);   // { tipo, ...campos } (modal de carga/edición)
   const [ventasDia, setVentasDia] = useState([]);
   const [importando, setImportando] = useState(false);
+  const [cierres, setCierres] = useState([]);
+  const [cierreFecha, setCierreFecha] = useState(null);
+  useEffect(() => {
+    const u = onSnapshot(collection(db, "cajaCierres"), snap => setCierres(snap.docs.map(d => ({ ...d.data(), fireId:d.id }))), err => console.error("cajaCierres:", err));
+    return () => u();
+  }, []);
 
   useEffect(() => {
     const u1 = onSnapshot(doc(db, "config", "cajaDiaria"), snap => {
@@ -8919,7 +8985,7 @@ function CajaDiariaView({ showToast }) {
   };
 
   const pestañas = [
-    ["dia","📅 Día"], ["movimientos","📋 Movimientos"], ["resumen","📊 Resumen"], ["ajustes","⚙️ Cajas y categorías"],
+    ["dia","📅 Día"], ["movimientos","📋 Movimientos"], ["resumen","📊 Resumen"], ["cierres","🌙 Cierres"], ["ajustes","⚙️ Cajas y categorías"],
   ];
 
   return (
@@ -8961,13 +9027,16 @@ function CajaDiariaView({ showToast }) {
       {!cargado && <div style={{ ...cajaCard, textAlign:"center", color:"#a09080" }}>Cargando caja…</div>}
 
       {cargado && vista === "dia" && (
-        <CajaDia fecha={fecha} setFecha={setFecha} movs={movs} cfg={cfg} ventas={ventasDia}
+        <CajaDia fecha={fecha} setFecha={setFecha} movs={movs} cfg={cfg} ventas={ventasDia} cierres={cierres} onCerrar={setCierreFecha}
           nombreCuenta={nombreCuenta} monedaDe={monedaDe} iconoCat={iconoCat}
           onNuevo={(tipo) => setForm({ tipo, fecha })} onEditar={(m) => setForm({ ...m })} onBorrar={borrar}/>
       )}
       {cargado && vista === "movimientos" && (
         <CajaMovimientos movs={movs} cfg={cfg} nombreCuenta={nombreCuenta} monedaDe={monedaDe} iconoCat={iconoCat}
           onEditar={(m) => setForm({ ...m })} onBorrar={borrar}/>
+      )}
+      {cargado && vista === "cierres" && (
+        <CajaCierres cierres={cierres} movs={movs} cfg={cfg} onCerrar={setCierreFecha}/>
       )}
       {cargado && vista === "resumen" && (
         <CajaResumen movs={movs} cfg={cfg} monedaDe={monedaDe} iconoCat={iconoCat}/>
@@ -8976,6 +9045,7 @@ function CajaDiariaView({ showToast }) {
         <CajaAjustes key={JSON.stringify(cfg)} cfg={cfg} guardarCfg={guardarCfg} saldos={saldos} movs={movs} showToast={showToast} onImportar={() => setImportando(true)}/>
       )}
 
+      {cierreFecha && <ModalCierreDia fecha={cierreFecha} cfg={cfg} movs={movs} cierreAnterior={cierres.find(x => x.fecha === cierreFecha)} showToast={showToast} onClose={() => setCierreFecha(null)}/>}
       {importando && <ImportarGestor cfg={cfg} guardarCfg={guardarCfg} movs={movs} showToast={showToast} onClose={() => setImportando(false)}/>}
       {form && (
         <ModalMovCaja inicial={form} cfg={cfg} guardarCfg={guardarCfg} movs={movs} monedaDe={monedaDe} showToast={showToast} onClose={() => setForm(null)}/>
@@ -8985,7 +9055,10 @@ function CajaDiariaView({ showToast }) {
 }
 
 // ── Día: lo que se carga cada noche ──────────────────────────────────────
-function CajaDia({ fecha, setFecha, movs, cfg, ventas, nombreCuenta, monedaDe, iconoCat, onNuevo, onEditar, onBorrar }) {
+function CajaDia({ fecha, setFecha, movs, cfg, ventas, cierres = [], onCerrar, nombreCuenta, monedaDe, iconoCat, onNuevo, onEditar, onBorrar }) {
+  const cierre = cierres.find(x => x.fecha === fecha);
+  const ayer = moverDia(hoyISO(), -1);
+  const ayerSinCerrar = fecha === hoyISO() && movs.some(m => m.fecha === ayer) && !cierres.some(x => x.fecha === ayer);
   const delDia = movs.filter(m => m.fecha === fecha).sort((a,b) => (a.creadoEn||"").localeCompare(b.creadoEn||""));
   const suma = (tipo, moneda) => delDia.filter(m => m.tipo === tipo && monedaDe(m.cuenta) === moneda).reduce((t,m) => t + (parseFloat(m.monto)||0), 0);
   const ingARS = suma("ingreso","ARS"), egrARS = suma("egreso","ARS");
@@ -9008,12 +9081,40 @@ function CajaDia({ fecha, setFecha, movs, cfg, ventas, nombreCuenta, monedaDe, i
         {fecha !== hoyISO() && <button onClick={() => setFecha(hoyISO())} style={{ background:"transparent", border:"1.5px solid var(--c-border)", color:"var(--c-pri)", borderRadius:8, padding:"8px 12px", fontWeight:700, cursor:"pointer" }}>Hoy</button>}
       </div>
 
+      {ayerSinCerrar && (
+        <div style={{ ...cajaCard, background:"#fff8e1", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", padding:"12px 16px" }}>
+          <span style={{ flex:1, minWidth:180, color:"#e65100", fontWeight:600, fontSize:14 }}>⏰ Ayer ({fechaCorta(ayer)}) no cerraste la caja.</span>
+          <button onClick={() => onCerrar(ayer)} style={{ background:"#e65100", color:"#fff", border:"none", borderRadius:8, padding:"8px 14px", fontWeight:700, cursor:"pointer" }}>🌙 Cerrar ayer</button>
+        </div>
+      )}
+
       {/* Botones de carga */}
       <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
         <button onClick={() => onNuevo("ingreso")} style={btn("#2e7d32")}>⬆️ Cargar ingreso</button>
         <button onClick={() => onNuevo("egreso")} style={btn("#c62828")}>⬇️ Cargar egreso</button>
         <button onClick={() => onNuevo("transferencia")} style={btn("#1565c0")}>🔁 Entre cajas</button>
       </div>
+
+      {/* Cierre del día */}
+      {cierre ? (() => {
+        const difs = (cierre.cajas||[]).filter(x => x.dif);
+        return (
+          <div style={{ ...cajaCard, background:"#1a2340", color:"#fff", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", padding:"14px 18px" }}>
+            <span style={{ fontSize:26 }}>🌙</span>
+            <div style={{ flex:1, minWidth:180 }}>
+              <div style={{ fontWeight:800 }}>Día cerrado {difs.length ? "con diferencias" : "· todo coincidió ✅"}</div>
+              {difs.map(x => <div key={x.cuenta} style={{ fontSize:13, color: x.dif < 0 ? "#ff8a80" : "#90caf9" }}>{x.dif < 0 ? "Faltaron" : "Sobraron"} {fmtMoneda(Math.abs(x.dif), x.moneda)} en {x.nombre}</div>)}
+              {cierre.nota && <div style={{ fontSize:12, opacity:.75 }}>📝 {cierre.nota}</div>}
+            </div>
+            <button onClick={() => onCerrar(fecha)} style={{ background:"transparent", color:"#fff", border:"1.5px solid rgba(255,255,255,.4)", borderRadius:8, padding:"8px 12px", fontWeight:600, cursor:"pointer", fontSize:13 }}>Volver a cerrar</button>
+          </div>
+        );
+      })() : (
+        <button onClick={() => onCerrar(fecha)}
+          style={{ background:"#1a2340", color:"#fff", border:"none", borderRadius:12, padding:"14px 18px", fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+          🌙 Cerrar el día <span style={{ fontWeight:500, opacity:.7, fontSize:13 }}>· contar la plata y comparar</span>
+        </button>
+      )}
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:16, alignItems:"start" }}>
         {/* Totales del día */}
@@ -9079,7 +9180,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{titulo}</div>
               <div style={{ fontSize:12, color:"#a09080", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                {esMovAuto(m) && "🤖 "}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
+                {esMovAuto(m) && "🤖 "}{m.proveedorNombre ? "🏭 " + m.proveedorNombre + " · " : ""}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
               </div>
             </div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
@@ -9115,6 +9216,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
                   {nombreCuenta(m.cuenta)}{m.tipo==="transferencia" && <> → {nombreCuenta(m.cuentaDestino)}</>}
                 </td>
                 <td style={{ padding:"10px 14px", color:"#4a5568", maxWidth:300 }}>
+                  {m.proveedorNombre && <span style={{ background:"#eceff1", color:"#37474f", borderRadius:5, padding:"0 6px", fontSize:11, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>🏭 {m.proveedorNombre}</span>}
                   {esMovAuto(m) && <span title="Entró solo desde la app" style={{ background:"#f1f8e9", color:"#558b2f", border:"1px solid #c5e1a5", borderRadius:5, padding:"0 5px", fontSize:10, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>🤖 auto</span>}
                   {m.nota||""}
                 </td>
@@ -9150,11 +9252,25 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
   const [nuevaCat, setNuevaCat]   = useState(null);  // { nombre, icono } mientras se escribe
   const [nuevaSub, setNuevaSub]   = useState(null);  // texto
   const [nuevaCaja, setNuevaCaja] = useState(null);  // { para:"cuenta"|"cuentaDestino", nombre, icono, moneda }
+  // Proveedores (solo egresos): lista ordenada por cantidad de compras
+  const [proveedores, setProveedores] = useState([]);
+  const [nuevoProv, setNuevoProv]     = useState(null);
+  const [verProv, setVerProv]         = useState(!!inicial.proveedorId);
+  useEffect(() => {
+    if (tipo !== "egreso") return;
+    const u = onSnapshot(collection(db, "proveedores"), snap => setProveedores(snap.docs.map(d => ({ ...d.data(), fireId:d.id }))), () => {});
+    return () => u();
+  }, [tipo]);
+  const usoProv = {};
+  movs.forEach(m => { if (m.proveedorId) usoProv[m.proveedorId] = (usoProv[m.proveedorId]||0) + 1; });
+  const nombreProv = (p) => p?.empresa || p?.titular || p?.nombre || "Sin nombre";
+  const provsOrdenados = [...proveedores].sort((a,b) => (usoProv[b.fireId]||0) - (usoProv[a.fireId]||0) || nombreProv(a).localeCompare(nombreProv(b)));
   const ultimaCaja = (() => { try { return localStorage.getItem("caja_ultima_" + tipo) || ""; } catch(e) { return ""; } })();
   const [f, setF] = useState({
     fecha: inicial.fecha || hoyISO(),
     categoria: inicial.categoria || (cats[0]?.nombre || ""),
     subcategoria: inicial.subcategoria || "",
+    proveedorId: inicial.proveedorId || "",
     cuenta: inicial.cuenta || (cfg.cuentas.some(c => c.id === ultimaCaja) ? ultimaCaja : cfg.cuentas[0]?.id),
     cuentaDestino: inicial.cuentaDestino || cfg.cuentas[1]?.id || cfg.cuentas[0]?.id,
     monto: inicial.monto !== undefined ? String(inicial.monto).replace(".", ",") : "",
@@ -9176,6 +9292,7 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
     const data = {
       fecha: f.fecha, tipo, monto, cuenta: f.cuenta, nota: f.nota.trim(),
       ...(tipo === "ingreso" || tipo === "egreso" ? { categoria: f.categoria, subcategoria: f.subcategoria || "" } : {}),
+      ...(tipo === "egreso" ? { proveedorId: f.proveedorId || "", proveedorNombre: f.proveedorId ? nombreProv(proveedores.find(p => p.fireId === f.proveedorId)) : "" } : {}),
       ...(tipo === "transferencia" ? { cuentaDestino: f.cuentaDestino, montoDestino: distintaMoneda ? parseMonto(f.montoDestino) : monto } : {}),
     };
     setSaving(true);
@@ -9204,6 +9321,13 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
     if (subsDe(f.categoria).some(s => s.toLowerCase() === n.toLowerCase())) { setF(x => ({ ...x, subcategoria:n })); setNuevaSub(null); return; }
     await guardarCfg({ ...cfg, [claveCats]: (cfg[claveCats]||[]).map(x => x.nombre === f.categoria ? { ...x, subs:[...(x.subs||[]), n] } : x) });
     setF(x => ({ ...x, subcategoria:n })); setNuevaSub(null); showToast(`Subcategoría "${n}" creada ✅`);
+  };
+  const crearProv = async () => {
+    const n = (nuevoProv||"").trim(); if (!n) return;
+    const existe = proveedores.find(p => normTxt(nombreProv(p)) === normTxt(n));
+    if (existe) { set("proveedorId", existe.fireId); setNuevoProv(null); return; }
+    const ref = await addDoc(collection(db, "proveedores"), { empresa:n, titular:"", telefono:"", creadoEn:new Date().toISOString() });
+    set("proveedorId", ref.id); setNuevoProv(null); showToast(`Proveedor "${n}" creado ✅`);
   };
   const crearCaja = async () => {
     const n = (nuevaCaja?.nombre||"").trim(); if (!n) return;
@@ -9269,7 +9393,7 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
                 if (v === "__nueva") setNuevaCat({ nombre:"", icono: tipo === "ingreso" ? "⬆️" : "📦" });
                 else { setNuevaCat(null); setNuevaSub(null); setF(x => ({ ...x, categoria:v, subcategoria: x.categoria === v ? x.subcategoria : "" })); } }}
               style={{ ...cajaInp, fontWeight:600, borderColor: t.color + "66", background: t.bg, color:"#1a2340" }}>
-              {cats.map(c => <option key={c.nombre} value={c.nombre}>{c.icono} {c.nombre}</option>)}
+              {cats.map(c => <option key={c.nombre} value={c.nombre}>{c.icono} {c.nombre}{c.personal ? "  · personal" : ""}</option>)}
               {f.categoria && !cats.some(c => c.nombre === f.categoria) && <option value={f.categoria}>{f.categoria}</option>}
               <option value="__nueva">➕ Nueva categoría…</option>
             </select>
@@ -9305,6 +9429,34 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
                 )}
               </div>
             )}
+            {tipo === "egreso" && (() => {
+              const sugerido = /insumo|material|maquin|proveed|compra|papel|vinilo|tinta/.test(normTxt(f.categoria));
+              if (!sugerido && !verProv && !f.proveedorId) return (
+                <button type="button" onClick={() => setVerProv(true)}
+                  style={{ marginTop:10, background:"transparent", border:"none", color:"var(--c-pri)", fontWeight:700, cursor:"pointer", fontSize:13, padding:0 }}>🏭 Asignar proveedor</button>
+              );
+              return (
+                <div style={{ marginTop:10 }}>
+                  <label style={cajaLbl}>🏭 Proveedor <span style={{ fontWeight:400, color:"#a09080" }}>(opcional)</span></label>
+                  {nuevoProv === null ? (
+                    <select value={f.proveedorId || ""} onChange={e => { if (e.target.value === "__nuevo") setNuevoProv(""); else set("proveedorId", e.target.value); }}
+                      style={{ ...cajaInp, color: f.proveedorId ? "#1a2340" : "#a09080" }}>
+                      <option value="">— Sin proveedor —</option>
+                      {provsOrdenados.map(p => <option key={p.fireId} value={p.fireId}>{nombreProv(p)}</option>)}
+                      {f.proveedorId && !proveedores.some(p => p.fireId === f.proveedorId) && <option value={f.proveedorId}>{inicial.proveedorNombre || "Proveedor"}</option>}
+                      <option value="__nuevo">➕ Nuevo proveedor…</option>
+                    </select>
+                  ) : (
+                    <div style={{ display:"flex", gap:6 }}>
+                      <input autoFocus value={nuevoProv} onChange={e => setNuevoProv(e.target.value)} placeholder="Nombre del proveedor"
+                        onKeyDown={e => { if (e.key === "Enter") crearProv(); if (e.key === "Escape") setNuevoProv(null); }} style={{ ...cajaInp, flex:1 }}/>
+                      <button type="button" onClick={crearProv} style={btnMini}>Crear</button>
+                      <button type="button" onClick={() => setNuevoProv(null)} style={{ ...btnMini, background:"transparent", color:"#a09080" }}>✕</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -9351,6 +9503,188 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
   );
 }
 
+// ── Cierre del día ───────────────────────────────────────────────────────
+// Cada noche: se cuenta lo que hay en cada caja y se compara con lo que dice la app.
+// Si hay diferencia, se registra un ajuste (origen:"cierre") y el cierre queda guardado en "cajaCierres".
+const saldoAlCierre = (movs, cuentaId, fecha) =>
+  movs.filter(m => (m.fecha||"") <= fecha).reduce((s, m) => s + efectoEnCuenta(m, cuentaId), 0);
+const redondear2 = (n) => Math.round((parseFloat(n)||0) * 100) / 100;
+const DIAS_CORTOS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+const diaSemana = (f) => { const [y,m,d] = f.split("-").map(Number); return new Date(y, m-1, d).getDay(); };
+
+function ModalCierreDia({ fecha, cfg, movs, cierreAnterior, showToast, onClose }) {
+  const [contado, setContado] = useState(() => Object.fromEntries((cierreAnterior?.cajas||[]).map(c => [c.cuenta, ""])));
+  const [nota, setNota] = useState("");
+  const [saving, setSaving] = useState(false);
+  const filas = cfg.cuentas.map(c => {
+    const app = redondear2(saldoAlCierre(movs, c.id, fecha));
+    const v = contado[c.id];
+    const tiene = v !== undefined && v !== "";
+    const real = tiene ? redondear2(parseMonto(v)) : null;
+    return { c, app, tiene, real, dif: tiene ? redondear2(real - app) : 0 };
+  });
+  const controladas = filas.filter(f => f.tiene);
+  const conDif = controladas.filter(f => f.dif !== 0);
+  const difARS = conDif.filter(f => f.c.moneda !== "USD").reduce((s,f) => s + f.dif, 0);
+
+  const confirmar = async () => {
+    if (!controladas.length) { showToast("Poné lo que contaste en al menos una caja","error"); return; }
+    setSaving(true);
+    try {
+      const ahora = new Date().toISOString();
+      for (const f of conDif) {
+        await addDoc(collection(db, "cajaMovs"), {
+          fecha, tipo:"ajuste", monto: f.dif, cuenta: f.c.id, origen:"cierre", creadoEn: ahora,
+          nota: `Cierre del día: ${f.dif > 0 ? "sobraron" : "faltaron"} ${fmtMoneda(Math.abs(f.dif), f.c.moneda)}${nota.trim() ? " · " + nota.trim() : ""}`,
+        });
+      }
+      await setDoc(doc(db, "cajaCierres", fecha), {
+        fecha, nota: nota.trim(), creadoEn: ahora, difARS: redondear2(difARS),
+        cajas: controladas.map(f => ({ cuenta: f.c.id, nombre: f.c.nombre, moneda: f.c.moneda, app: f.app, contado: f.real, dif: f.dif })),
+        cerrados: (cierreAnterior?.cerrados || 0) + 1,
+      });
+      showToast(conDif.length ? `Día cerrado · se registraron ${conDif.length} ajuste${conDif.length>1?"s":""}` : "Día cerrado: todo coincide ✅");
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al cerrar el día","error"); }
+    setSaving(false);
+  };
+
+  const estado = (f) => !f.tiene ? { txt:"Sin controlar", col:"#a09080", bg:"#f5f5f5" }
+    : f.dif === 0 ? { txt:"✅ Coincide", col:"#2e7d32", bg:"#e8f5e9" }
+    : f.dif > 0 ? { txt:`🔺 Sobran ${fmtMoneda(f.dif, f.c.moneda)}`, col:"#1565c0", bg:"#e3f2fd" }
+    : { txt:`🔻 Faltan ${fmtMoneda(-f.dif, f.c.moneda)}`, col:"#c62828", bg:"#ffebee" };
+
+  return (
+    <div className="modal-ov" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"24px 26px", width:"min(560px, 96vw)", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
+          <span style={{ fontSize:28 }}>🌙</span>
+          <div style={{ fontSize:20, fontWeight:800, color:"#1a2340" }}>Cierre del día</div>
+        </div>
+        <div style={{ fontSize:13, color:"#a09080", marginBottom:16 }}>
+          {fechaConDia(fecha)} · Contá lo que hay en cada caja y anotalo. Las que no controles hoy, dejalas vacías.
+          {cierreAnterior && <div style={{ color:"#f57f17", fontWeight:600, marginTop:6 }}>⚠️ Este día ya lo cerraste. Si lo cerrás de nuevo, se compara con lo que dice la app ahora (que ya incluye los ajustes anteriores).</div>}
+        </div>
+
+        {filas.map(f => {
+          const e = estado(f);
+          return (
+            <div key={f.c.id} style={{ border:"1.5px solid var(--c-border)", borderRadius:12, padding:"12px 14px", marginBottom:10, background: f.tiene && f.dif !== 0 ? e.bg + "66" : "#fff" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, gap:8 }}>
+                <div style={{ fontWeight:700, color:"#1a2340" }}>{f.c.icono} {f.c.nombre}</div>
+                <span style={{ background:e.bg, color:e.col, borderRadius:20, padding:"3px 10px", fontSize:12, fontWeight:700, whiteSpace:"nowrap" }}>{e.txt}</span>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, alignItems:"end" }}>
+                <div>
+                  <div style={{ fontSize:11, color:"#a09080", fontWeight:600, marginBottom:4 }}>SEGÚN LA APP</div>
+                  <div style={{ fontSize:17, fontWeight:800, color:"#4a5568", padding:"9px 0" }}>{fmtMoneda(f.app, f.c.moneda)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:"#a09080", fontWeight:600, marginBottom:4 }}>{esCajaEfectivo(f.c) ? "LO QUE CONTASTE" : "SALDO REAL"}</div>
+                  <input inputMode="decimal" value={contado[f.c.id] ?? ""} onChange={e => setContado(x => ({ ...x, [f.c.id]: e.target.value }))}
+                    placeholder={f.c.moneda === "USD" ? "US$" : "$"} style={{ ...cajaInp, fontSize:17, fontWeight:700 }}/>
+                </div>
+                <button type="button" onClick={() => setContado(x => ({ ...x, [f.c.id]: String(f.app).replace(".", ",") }))} title="Coincide con la app"
+                  style={{ background:"#e8f5e9", color:"#2e7d32", border:"1.5px solid #a5d6a7", borderRadius:8, padding:"10px 10px", fontWeight:700, cursor:"pointer", fontSize:13, whiteSpace:"nowrap" }}>✓ Igual</button>
+              </div>
+            </div>
+          );
+        })}
+
+        <label style={cajaLbl}>Nota del cierre (opcional)</label>
+        <input value={nota} onChange={e => setNota(e.target.value)} placeholder="Ej: falta un vuelto que no anoté, pagué el flete sin registrar…" style={{ ...cajaInp, marginBottom:14 }}/>
+
+        <div style={{ background: conDif.length ? "#fff8e1" : "#f1f8e9", borderRadius:10, padding:"10px 14px", fontSize:13, color:"#4a5568", marginBottom:16 }}>
+          {!controladas.length ? "Todavía no controlaste ninguna caja."
+            : !conDif.length ? `✅ Las ${controladas.length} caja${controladas.length>1?"s":""} controlada${controladas.length>1?"s":""} coinciden con la app.`
+            : <>Se van a registrar <b>{conDif.length} ajuste{conDif.length>1?"s":""}</b> para que la app quede igual a lo que contaste{difARS ? <> · diferencia total: <b style={{ color: difARS < 0 ? "#c62828" : "#1565c0" }}>{fmtMoneda(difARS)}</b></> : null}.</>}
+        </div>
+
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <button className="btn-g" onClick={onClose}>Cancelar</button>
+          <button onClick={confirmar} disabled={saving}
+            style={{ background:"#1a2340", color:"#fff", border:"none", borderRadius:8, padding:"11px 22px", fontWeight:700, cursor:"pointer", fontSize:15 }}>{saving ? "Cerrando…" : "🌙 Cerrar el día"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Historial de cierres
+function CajaCierres({ cierres, movs, cfg, onCerrar }) {
+  const meses = [...new Set([...cierres.map(c => c.fecha.slice(0,7)), hoyISO().slice(0,7)])].sort().reverse();
+  const [mes, setMes] = useState(meses[0]);
+  const delMes = cierres.filter(c => c.fecha.startsWith(mes)).sort((a,b) => b.fecha.localeCompare(a.fecha));
+  // días con movimientos que no se cerraron (desde el primer cierre, hasta ayer)
+  const primerCierre = cierres.map(c => c.fecha).sort()[0];
+  const ayer = moverDia(hoyISO(), -1);
+  const fechasCerradas = new Set(cierres.map(c => c.fecha));
+  const sinCerrar = primerCierre ? [...new Set(movs.map(m => m.fecha).filter(f => f && f.startsWith(mes) && f >= primerCierre && f <= ayer && !fechasCerradas.has(f)))].sort().reverse() : [];
+  const totalDif = delMes.reduce((s,c) => s + (c.difARS||0), 0);
+  const conDif = delMes.filter(c => (c.cajas||[]).some(x => x.dif));
+  const porDia = Array(7).fill(0).map(() => ({ n:0, dif:0 }));
+  delMes.forEach(c => { const d = diaSemana(c.fecha); if (c.difARS) { porDia[d].n++; porDia[d].dif += c.difARS; } });
+  const peorDia = porDia.map((x,i) => ({ ...x, i })).filter(x => x.n >= 2).sort((a,b) => a.dif - b.dif)[0];
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div style={{ ...cajaCard, display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+        <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...cajaInp, width:"auto", minWidth:170, fontWeight:700 }}>
+          {meses.map(m => <option key={m} value={m}>{nombreMes(m)}</option>)}
+        </select>
+        <div style={{ display:"flex", gap:20, flexWrap:"wrap", marginLeft:"auto" }}>
+          {[["Días cerrados", delMes.length, "#1a2340"], ["Con diferencia", conDif.length, conDif.length ? "#f57f17" : "#2e7d32"],
+            ["Diferencia del mes", fmtMoneda(totalDif), totalDif < 0 ? "#c62828" : totalDif > 0 ? "#1565c0" : "#2e7d32"]].map(([l,v,col]) => (
+            <div key={l}><div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{l}</div><div style={{ fontSize:19, fontWeight:800, color:col }}>{v}</div></div>
+          ))}
+        </div>
+      </div>
+
+      {sinCerrar.length > 0 && (
+        <div style={{ ...cajaCard, background:"#fff8e1" }}>
+          <div style={{ fontWeight:700, color:"#f57f17", marginBottom:8 }}>⏰ Días con movimientos que no cerraste</div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {sinCerrar.map(f => <button key={f} onClick={() => onCerrar(f)} style={{ background:"#fff", border:"1.5px solid #ffcc80", color:"#e65100", borderRadius:20, padding:"5px 12px", fontWeight:700, cursor:"pointer", fontSize:13 }}>🌙 {fechaCorta(f)}</button>)}
+          </div>
+        </div>
+      )}
+
+      {peorDia && peorDia.dif < 0 && (
+        <div style={{ ...cajaCard, background:"#ffebee" }}>
+          <div style={{ fontWeight:700, color:"#c62828" }}>🔍 Ojo con los {["domingos","lunes","martes","miércoles","jueves","viernes","sábados"][peorDia.i]}</div>
+          <div style={{ fontSize:13, color:"#4a5568", marginTop:4 }}>Este mes faltó plata {peorDia.n} {["domingos","lunes","martes","miércoles","jueves","viernes","sábados"][peorDia.i]} (en total {fmtMoneda(-peorDia.dif)}). Puede ser un gasto o un cobro que ese día no se anota.</div>
+        </div>
+      )}
+
+      <div style={{ ...cajaCard, padding:0, overflow:"hidden" }}>
+        {delMes.length === 0
+          ? <div style={{ padding:28, textAlign:"center", color:"#a09080" }}>Todavía no hay cierres este mes. Usá <b>🌙 Cerrar el día</b> en la pestaña Día.</div>
+          : delMes.map(c => {
+            const difs = (c.cajas||[]).filter(x => x.dif);
+            return (
+              <div key={c.fecha} style={{ padding:"12px 16px", borderTop:"1px solid var(--c-row)", display:"flex", gap:12, alignItems:"flex-start", flexWrap:"wrap" }}>
+                <div style={{ minWidth:120 }}>
+                  <div style={{ fontWeight:700, color:"#1a2340" }}>{DIAS_CORTOS[diaSemana(c.fecha)]} {fechaCorta(c.fecha)}</div>
+                  <div style={{ fontSize:11, color:"#a09080" }}>{(c.cajas||[]).length} caja{(c.cajas||[]).length!==1?"s":""} controlada{(c.cajas||[]).length!==1?"s":""}</div>
+                </div>
+                <div style={{ flex:1, minWidth:180 }}>
+                  {!difs.length
+                    ? <span style={{ background:"#e8f5e9", color:"#2e7d32", borderRadius:20, padding:"3px 10px", fontSize:12, fontWeight:700 }}>✅ Todo coincidió</span>
+                    : difs.map(x => (
+                      <div key={x.cuenta} style={{ fontSize:13, color: x.dif < 0 ? "#c62828" : "#1565c0", fontWeight:600 }}>
+                        {x.dif < 0 ? "🔻 Faltaron" : "🔺 Sobraron"} {fmtMoneda(Math.abs(x.dif), x.moneda)} en {x.nombre}
+                      </div>
+                    ))}
+                  {c.nota && <div style={{ fontSize:12, color:"#a09080", marginTop:3 }}>📝 {c.nota}</div>}
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
 // ── Todos los movimientos (con filtros) ──────────────────────────────────
 function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar, onBorrar }) {
   const meses = [...new Set(movs.map(m => (m.fecha||"").slice(0,7)).filter(Boolean))].sort().reverse();
@@ -9359,12 +9693,15 @@ function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar
   const [cat, setCat]     = useState("todas");
   const [cuenta, setCuenta] = useState("todas");
   const [busq, setBusq]   = useState("");
+  const [prov, setProv]   = useState("todos");
+  const provs = Object.entries(movs.reduce((a,m) => { if (m.proveedorId) a[m.proveedorId] = m.proveedorNombre || "Proveedor"; return a; }, {})).sort((a,b) => a[1].localeCompare(b[1]));
   const lista = movs
+    .filter(m => prov === "todos" || m.proveedorId === prov)
     .filter(m => mes === "todos" || (m.fecha||"").startsWith(mes))
     .filter(m => tipo === "todos" || m.tipo === tipo)
     .filter(m => cat === "todas" || m.categoria === cat)
     .filter(m => cuenta === "todas" || m.cuenta === cuenta || m.cuentaDestino === cuenta)
-    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""} ${m.subcategoria||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
+    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""} ${m.subcategoria||""} ${m.proveedorNombre||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
     .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""));
   const cats = [...new Set([...cfg.catsIngreso, ...cfg.catsEgreso].map(c => c.nombre).concat(movs.map(m => m.categoria).filter(Boolean)))];
   const tot = (t, mon) => lista.filter(m => m.tipo === t && monedaDe(m.cuenta) === mon).reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
@@ -9388,6 +9725,12 @@ function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar
           <option value="todas">Todas las cajas</option>
           {cfg.cuentas.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
         </select>
+        {provs.length > 0 && (
+          <select value={prov} onChange={e => setProv(e.target.value)} style={sel}>
+            <option value="todos">Todos los proveedores</option>
+            {provs.map(([id, n]) => <option key={id} value={id}>🏭 {n}</option>)}
+          </select>
+        )}
         <input value={busq} onChange={e => setBusq(e.target.value)} placeholder="🔍 Buscar en el detalle…" style={{ ...cajaInp, flex:1, minWidth:180 }}/>
       </div>
       <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
@@ -9436,6 +9779,13 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
   const ingUSD = sumaPor("ingreso","USD"), egrUSD = sumaPor("egreso","USD");
   const total = (arr) => arr.reduce((s,[,v]) => s+v, 0);
   const ingT = total(ingCats), egrT = total(egrCats);
+  const porProv = Object.entries(delMes.filter(m => m.tipo === "egreso" && m.proveedorId && monedaDe(m.cuenta) === "ARS")
+    .reduce((a,m) => { const k = m.proveedorNombre || "Proveedor"; a[k] = (a[k]||0) + (parseFloat(m.monto)||0); return a; }, {})).sort((a,b) => b[1]-a[1]);
+  // Negocio vs personal (según la marca de cada categoría de egreso)
+  const personales = new Set((cfg.catsEgreso||[]).filter(x => x.personal).map(x => x.nombre));
+  const separa = personales.size > 0;
+  const egrNeg = egrCats.filter(([k]) => !personales.has(k)), egrPer = egrCats.filter(([k]) => personales.has(k));
+  const negT = total(egrNeg), perT = total(egrPer), ganancia = ingT - negT;
 
   // Últimos 12 meses (pesos)
   const ult12 = [...meses].slice(0,12).reverse().map(ym => {
@@ -9446,7 +9796,7 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
   });
   const maxM = Math.max(1, ...ult12.map(x => Math.max(x.ing, x.egr)));
 
-  const Barras = ({ titulo, filas, color, moneda="ARS", tipo }) => {
+  const Barras = ({ titulo, filas, color, moneda="ARS", tipo, icono }) => {
     const tot = total(filas);
     return (
       <div style={cajaCard}>
@@ -9463,7 +9813,7 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
           <div key={cat} style={{ marginBottom:9 }}>
             <div onClick={() => subs.length && setAbiertas(a => ({ ...a, [clave]: !a[clave] }))}
               style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:3, cursor: subs.length ? "pointer" : "default" }}>
-              <span style={{ color:"#1a2340", fontWeight:600 }}>{iconoCat(tipo, cat)} {cat}{subs.length ? <span style={{ color:"#a09080", fontSize:11, marginLeft:5 }}>{abierta ? "▲" : "▼"} {subs.length} sub</span> : null}</span>
+              <span style={{ color:"#1a2340", fontWeight:600 }}>{icono || iconoCat(tipo, cat)} {cat}{subs.length ? <span style={{ color:"#a09080", fontSize:11, marginLeft:5 }}>{abierta ? "▲" : "▼"} {subs.length} sub</span> : null}</span>
               <span style={{ color:"#4a5568" }}><b>{fmtMoneda(v, moneda)}</b> · {tot ? Math.round(v/tot*100) : 0}%</span>
             </div>
             <div style={{ height:8, background:"var(--c-soft)", borderRadius:4, overflow:"hidden" }}>
@@ -9489,15 +9839,35 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
           {(meses.length ? meses : [mes]).map(m => <option key={m} value={m}>{nombreMes(m)}</option>)}
         </select>
         <div style={{ display:"flex", gap:22, flexWrap:"wrap", marginLeft:"auto" }}>
-          {[["Ingresos", ingT, "#2e7d32"], ["Egresos", egrT, "#c62828"], ["Resultado", ingT-egrT, ingT-egrT < 0 ? "#c62828" : "#1a2340"]].map(([l,v,col]) => (
+          {(separa
+            ? [["Ingresos", ingT, "#2e7d32"], ["Gastos gráfica", negT, "#c62828"], ["Ganancia gráfica", ganancia, ganancia < 0 ? "#c62828" : "#1a2340"], ["Retiros personales", perT, "#6a1b9a"], ["Te quedó", ganancia-perT, ganancia-perT < 0 ? "#c62828" : "#2e7d32"]]
+            : [["Ingresos", ingT, "#2e7d32"], ["Egresos", egrT, "#c62828"], ["Resultado", ingT-egrT, ingT-egrT < 0 ? "#c62828" : "#1a2340"]]).map(([l,v,col]) => (
             <div key={l}><div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{l}</div><div style={{ fontSize:20, fontWeight:800, color:col }}>{fmtMoneda(v)}</div></div>
           ))}
         </div>
       </div>
 
+      {separa ? (
+        <div style={{ ...cajaCard, background:"#f3e5f5", padding:"14px 18px" }}>
+          <div style={{ fontSize:14, color:"#4a148c", lineHeight:1.6 }}>
+            🏪 La gráfica <b>{ganancia >= 0 ? "ganó" : "perdió"} {fmtMoneda(Math.abs(ganancia))}</b> este mes (ingresos − gastos del negocio){ingT && ganancia > 0 ? <> · margen <b>{Math.round(ganancia/ingT*100)}%</b></> : null}.
+            {perT > 0 && <>{" "}🏠 Retiraste <b>{fmtMoneda(perT)}</b> para gastos personales{ganancia > 0 ? <> (<b>{Math.round(perT/ganancia*100)}%</b> de la ganancia)</> : null}.
+            {" "}{ganancia - perT >= 0 ? <>Quedaron <b>{fmtMoneda(ganancia-perT)}</b> en el negocio.</> : <>Retiraste <b>{fmtMoneda(perT-ganancia)}</b> más de lo que ganó la gráfica.</>}</>}
+          </div>
+        </div>
+      ) : (
+        <div style={{ ...cajaCard, background:"var(--c-softer)", padding:"12px 18px", fontSize:13, color:"#4a5568" }}>
+          💡 ¿Querés ver cuánto ganó la gráfica aparte de tus gastos personales? En <b>Cajas y categorías</b> marcá qué categorías de egreso son <b>🏠 Personales</b>.
+        </div>
+      )}
+
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:16, alignItems:"start" }}>
-        <Barras titulo="⬇️ Egresos por categoría" filas={egrCats} color="#c62828" tipo="egreso"/>
+        {separa ? <>
+          <Barras titulo="🏪 Gastos de la gráfica" filas={egrNeg} color="#c62828" tipo="egreso"/>
+          <Barras titulo="🏠 Gastos personales" filas={egrPer} color="#8e24aa" tipo="egreso"/>
+        </> : <Barras titulo="⬇️ Egresos por categoría" filas={egrCats} color="#c62828" tipo="egreso"/>}
         <Barras titulo="⬆️ Ingresos por categoría" filas={ingCats} color="#2e7d32" tipo="ingreso"/>
+        {porProv.length > 0 && <Barras titulo="🏭 Compras por proveedor" filas={porProv} color="#546e7a" tipo="prov" icono="🏭"/>}
         {(ingUSD.length > 0 || egrUSD.length > 0) && <Barras titulo="💲 Ingresos en dólares" filas={ingUSD} color="#2e7d32" moneda="USD" tipo="ingreso"/>}
         {egrUSD.length > 0 && <Barras titulo="💲 Egresos en dólares" filas={egrUSD} color="#c62828" moneda="USD" tipo="egreso"/>}
       </div>
@@ -9925,6 +10295,14 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast, onImportar }) {
         </div>
         <EmojiPicker value={c.icono} onChange={marca(em => setLista(l => l.map((x,j) => j===i ? { ...x, icono:em } : x)))}/>
         <input value={c.nombre} onChange={marca(e => setLista(l => l.map((x,j) => j===i ? { ...x, nombre:e.target.value } : x)))} style={{ ...cajaInp, flex:1, minWidth:0 }}/>
+        {tipo === "e" && (
+          <button onClick={() => { setLista(l => l.map((x,j) => j===i ? { ...x, personal: !x.personal } : x)); setDirty(true); }}
+            title={c.personal ? "Gasto personal (no cuenta como gasto de la gráfica)" : "Gasto de la gráfica"}
+            style={{ border:"none", borderRadius:7, padding:"6px 8px", cursor:"pointer", fontSize:11, fontWeight:700, whiteSpace:"nowrap",
+              background: c.personal ? "#f3e5f5" : "#e8f5e9", color: c.personal ? "#6a1b9a" : "#2e7d32" }}>
+            {c.personal ? "🏠 Personal" : "🏪 Negocio"}
+          </button>
+        )}
         <button onClick={() => setSubsAbiertas(s => ({ ...s, [clave]: !s[clave] }))} title="Subcategorías"
           style={{ background: abierta ? "var(--c-soft)" : "#fff", border:"1.5px solid var(--c-border)", borderRadius:7, padding:"6px 8px", cursor:"pointer", fontSize:11, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>
           {(c.subs||[]).length ? `${c.subs.length} sub` : "+ sub"} {abierta ? "▲" : "▼"}
@@ -9984,7 +10362,7 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast, onImportar }) {
         {[["⬆️ Categorías de ingreso", catsI, setCatsI, nuevaI, setNuevaI, "i"], ["⬇️ Categorías de egreso", catsE, setCatsE, nuevaE, setNuevaE, "e"]].map(([tit, lista, setLista, nueva, setNueva, tipo]) => (
           <div key={tit} style={cajaCard}>
             <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{tit}</div>
-            <div style={{ fontSize:12, color:"#a09080", marginBottom:12 }}>Tocá "+ sub" para agregarle subcategorías. Con ▲▼ cambiás el orden en que aparecen al cargar.</div>
+            <div style={{ fontSize:12, color:"#a09080", marginBottom:12 }}>Tocá "+ sub" para agregarle subcategorías. Con ▲▼ cambiás el orden en que aparecen al cargar.{tipo === "e" ? <> Tocá <b>🏪 Negocio / 🏠 Personal</b> para separar los gastos de la gráfica de los tuyos en el Resumen.</> : null}</div>
             {filaCat(lista, setLista, tipo)}
             <div style={{ display:"flex", gap:8, alignItems:"center", padding:8, border:"1.5px dashed var(--c-border)", borderRadius:10, marginTop:8 }}>
               <EmojiPicker value={nueva.icono} onChange={em => setNueva(x => ({ ...x, icono:em }))}/>
