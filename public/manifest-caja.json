@@ -1,0 +1,16 @@
+{
+  "id": "/caja",
+  "name": "Mafalda Caja",
+  "short_name": "Caja",
+  "description": "Acceso directo a la Caja diaria de Mafalda Gráfica",
+  "start_url": "/caja.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fff8f5",
+  "theme_color": "#2e7d32",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/caja-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/caja-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
