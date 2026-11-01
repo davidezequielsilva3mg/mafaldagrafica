@@ -8978,7 +8978,7 @@ function CajaDiariaView({ showToast }) {
 
       {importando && <ImportarGestor cfg={cfg} guardarCfg={guardarCfg} movs={movs} showToast={showToast} onClose={() => setImportando(false)}/>}
       {form && (
-        <ModalMovCaja inicial={form} cfg={cfg} guardarCfg={guardarCfg} monedaDe={monedaDe} showToast={showToast} onClose={() => setForm(null)}/>
+        <ModalMovCaja inicial={form} cfg={cfg} guardarCfg={guardarCfg} movs={movs} monedaDe={monedaDe} showToast={showToast} onClose={() => setForm(null)}/>
       )}
     </div>
   );
@@ -9137,10 +9137,15 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
 }
 
 // ── Modal de carga / edición ─────────────────────────────────────────────
-function ModalMovCaja({ inicial, cfg, guardarCfg, monedaDe, showToast, onClose }) {
+function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast, onClose }) {
   const tipo = inicial.tipo;
   const claveCats = tipo === "ingreso" ? "catsIngreso" : "catsEgreso";
-  const cats = cfg[claveCats] || [];
+  // Categorías y subcategorías ordenadas de la más usada a la menos usada
+  const usoCat = {}, usoSub = {};
+  movs.forEach(m => { if (m.tipo !== tipo) return;
+    usoCat[m.categoria] = (usoCat[m.categoria]||0) + 1;
+    if (m.subcategoria) usoSub[m.categoria + "|" + m.subcategoria] = (usoSub[m.categoria + "|" + m.subcategoria]||0) + 1; });
+  const cats = (cfg[claveCats] || []).map((c, i) => ({ ...c, _i:i })).sort((a,b) => (usoCat[b.nombre]||0) - (usoCat[a.nombre]||0) || a._i - b._i);
   // Crear categoría / subcategoría / caja sin salir de la carga
   const [nuevaCat, setNuevaCat]   = useState(null);  // { nombre, icono } mientras se escribe
   const [nuevaSub, setNuevaSub]   = useState(null);  // texto
@@ -9185,17 +9190,19 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, monedaDe, showToast, onClose }
     setSaving(false);
   };
 
-  const subsDe = (nombre) => (cats.find(x => x.nombre === nombre)?.subs) || [];
+  const subsDe = (nombre) => [...new Set([...((cats.find(x => x.nombre === nombre)?.subs) || []),
+      ...Object.keys(usoSub).filter(k => k.startsWith(nombre + "|")).map(k => k.slice(nombre.length + 1))])]
+    .map((s, i) => [s, i]).sort((a,b) => (usoSub[nombre+"|"+b[0]]||0) - (usoSub[nombre+"|"+a[0]]||0) || a[1] - b[1]).map(x => x[0]);
   const crearCat = async () => {
     const n = (nuevaCat?.nombre||"").trim(); if (!n) return;
     if (cats.some(x => x.nombre.toLowerCase() === n.toLowerCase())) { showToast("Esa categoría ya existe","error"); return; }
-    await guardarCfg({ ...cfg, [claveCats]: [...cats, { nombre:n, icono:nuevaCat.icono||"📦", subs:[] }] });
+    await guardarCfg({ ...cfg, [claveCats]: [...(cfg[claveCats]||[]), { nombre:n, icono:nuevaCat.icono||"📦", subs:[] }] });
     setF(x => ({ ...x, categoria:n, subcategoria:"" })); setNuevaCat(null); showToast(`Categoría "${n}" creada ✅`);
   };
   const crearSub = async () => {
     const n = (nuevaSub||"").trim(); if (!n || !f.categoria) return;
     if (subsDe(f.categoria).some(s => s.toLowerCase() === n.toLowerCase())) { setF(x => ({ ...x, subcategoria:n })); setNuevaSub(null); return; }
-    await guardarCfg({ ...cfg, [claveCats]: cats.map(x => x.nombre === f.categoria ? { ...x, subs:[...(x.subs||[]), n] } : x) });
+    await guardarCfg({ ...cfg, [claveCats]: (cfg[claveCats]||[]).map(x => x.nombre === f.categoria ? { ...x, subs:[...(x.subs||[]), n] } : x) });
     setF(x => ({ ...x, subcategoria:n })); setNuevaSub(null); showToast(`Subcategoría "${n}" creada ✅`);
   };
   const crearCaja = async () => {
@@ -9257,15 +9264,15 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, monedaDe, showToast, onClose }
         {(tipo === "ingreso" || tipo === "egreso") && (
           <div style={{ marginBottom:12 }}>
             <label style={cajaLbl}>Categoría</label>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-              {cats.map(c => (
-                <button key={c.nombre} onClick={() => setF(x => ({ ...x, categoria:c.nombre, subcategoria: x.categoria === c.nombre ? x.subcategoria : "" }))} type="button"
-                  style={chip(f.categoria===c.nombre, t.color, t.bg)}>
-                  {c.icono} {c.nombre}
-                </button>
-              ))}
-              {!nuevaCat && <button type="button" onClick={() => setNuevaCat({ nombre:"", icono: tipo === "ingreso" ? "⬆️" : "📦" })} style={chipNuevo}>+ Nueva</button>}
-            </div>
+            <select value={nuevaCat ? "__nueva" : f.categoria}
+              onChange={e => { const v = e.target.value;
+                if (v === "__nueva") setNuevaCat({ nombre:"", icono: tipo === "ingreso" ? "⬆️" : "📦" });
+                else { setNuevaCat(null); setNuevaSub(null); setF(x => ({ ...x, categoria:v, subcategoria: x.categoria === v ? x.subcategoria : "" })); } }}
+              style={{ ...cajaInp, fontWeight:600, borderColor: t.color + "66", background: t.bg, color:"#1a2340" }}>
+              {cats.map(c => <option key={c.nombre} value={c.nombre}>{c.icono} {c.nombre}</option>)}
+              {f.categoria && !cats.some(c => c.nombre === f.categoria) && <option value={f.categoria}>{f.categoria}</option>}
+              <option value="__nueva">➕ Nueva categoría…</option>
+            </select>
             {nuevaCat && (
               <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:8 }}>
                 <EmojiPicker value={nuevaCat.icono} onChange={em => setNuevaCat(x => ({ ...x, icono:em }))}/>
@@ -9275,26 +9282,27 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, monedaDe, showToast, onClose }
                 <button type="button" onClick={() => setNuevaCat(null)} style={{ ...btnMini, background:"transparent", color:"#a09080" }}>✕</button>
               </div>
             )}
-            {f.categoria && (
+            {f.categoria && !nuevaCat && (
               <div style={{ marginTop:10, paddingLeft:12, borderLeft:`3px solid ${t.bg}` }}>
                 <label style={{ ...cajaLbl, color:"#a09080" }}>Subcategoría <span style={{ fontWeight:400 }}>(opcional)</span></label>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                  {subsDe(f.categoria).map(s => (
-                    <button key={s} type="button" onClick={() => set("subcategoria", f.subcategoria === s ? "" : s)}
-                      style={{ ...chip(f.subcategoria===s, t.color, t.bg), padding:"5px 10px", fontSize:12 }}>{s}</button>
-                  ))}
-                  {f.subcategoria && !subsDe(f.categoria).includes(f.subcategoria) && (
-                    <button type="button" style={{ ...chip(true, t.color, t.bg), padding:"5px 10px", fontSize:12 }}>{f.subcategoria}</button>
-                  )}
-                  {nuevaSub === null
-                    ? <button type="button" onClick={() => setNuevaSub("")} style={{ ...chipNuevo, padding:"5px 10px", fontSize:12 }}>+ Nueva</button>
-                    : <span style={{ display:"inline-flex", gap:4 }}>
-                        <input autoFocus value={nuevaSub} onChange={e => setNuevaSub(e.target.value)} placeholder="Ej: Papel"
-                          onKeyDown={e => { if (e.key === "Enter") crearSub(); if (e.key === "Escape") setNuevaSub(null); }}
-                          style={{ ...cajaInp, width:150, padding:"6px 10px", fontSize:13 }}/>
-                        <button type="button" onClick={crearSub} style={{ ...btnMini, padding:"6px 10px" }}>Crear</button>
-                      </span>}
-                </div>
+                {nuevaSub === null ? (
+                  <select value={f.subcategoria || ""}
+                    onChange={e => { if (e.target.value === "__nueva") setNuevaSub(""); else set("subcategoria", e.target.value); }}
+                    style={{ ...cajaInp, fontSize:14, color: f.subcategoria ? "#1a2340" : "#a09080" }}>
+                    <option value="">— Sin subcategoría —</option>
+                    {subsDe(f.categoria).map(s => <option key={s} value={s}>{s}</option>)}
+                    {f.subcategoria && !subsDe(f.categoria).includes(f.subcategoria) && <option value={f.subcategoria}>{f.subcategoria}</option>}
+                    <option value="__nueva">➕ Nueva subcategoría…</option>
+                  </select>
+                ) : (
+                  <div style={{ display:"flex", gap:6 }}>
+                    <input autoFocus value={nuevaSub} onChange={e => setNuevaSub(e.target.value)} placeholder="Ej: Papel"
+                      onKeyDown={e => { if (e.key === "Enter") crearSub(); if (e.key === "Escape") setNuevaSub(null); }}
+                      style={{ ...cajaInp, flex:1 }}/>
+                    <button type="button" onClick={crearSub} style={btnMini}>Crear</button>
+                    <button type="button" onClick={() => setNuevaSub(null)} style={{ ...btnMini, background:"transparent", color:"#a09080" }}>✕</button>
+                  </div>
+                )}
               </div>
             )}
           </div>
