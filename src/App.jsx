@@ -310,6 +310,86 @@ function telWhatsapp(tel) {
 
 // Número de pedido como se muestra: OT-0042
 const fmtOT = (n) => n ? `OT-${String(n).padStart(4,"0")}` : "";
+
+// ══ Versión celular ═══════════════════════════════════════════════════════
+const MQ_CELULAR = "(max-width: 700px)";
+function useEsCelular() {
+  const [cel, setCel] = useState(() => typeof window !== "undefined" && window.matchMedia ? window.matchMedia(MQ_CELULAR).matches : false);
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia(MQ_CELULAR);
+    const h = (e) => setCel(e.matches);
+    mq.addEventListener ? mq.addEventListener("change", h) : mq.addListener(h);
+    return () => { mq.removeEventListener ? mq.removeEventListener("change", h) : mq.removeListener(h); };
+  }, []);
+  return cel;
+}
+// Tarjeta de pedido para celular (reemplaza las filas de las tablas)
+function TarjetaPedido({ p, saldo, onAbrir, mostrarCategoria = true, estadoEditable, onEstado, acciones = [], seleccionado, onSeleccionar, apagado }) {
+  const cc  = CATEGORIA_COLOR[p.categoria] || COLOR_CAT_DEFAULT;
+  const hoy = new Date().toLocaleDateString("sv-SE");
+  const ven = p.fechaEntrega && p.fechaEntrega < hoy && p.estado !== "Entregado" && p.estado !== "Listo";
+  const hf  = p.fechaEntrega === hoy && p.estado !== "Entregado";
+  const ec  = ESTADO_COLOR[p.estado] || { bg:"#f5f5f5", text:"#424242" };
+  const s   = saldo ? saldo(p) : (parseFloat(p.precio||0) - parseFloat(p.seña||0));
+  const parar = (e) => e.stopPropagation();
+  return (
+    <div onClick={onAbrir} className="tarjeta-pedido"
+      style={{ background: seleccionado ? "var(--c-tint)" : ven ? "#fff8f8" : hf ? "#fffdf0" : "#fff", borderRadius:14, padding:"12px 14px", marginBottom:10,
+        borderLeft:`5px solid ${cc.accent}`, boxShadow:"0 2px 10px rgba(var(--c-pri-rgb),.08)", opacity: apagado ? .75 : 1, cursor: onAbrir ? "pointer" : "default" }}>
+      <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+        {onSeleccionar && (
+          <input type="checkbox" checked={!!seleccionado} onClick={parar} onChange={onSeleccionar}
+            style={{ width:22, height:22, accentColor:"var(--c-pri)", marginTop:2, flexShrink:0 }}/>
+        )}
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+            {p.nroOT && <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:800, color:"var(--c-pri)", background:"var(--c-soft)", border:"1px solid var(--c-border)", borderRadius:5, padding:"1px 6px" }}>{fmtOT(p.nroOT)}</span>}
+            <span style={{ fontWeight:700, fontSize:15, color:"#1a2340", lineHeight:1.25 }}>{p.nombre}</span>
+          </div>
+          {(p.cliente || p.telefono) && (
+            <div style={{ fontSize:13, color:"#4a5568", marginTop:4, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+              {p.cliente && <span>👤 {p.cliente}</span>}
+              {p.telefono && <a href={`tel:${p.telefono.replace(/[^\d+]/g,"")}`} onClick={parar} style={{ color:"var(--c-pri)", fontWeight:700, textDecoration:"none" }}>📞 {p.telefono}</a>}
+            </div>
+          )}
+        </div>
+        {p.precio ? (
+          <div style={{ textAlign:"right", flexShrink:0 }}>
+            <div style={{ fontSize:11, color:"#a09080" }}>{s > 0 ? "Saldo" : "Pagado"}</div>
+            <div style={{ fontSize:16, fontWeight:800, color: s > 0 ? "#c62828" : "#2e7d32" }}>${Math.max(0,s).toLocaleString("es-AR")}</div>
+            <div style={{ fontSize:11, color:"#a09080" }}>de ${parseFloat(p.precio).toLocaleString("es-AR")}</div>
+          </div>
+        ) : null}
+      </div>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginTop:9 }}>
+        {mostrarCategoria && <span style={{ background:cc.bg, color:cc.text, padding:"3px 9px", borderRadius:20, fontSize:12, fontWeight:700 }}>{CATEGORIA_ICON[p.categoria]} {p.categoria}</span>}
+        {p.fechaEntrega && (
+          <span style={{ background: ven ? "#ffebee" : hf ? "#fff8e1" : "#f3f4f8", color: ven ? "#c62828" : hf ? "#f57f17" : "#4a5568", padding:"3px 9px", borderRadius:20, fontSize:12, fontWeight:700 }}>
+            {ven ? "⚠️ Vencido " : hf ? "📍 Hoy " : "📅 "}{fmtFecha(p.fechaEntrega)}
+          </span>
+        )}
+        {estadoEditable ? (
+          <select value={p.estado} onClick={parar} onChange={e => onEstado && onEstado(e.target.value)}
+            style={{ background:ec.bg, color:ec.text, border:"none", borderRadius:20, padding:"4px 8px", fontSize:13, fontWeight:700, marginLeft:"auto" }}>
+            {ESTADOS.filter(x => x !== "Todos").map(x => <option key={x}>{x}</option>)}
+          </select>
+        ) : (
+          <span style={{ background:ec.bg, color:ec.text, padding:"3px 9px", borderRadius:20, fontSize:12, fontWeight:700, marginLeft:"auto" }}>{p.estado}</span>
+        )}
+      </div>
+      {acciones.length > 0 && (
+        <div style={{ display:"flex", gap:8, marginTop:10 }} onClick={parar}>
+          {acciones.map((a, i) => (
+            <button key={i} onClick={a.onClick} title={a.titulo}
+              style={{ flex: a.grande ? 2 : 1, minHeight:40, borderRadius:10, border: a.borde || "none", background: a.bg || "var(--c-soft)", color: a.color || "var(--c-pri)",
+                fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>{a.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 // Buscador de pedidos: nombre, cliente, teléfono o número de pedido ("42", "0042", "OT-42", "#42")
 function coincideBusqueda(p, texto) {
   const t = (texto||"").trim();
@@ -906,7 +986,8 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
 }
 
 
-function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp, empresa, setView, clientes, setClienteDestacado, showToast, onEntregarVarios }) {
+function PedidosListos(props) { const cel = useEsCelular(); return <PedidosListosBase {...props} cel={cel}/>; }
+function PedidosListosBase({ cel, pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp, empresa, setView, clientes, setClienteDestacado, showToast, onEntregarVarios }) {
   const [seleccion, setSeleccion] = useState([]); // fireIds seleccionados
   const [busqL, setBusqL]         = useState("");
   const [busqH, setBusqH]         = useState("");
@@ -1037,6 +1118,23 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
               </div>
             </div>
           ) : (
+            cel ? (
+            <div>
+              <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#4a5568", margin:"0 0 10px 4px" }}>
+                <input type="checkbox" checked={todosVisiblesSel} onChange={toggleTodos} style={{ width:20, height:20, accentColor:"var(--c-pri)" }}/> Seleccionar todos
+              </label>
+              {filtrados.map(p => (
+                <TarjetaPedido key={p.fireId||p.id} p={p} saldo={saldo}
+                  seleccionado={seleccion.includes(p.fireId)} onSeleccionar={() => toggleSel(p.fireId)}
+                  acciones={[
+                    { label:"🖨️", titulo:"Reimprimir orden", onClick:() => imprimirOrden(p, empresa) },
+                    { label:"💬", titulo:"Avisar que está listo", bg:"#25d366", color:"#fff", onClick:() => setMsgModal({ pedido: p }) },
+                    { label:"📦 Entregar", grande:true, bg:"var(--c-pri)", color:"#fff", onClick:() => handleEstadoChange(p.fireId || p.id, "Entregado") },
+                    { label:"🗑", titulo:"Eliminar", bg:"#ffebee", color:"#c62828", onClick:() => handleDelete(p.fireId || p.id) },
+                  ]}/>
+              ))}
+            </div>
+          ) : (
             <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
                 <thead>
@@ -1108,6 +1206,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                 </tbody>
               </table>
             </div>
+          )
           )}
         </div>
       )}
@@ -1133,6 +1232,18 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
               <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>
                 {entregados.length === 0 ? "Sin pedidos entregados aún" : "Sin resultados"}
               </div>
+            </div>
+          ) : (
+            cel ? (
+            <div>
+              {entregadosFiltrados.slice(0, 150).map(p => (
+                <TarjetaPedido key={p.fireId||p.id} p={p} saldo={saldo} apagado
+                  acciones={[
+                    { label:"🖨️ Orden", onClick:() => imprimirOrden(p, empresa) },
+                    { label:"🔍 Ver", bg:"#f0f3f9", color:"#3949ab", onClick:() => setPedidoDetalle(p) },
+                  ]}/>
+              ))}
+              {entregadosFiltrados.length > 150 && <div style={{ textAlign:"center", fontSize:12, color:"#a09080", padding:10 }}>Se muestran los últimos 150. Usá el buscador para encontrar otros.</div>}
             </div>
           ) : (
             <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
@@ -1182,6 +1293,7 @@ function PedidosListos({ pedidos, saldo, isHoy, handleEstadoChange, handleDelete
                 </tbody>
               </table>
             </div>
+          )
           )}
         </div>
       )}
@@ -2198,6 +2310,8 @@ function semanaKey(lunes) { return lunes.toISOString().split("T")[0]; }
 
 function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, clientes }) {
   const cajaCfg = useCajaCfg();
+  const cel = useEsCelular();
+  const [diaSel, setDiaSel] = useState(null);
   const [mSeñaCuenta, setMSeñaCuenta] = useState("");
   const local = "grafica"; // único calendario (Librería eliminado)
   const [semanaInicio, setSemanaInicio] = useState(()=>getLunes(new Date()));
@@ -2231,6 +2345,10 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
     d.setDate(d.getDate() + i);
     return { nombre, fecha: d.toISOString().split("T")[0], d };
   });
+  // En el celular se ve un día a la vez (el elegido, o hoy, o el primero de la semana)
+  const hoyCal = new Date().toLocaleDateString("sv-SE");
+  const diaVisible = dias.find(d => d.fecha === diaSel) || dias.find(d => d.fecha === hoyCal) || dias[0];
+  const diasVista = cel ? [diaVisible] : dias;
 
   // Cargar pedidos presenciales en tiempo real
   useEffect(() => {
@@ -2405,16 +2523,32 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
         <div style={{ textAlign:"center", padding:40, color:"#a09080" }}>Cargando...</div>
       ) : (
         <div style={{ overflowX:"auto" }}>
-          <table data-no-orden style={{ borderCollapse:"collapse", width:"100%", minWidth:1040, tableLayout:"fixed" }}>
+          {cel && (
+            <div style={{ display:"grid", gridTemplateColumns:`repeat(${dias.length}, 1fr)`, gap:6, marginBottom:10 }}>
+              {dias.map(d => {
+                const sel = d.fecha === diaVisible.fecha, n = countDia(d.fecha), esH = d.fecha === hoyCal;
+                return (
+                  <button key={d.fecha} onClick={() => setDiaSel(d.fecha)}
+                    style={{ border: sel ? "none" : `1.5px solid ${esH ? "var(--c-pri)" : "var(--c-border)"}`, borderRadius:12, padding:"7px 0 6px", cursor:"pointer",
+                      background: sel ? (esH ? "var(--c-pri)" : "#1a2340") : "#fff", color: sel ? "#fff" : "#1a2340", fontFamily:"'DM Sans',sans-serif" }}>
+                    <div style={{ fontSize:11, fontWeight:700, opacity:.8 }}>{d.nombre.slice(0,3)}</div>
+                    <div style={{ fontSize:18, fontWeight:800, lineHeight:1.2 }}>{d.d.getDate()}</div>
+                    <div style={{ fontSize:10, fontWeight:700, color: sel ? "#ffcc80" : "var(--c-pri)", minHeight:12 }}>{n ? `${n} trab.` : ""}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <table data-no-orden style={{ borderCollapse:"collapse", width:"100%", minWidth: cel ? 0 : 1040, tableLayout:"fixed" }}>
             <colgroup>
-              <col style={{ width:120 }}/>
-              {dias.map(d => <col key={d.fecha}/>)}
+              <col style={{ width: cel ? 92 : 120 }}/>
+              {diasVista.map(d => <col key={d.fecha}/>)}
             </colgroup>
             {/* Header días */}
             <thead>
               <tr>
                 <th style={{ background:"#1a2340", padding:"10px 12px", borderRight:"1px solid rgba(255,255,255,.15)", borderBottom:"none" }}/>
-                {dias.map(d=>(
+                {diasVista.map(d=>(
                   <th key={d.fecha} style={{ background:esHoy(d.fecha)?"var(--c-pri)":"#1a2340", padding:"10px 10px", borderRight:"1px solid rgba(255,255,255,.1)", borderBottom:"none", textAlign:"left" }}>
                     <div style={{ fontWeight:700, fontSize:12, color:"#fff" }}>{d.nombre}</div>
                     <div style={{ fontSize:10, color:"rgba(255,255,255,.65)" }}>{d.d.toLocaleDateString("es-AR",{day:"numeric",month:"long"})}</div>
@@ -2442,7 +2576,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                     </div>
                   </td>
                   {/* Slots por día */}
-                  {dias.map(d=>{
+                  {diasVista.map(d=>{
                     const slots = grilla[d.fecha]?.[cat.id] || [{tel:"",desc:""}];
                     const presenciales = pedidosDelDia(d.fecha, cat.id);
                     const tieneAlgo = presenciales.length>0 || slots.some(s=>s?.tel||s?.desc);
@@ -8929,6 +9063,35 @@ function CajaDia({ fecha, setFecha, movs, cfg, ventas, nombreCuenta, monedaDe, i
 }
 
 function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, onEditar, onBorrar }) {
+  const cel = useEsCelular();
+  if (cel) return (
+    <div>
+      {lista.map(m => {
+        const t = TIPO_MOV[m.tipo] || TIPO_MOV.ajuste;
+        const mon = monedaDe(m.cuenta);
+        const signo = m.tipo === "egreso" ? -1 : 1;
+        const titulo = m.tipo === "transferencia" ? `${nombreCuenta(m.cuenta)} → ${nombreCuenta(m.cuentaDestino)}`
+          : m.tipo === "ajuste" ? "Ajuste de saldo" : `${iconoCat(m.tipo, m.categoria)} ${m.categoria||"—"}${m.subcategoria ? " › " + m.subcategoria : ""}`;
+        return (
+          <div key={m.fireId} onClick={() => onEditar(m)}
+            style={{ display:"flex", gap:10, alignItems:"center", padding:"11px 14px", borderTop:"1px solid var(--c-row)", cursor:"pointer" }}>
+            <div style={{ width:34, height:34, borderRadius:10, background:t.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{t.icono}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{titulo}</div>
+              <div style={{ fontSize:12, color:"#a09080", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                {esMovAuto(m) && "🤖 "}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
+              </div>
+            </div>
+            <div style={{ textAlign:"right", flexShrink:0 }}>
+              <div style={{ fontWeight:800, fontSize:15, color: m.tipo==="egreso" ? "#c62828" : m.tipo==="ingreso" ? "#2e7d32" : "#1a2340" }}>{fmtMoneda(signo * (parseFloat(m.monto)||0), mon)}</div>
+              {m.tipo==="transferencia" && monedaDe(m.cuentaDestino) !== mon && m.montoDestino ? <div style={{ fontSize:11, color:"#2e7d32" }}>→ {fmtMoneda(m.montoDestino, monedaDe(m.cuentaDestino))}</div> : null}
+            </div>
+            <button onClick={e => { e.stopPropagation(); onBorrar(m); }} title="Eliminar" style={{ background:"#ffebee", border:"none", borderRadius:8, padding:"7px 9px", cursor:"pointer", flexShrink:0 }}>🗑</button>
+          </div>
+        );
+      })}
+    </div>
+  );
   return (
     <div style={{ overflowX:"auto" }}>
       <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
@@ -10627,6 +10790,21 @@ export default function App() {
   const [msgModal, setMsgModal]           = useState(null);
   useEffect(() => { instalarOrdenTablas(); }, []);
   const cajaCfg = useCajaCfg();
+  const cel = useEsCelular();
+  const [masAbierto, setMasAbierto] = useState(false);
+  const abrirNuevoPedido = () => { setFormData({ ...EMPTY_FORM, categoria: CATEGORIAS[0]||"", fechaPedido: new Date().toLocaleDateString("sv-SE") }); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); window.scrollTo(0,0); };
+  const irA = (v) => { setView(v); setMasAbierto(false); window.scrollTo(0,0); };
+  // Acceso directo: ?ir=caja | listos | calendario | agenda | pedidos | nuevo  (se usa desde el ícono "Caja" del celular)
+  const irInicialHecho = useRef(false);
+  useEffect(() => {
+    if (!user || irInicialHecho.current) return;
+    irInicialHecho.current = true;
+    let ir = ""; try { ir = (new URLSearchParams(window.location.search).get("ir") || "").toLowerCase(); } catch(e) {}
+    if (!ir) return;
+    const mapa = { caja:"finanzas", finanzas:"finanzas", listos:"listos", calendario:"pedidosOnline", agenda:"agenda", pedidos:"lista" };
+    if (ir === "nuevo") abrirNuevoPedido(); else if (mapa[ir]) setView(mapa[ir]);
+    try { window.history.replaceState(null, "", window.location.pathname); } catch(e) {}
+  }, [user]);
   // Al agendar un pedido nuevo (desde cualquier pantalla) se ofrece el mensaje de confirmación
   useEffect(() => {
     const h = (e) => {
@@ -10871,9 +11049,9 @@ export default function App() {
     );
     return (
       <div style={{ display:"flex", gap:8, marginBottom:20, alignItems:"center", flexWrap:"wrap" }}>
-        {btn("categorias", "📋 Por Categoría", () => { setVistaLista("categorias"); setView("lista"); })}
-        {btn("kanban",     "🗂 Kanban",        () => { setVistaLista("kanban");     setView("lista"); })}
-        {btn("calendario", "📅 Calendario",    () => setView("pedidosOnline"))}
+        {btn("categorias", cel ? "📋 En curso" : "📋 Por Categoría", () => { setVistaLista("categorias"); setView("lista"); })}
+        {!cel && btn("kanban",     "🗂 Kanban",        () => { setVistaLista("kanban");     setView("lista"); })}
+        {!cel && btn("calendario", "📅 Calendario",    () => setView("pedidosOnline"))}
         {btn("listos",     "✅ Listos",        () => setView("listos"),
           nListos > 0 && <span style={{ background: activo==="listos"?"rgba(255,255,255,.3)":"var(--c-tint)", color: activo==="listos"?"#fff":"var(--c-pri)", borderRadius:20, padding:"0 8px", fontSize:12, fontWeight:700 }}>{nListos}</span>)}
       </div>
@@ -11083,6 +11261,44 @@ export default function App() {
           .grid-stats{grid-template-columns:1fr 1fr}
           .main-content{padding:12px}
         }
+        /* ══ Celular ══ */
+        .nav-cel,.mas-cel{display:none}
+        @media(max-width:700px){
+          .sidebar,.sidebar-overlay{display:none!important}
+          .mobile-menu-btn{display:flex;padding:4px 10px;font-size:20px}
+          .topbar{height:54px;padding:0 12px;gap:8px;position:sticky;top:0;z-index:150}
+          .topbar-title{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          .topbar .ctx-btn{padding:6px 10px;font-size:12px;white-space:nowrap}
+          .topbar .ctx-nuevo-pedido{display:none}
+          .main-area{min-height:100vh}
+          .main-content{padding:12px 10px calc(92px + env(safe-area-inset-bottom))!important}
+          input,select,textarea{font-size:16px!important}
+          .main-content input,.main-content select,.main-content textarea{max-width:100%}
+          .main-content [style*="grid-template-columns"]>*{min-width:0}
+          .main-content [style*="repeat(7, 1fr)"]{grid-template-columns:repeat(7,minmax(0,1fr))!important}
+          .main-content [style*="min-width: 240px"]{min-width:0!important}
+          .main-content [style*="min-height: 110px"]{min-height:64px!important;padding:4px!important}
+          .main-content table:not([data-no-orden]){display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+          .card[style*="padding: 32px"],.card[style*="padding: 28px"],.card[style*="padding: 36px"]{padding:18px 14px!important}
+          .modal-ov>div,div[style*="position: fixed"][style*="inset: 0"]>div{max-width:calc(100vw - 20px)!important;max-height:calc(100vh - 40px)!important;overflow-y:auto;padding-left:18px!important;padding-right:18px!important}
+          .busq-global-box{top:12px}
+          .nav-cel{display:grid;grid-template-columns:repeat(5,1fr);align-items:end;position:fixed;left:0;right:0;bottom:0;z-index:300;background:#fff;
+            border-top:1px solid var(--c-border);box-shadow:0 -4px 18px rgba(0,0,0,.06);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+          .nav-cel button{background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:"DM Sans",sans-serif;
+            font-size:11px;font-weight:600;color:#8a8f9c;padding:4px 0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+          .nav-cel button .ico{font-size:22px;line-height:1.1;filter:grayscale(.6);opacity:.75}
+          .nav-cel button.act{color:var(--c-pri)}
+          .nav-cel button.act .ico{filter:none;opacity:1}
+          .nav-cel .fab{width:56px;height:56px;border-radius:50%;background:var(--c-pri);color:#fff;font-size:30px;font-weight:400;margin:-26px auto 0;
+            box-shadow:0 6px 18px rgba(var(--c-pri-rgb),.45);display:flex;align-items:center;justify-content:center;border:4px solid #fff}
+          .mas-cel{display:block;position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.4);animation:fIn .2s ease}
+          .mas-cel .hoja{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;padding:10px 16px calc(20px + env(safe-area-inset-bottom));animation:subir .25s ease}
+          .mas-cel .grilla{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+          .mas-cel .grilla button{background:var(--c-softer);border:1px solid var(--c-border);border-radius:14px;padding:14px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;
+            font-family:"DM Sans",sans-serif;font-size:12px;font-weight:700;color:#1a2340;cursor:pointer}
+          .mas-cel .grilla button span{font-size:26px}
+        }
+        @keyframes subir{from{transform:translateY(100%)}to{transform:translateY(0)}}
       `}</style>
 
       {/* ── SIDEBAR + MAIN LAYOUT ── */}
@@ -11184,9 +11400,9 @@ export default function App() {
           {/* Topbar */}
           <div className="topbar">
             {/* Toggle en mobile */}
-            <button onClick={()=>setMenuAbierto(m=>!m)}
+            <button onClick={()=>{ if (cel) setMasAbierto(true); else setMenuAbierto(m=>!m); }}
               className="mobile-menu-btn">
-              {menuAbierto ? "✕" : "☰"}
+              {cel ? "☰" : menuAbierto ? "✕" : "☰"}
             </button>
             <div className="topbar-title">
               {view==="lista" ? "📋 Pedidos" :
@@ -11216,7 +11432,7 @@ export default function App() {
 
             {/* Botones contextuales en topbar */}
             {(view==="lista"||view==="formulario"||view==="detalle") && (
-              <button className="ctx-btn" onClick={()=>{ setFormData({ ...EMPTY_FORM, categoria: CATEGORIAS[0]||"", fechaPedido: new Date().toLocaleDateString("sv-SE") }); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); }}>
+              <button className="ctx-btn ctx-nuevo-pedido" onClick={abrirNuevoPedido}>
                 + Nuevo Pedido
               </button>
             )}
@@ -11230,7 +11446,7 @@ export default function App() {
               <button className="ctx-btn" onClick={()=>setView("nuevaVenta")}>➕ Nueva Venta</button>
             )}
             {view==="agenda" && (
-              <button className="ctx-btn" onClick={()=>setNuevoEventoModal(true)}>➕ Nuevo Evento</button>
+              <button className="ctx-btn ctx-nuevo-pedido" onClick={()=>setNuevoEventoModal(true)}>➕ Nuevo Evento</button>
             )}
             {(view==="proveedores"||view==="nuevoProveedor") && (
               <button className="ctx-btn" onClick={()=>setView("nuevoProveedor")}>➕ Nuevo Proveedor</button>
@@ -11356,7 +11572,21 @@ export default function App() {
                         <span style={{ fontSize:16, color:"#a09080", display:"inline-block", transform:exp?"rotate(0)":"rotate(-90deg)", transition:"transform .2s" }}>▾</span>
                       </div>
                     </div>
-                    {exp && (
+                    {exp && cel && (
+                      <div style={{ padding:"10px 10px 2px" }}>
+                        {items.map(p => (
+                          <TarjetaPedido key={p.fireId||p.id} p={p} saldo={saldo} mostrarCategoria={false}
+                            estadoEditable onEstado={v => handleEstadoChange(p.fireId || p.id, v)}
+                            onAbrir={() => { setSelectedPedido(p); setView("detalle"); }}
+                            acciones={[
+                              { label:"🖨️", titulo:"Imprimir orden", onClick:() => imprimirOrden(p, empresa) },
+                              { label:"📨", titulo:"Confirmación", bg:"#25d366", color:"#fff", onClick:() => { setCopied(false); setMsgModal({ pedido: p, tipo: "agendado" }); } },
+                              { label:"✏️", titulo:"Editar", bg:"#fff", borde:"1.5px solid var(--c-border)", onClick:() => handleEdit(p) },
+                            ]}/>
+                        ))}
+                      </div>
+                    )}
+                    {exp && !cel && (
                       <div style={{ overflowX:"auto" }}>
                         <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
                           <thead>
@@ -11919,6 +12149,37 @@ export default function App() {
           />
         )}
       </div>
+
+      {/* ── NAVEGACIÓN CELULAR ── */}
+      {cel && (
+        <nav className="nav-cel">
+          {[
+            { label:"Pedidos",    ico:"📋", act:["lista","listos","detalle"].includes(view), go:() => irA("lista") },
+            { label:"Calendario", ico:"📅", act:view==="pedidosOnline", go:() => irA("pedidosOnline") },
+            { fab:true },
+            { label:"Agenda",     ico:"🗓️", act:view==="agenda", go:() => irA("agenda") },
+            { label:"Caja",       ico:"💼", act:view==="finanzas", go:() => irA("finanzas") },
+          ].map((it, i) => it.fab
+            ? <button key={i} onClick={abrirNuevoPedido} aria-label="Nuevo pedido"><div className="fab">＋</div><span style={{ color: view==="formulario" ? "var(--c-pri)" : undefined }}>Nuevo</span></button>
+            : <button key={i} className={it.act ? "act" : ""} onClick={it.go}><span className="ico">{it.ico}</span>{it.label}</button>)}
+        </nav>
+      )}
+      {cel && masAbierto && (
+        <div className="mas-cel" onClick={() => setMasAbierto(false)}>
+          <div className="hoja" onClick={e => e.stopPropagation()}>
+            <div style={{ width:40, height:5, borderRadius:3, background:"#ddd", margin:"0 auto 14px" }}/>
+            <div className="grilla">
+              {[
+                ["✅","Listos",() => irA("listos")], ["💰","Ventas",() => irA("ventas")], ["📋","Presupuestos",() => irA("presupuestos")],
+                ["👥","Clientes",() => irA("clientes")], ["🏷️","Productos",() => irA("insumos")], ["🏭","Proveedores",() => irA("proveedores")],
+                ["📊","Producción",() => irA("produccion")], ["⚙️","Configuración",() => irA("config")],
+                ...(APP_CFG.accesos||[]).filter(a => a && a.url).map(a => [a.icono||"🔗", a.nombre||"Acceso", () => { setMasAbierto(false); window.open(a.url,"_blank"); }]),
+                ["🔒","Salir",() => { setMasAbierto(false); handleLogout(); }],
+              ].map(([ico, lbl, fn]) => <button key={lbl} onClick={fn}><span>{ico}</span>{lbl}</button>)}
+            </div>
+          </div>
+        </div>
+      )}
 
       {msgModal && (
         <MsgModal
