@@ -8857,6 +8857,26 @@ async function ajustarSeñaEnCaja(pedido, señaAnterior, señaNueva, cuenta) {
     else { await updateDoc(doc(db, "cajaMovs", m.fireId), { monto: Math.round((v - falta) * 100) / 100 }); falta = 0; }
   }
 }
+// ── Sueldos ↔ RRHH ──
+// Un egreso de la categoría de sueldos con empleado queda también como pago en la ficha del empleado (pagosSueldo, unido por cajaMovId)
+const esCatSueldo = (n) => /sueldo|salario|emplead|aguinaldo|jornal/.test(normTxt(n));
+const catSueldoDe = (cfg) => ((cfg.catsEgreso||[]).find(x => esCatSueldo(x.nombre)) || {}).nombre || "Sueldos";
+async function pagosDeMov(movId) {
+  if (!movId) return [];
+  const s = await getDocs(query(collection(db, "pagosSueldo"), where("cajaMovId", "==", movId)));
+  return s.docs.map(d => ({ ...d.data(), fireId:d.id }));
+}
+async function sincronizarPagoSueldo(movId, data) {
+  const existentes = await pagosDeMov(movId);
+  const corresponde = data && data.tipo === "egreso" && data.empleadoId && esCatSueldo(data.categoria);
+  if (!corresponde) { for (const p of existentes) await deleteDoc(doc(db, "pagosSueldo", p.fireId)); return; }
+  const pago = { empId: data.empleadoId, monto: String(data.monto), concepto: data.subcategoria || data.nota || "Sueldo", fecha: data.fecha, cajaMovId: movId, origen:"caja" };
+  if (existentes.length) {
+    await updateDoc(doc(db, "pagosSueldo", existentes[0].fireId), pago);
+    for (const p of existentes.slice(1)) await deleteDoc(doc(db, "pagosSueldo", p.fireId));
+  } else await addDoc(collection(db, "pagosSueldo"), pago);
+}
+
 // Selector de caja para cobros (solo cajas en pesos)
 function SelectorCajaCobro({ cfg, value, onChange, label = "¿Dónde entró?", compacto }) {
   const pesos = cfg.cuentas.filter(c => c.moneda !== "USD");
@@ -8979,8 +8999,9 @@ function CajaDiariaView({ showToast }) {
   const totalUSD = cfg.cuentas.filter(c => c.moneda === "USD").reduce((t,c) => t + (saldos[c.id]||0), 0);
 
   const borrar = async (m) => {
-    if (!window.confirm("¿Eliminar este movimiento?")) return;
+    if (!window.confirm(m.empleadoId ? `¿Eliminar este movimiento?\nTambién se borra el pago de ${m.empleadoNombre || "el empleado"} en RRHH.` : "¿Eliminar este movimiento?")) return;
     await deleteDoc(doc(db, "cajaMovs", m.fireId));
+    if (m.empleadoId) { try { await sincronizarPagoSueldo(m.fireId, null); } catch(e) { console.error(e); } }
     showToast("Movimiento eliminado");
   };
 
@@ -9180,7 +9201,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{titulo}</div>
               <div style={{ fontSize:12, color:"#a09080", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                {esMovAuto(m) && "🤖 "}{m.proveedorNombre ? "🏭 " + m.proveedorNombre + " · " : ""}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
+                {esMovAuto(m) && "🤖 "}{m.proveedorNombre ? "🏭 " + m.proveedorNombre + " · " : ""}{m.empleadoNombre ? "👷 " + m.empleadoNombre + " · " : ""}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
               </div>
             </div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
@@ -9217,6 +9238,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
                 </td>
                 <td style={{ padding:"10px 14px", color:"#4a5568", maxWidth:300 }}>
                   {m.proveedorNombre && <span style={{ background:"#eceff1", color:"#37474f", borderRadius:5, padding:"0 6px", fontSize:11, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>🏭 {m.proveedorNombre}</span>}
+                  {m.empleadoNombre && <span style={{ background:"#e3f2fd", color:"#1565c0", borderRadius:5, padding:"0 6px", fontSize:11, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>👷 {m.empleadoNombre}</span>}
                   {esMovAuto(m) && <span title="Entró solo desde la app" style={{ background:"#f1f8e9", color:"#558b2f", border:"1px solid #c5e1a5", borderRadius:5, padding:"0 5px", fontSize:10, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>🤖 auto</span>}
                   {m.nota||""}
                 </td>
@@ -9256,6 +9278,12 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
   const [proveedores, setProveedores] = useState([]);
   const [nuevoProv, setNuevoProv]     = useState(null);
   const [verProv, setVerProv]         = useState(!!inicial.proveedorId);
+  const [empleados, setEmpleados]     = useState([]);
+  useEffect(() => {
+    if (tipo !== "egreso") return;
+    const u = onSnapshot(collection(db, "empleados"), snap => setEmpleados(snap.docs.map(d => ({ ...d.data(), fireId:d.id })).sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""))), () => {});
+    return () => u();
+  }, [tipo]);
   useEffect(() => {
     if (tipo !== "egreso") return;
     const u = onSnapshot(collection(db, "proveedores"), snap => setProveedores(snap.docs.map(d => ({ ...d.data(), fireId:d.id }))), () => {});
@@ -9271,6 +9299,7 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
     categoria: inicial.categoria || (cats[0]?.nombre || ""),
     subcategoria: inicial.subcategoria || "",
     proveedorId: inicial.proveedorId || "",
+    empleadoId: inicial.empleadoId || "",
     cuenta: inicial.cuenta || (cfg.cuentas.some(c => c.id === ultimaCaja) ? ultimaCaja : cfg.cuentas[0]?.id),
     cuentaDestino: inicial.cuentaDestino || cfg.cuentas[1]?.id || cfg.cuentas[0]?.id,
     monto: inicial.monto !== undefined ? String(inicial.monto).replace(".", ",") : "",
@@ -9293,12 +9322,20 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
       fecha: f.fecha, tipo, monto, cuenta: f.cuenta, nota: f.nota.trim(),
       ...(tipo === "ingreso" || tipo === "egreso" ? { categoria: f.categoria, subcategoria: f.subcategoria || "" } : {}),
       ...(tipo === "egreso" ? { proveedorId: f.proveedorId || "", proveedorNombre: f.proveedorId ? nombreProv(proveedores.find(p => p.fireId === f.proveedorId)) : "" } : {}),
+      ...(tipo === "egreso" ? (esCatSueldo(f.categoria) && f.empleadoId
+        ? { empleadoId: f.empleadoId, empleadoNombre: (empleados.find(e => e.fireId === f.empleadoId)?.nombre) || inicial.empleadoNombre || "" }
+        : { empleadoId: "", empleadoNombre: "" }) : {}),
       ...(tipo === "transferencia" ? { cuentaDestino: f.cuentaDestino, montoDestino: distintaMoneda ? parseMonto(f.montoDestino) : monto } : {}),
     };
     setSaving(true);
     try {
+      let movId = inicial.fireId;
       if (editando) await updateDoc(doc(db, "cajaMovs", inicial.fireId), data);
-      else await addDoc(collection(db, "cajaMovs"), { ...data, creadoEn: new Date().toISOString() });
+      else movId = (await addDoc(collection(db, "cajaMovs"), { ...data, creadoEn: new Date().toISOString() })).id;
+      // Si es un sueldo con empleado, queda registrado también en su ficha de RRHH
+      if (tipo === "egreso" && (data.empleadoId || inicial.empleadoId)) {
+        try { await sincronizarPagoSueldo(movId, data); } catch(e) { console.error(e); showToast("Se guardó en la caja, pero no en RRHH","error"); }
+      }
       try { localStorage.setItem("caja_ultima_" + tipo, f.cuenta); } catch(e) {}
       showToast(editando ? "Movimiento actualizado ✅" : `${t.label} cargado ✅`);
       if (seguir) setF(x => ({ ...x, monto:"", montoDestino:"", nota:"" }));
@@ -9429,7 +9466,20 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
                 )}
               </div>
             )}
-            {tipo === "egreso" && (() => {
+            {tipo === "egreso" && esCatSueldo(f.categoria) && !nuevaCat && (
+              <div style={{ marginTop:10 }}>
+                <label style={cajaLbl}>👷 Empleado</label>
+                <select value={f.empleadoId || ""} onChange={e => set("empleadoId", e.target.value)}
+                  style={{ ...cajaInp, fontWeight:600, color: f.empleadoId ? "#1a2340" : "#a09080" }}>
+                  <option value="">— Sin asignar —</option>
+                  {empleados.map(e => <option key={e.fireId} value={e.fireId}>{e.nombre}{e.cargo ? ` · ${e.cargo}` : ""}</option>)}
+                  {f.empleadoId && !empleados.some(e => e.fireId === f.empleadoId) && <option value={f.empleadoId}>{inicial.empleadoNombre || "Empleado"}</option>}
+                </select>
+                {f.empleadoId && <div style={{ fontSize:12, color:"#2e7d32", marginTop:4 }}>✓ Se registra también en sus pagos de RRHH</div>}
+                {!empleados.length && <div style={{ fontSize:12, color:"#a09080", marginTop:4 }}>No hay empleados cargados. Se agregan en Finanzas → RRHH.</div>}
+              </div>
+            )}
+            {tipo === "egreso" && !esCatSueldo(f.categoria) && (() => {
               const sugerido = /insumo|material|maquin|proveed|compra|papel|vinilo|tinta/.test(normTxt(f.categoria));
               if (!sugerido && !verProv && !f.proveedorId) return (
                 <button type="button" onClick={() => setVerProv(true)}
@@ -9701,7 +9751,7 @@ function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar
     .filter(m => tipo === "todos" || m.tipo === tipo)
     .filter(m => cat === "todas" || m.categoria === cat)
     .filter(m => cuenta === "todas" || m.cuenta === cuenta || m.cuentaDestino === cuenta)
-    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""} ${m.subcategoria||""} ${m.proveedorNombre||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
+    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""} ${m.subcategoria||""} ${m.proveedorNombre||""} ${m.empleadoNombre||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
     .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""));
   const cats = [...new Set([...cfg.catsIngreso, ...cfg.catsEgreso].map(c => c.nombre).concat(movs.map(m => m.categoria).filter(Boolean)))];
   const tot = (t, mon) => lista.filter(m => m.tipo === t && monedaDe(m.cuenta) === mon).reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
@@ -10619,6 +10669,7 @@ function FinanzasView({ pedidos, clientes, desbloqueado, setDesbloqueado, showTo
 
 // ── Detalle Empleado ──────────────────────────────────────────────────────
 function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
+  const cajaCfgEmp = useCajaCfg();
   const emp = empleados.find(e=>e.fireId===empId);
   const [pagos, setPagos]       = useState([]);
   const [vacas, setVacas]       = useState([]);
@@ -10728,9 +10779,14 @@ function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
                 {pagos.sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0).map(p=>(
                   <tr key={p.fireId} style={{ borderBottom:"1px solid var(--c-row)" }}>
                     <td style={{ padding:"10px 16px", color:"#a09080" }}>{p.fecha}</td>
-                    <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{p.concepto||"Sueldo"}</td>
+                    <td style={{ padding:"10px 16px", color:"#1a2340", fontWeight:500 }}>{p.concepto||"Sueldo"}{p.cajaMovId && <span title="Registrado en la Caja diaria" style={{ marginLeft:8, background:"#e8f5e9", color:"#2e7d32", borderRadius:5, padding:"1px 6px", fontSize:10, fontWeight:700 }}>💼 en caja</span>}</td>
                     <td style={{ padding:"10px 16px", fontWeight:700, color:"#2e7d32" }}>${parseFloat(p.monto||0).toLocaleString("es-AR")}</td>
-                    <td style={{ padding:"10px 14px" }}><button onClick={async()=>{ await deleteDoc(doc(db,"pagosSueldo",p.fireId)); showToast("Eliminado","error"); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"3px 7px", borderRadius:5, cursor:"pointer", fontSize:11 }}>🗑</button></td>
+                    <td style={{ padding:"10px 14px" }}><button onClick={async()=>{
+                      if (p.cajaMovId) {
+                        if (!window.confirm("¿Eliminar este pago?\nTambién se borra el egreso de la Caja diaria.")) return;
+                        await deleteDoc(doc(db,"cajaMovs",p.cajaMovId)).catch(()=>{});
+                      }
+                      await deleteDoc(doc(db,"pagosSueldo",p.fireId)); showToast("Eliminado","error"); }} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"3px 7px", borderRadius:5, cursor:"pointer", fontSize:11 }}>🗑</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -10791,9 +10847,23 @@ function EmpleadoDetalle({ empId, empleados, setSelectedEmp, showToast }) {
 
       {modalPago && (
         <ModalSimple titulo="💵 Registrar Pago de Sueldo" onClose={()=>setModalPago(false)} onSave={async(form)=>{
-          await addDoc(collection(db,"pagosSueldo"),{empId,...form,fecha:form.fecha||new Date().toISOString().split("T")[0]});
-          showToast("Pago registrado ✅"); setModalPago(false);
-        }} campos={[{key:"monto",label:"Monto",type:"number",placeholder:"0"},{key:"concepto",label:"Concepto",placeholder:"Sueldo quincenal..."},{key:"fecha",label:"Fecha",type:"date"}]}/>
+          const monto = parseMonto(form.monto);
+          if (!monto) { showToast("Ingresá el monto","error"); return; }
+          const fecha = form.fecha || hoyISO();
+          const { cuenta: cuentaElegida, ...resto } = form;
+          const cuenta = cuentaElegida === "" ? "" : (cajaCfgEmp.cuentas.some(x => x.id === cuentaElegida) ? cuentaElegida : cajaSugerida(cajaCfgEmp, "sueldo"));
+          let cajaMovId = "";
+          if (cuenta) {
+            const ref = await addDoc(collection(db,"cajaMovs"), { fecha, tipo:"egreso", monto, cuenta, categoria: catSueldoDe(cajaCfgEmp), subcategoria:"",
+              nota: form.concepto || "Sueldo", empleadoId: empId, empleadoNombre: emp?.nombre || "", origen:"rrhh", creadoEn: new Date().toISOString() });
+            cajaMovId = ref.id;
+            recordarCaja("sueldo", cuenta);
+          }
+          await addDoc(collection(db,"pagosSueldo"),{ empId, ...resto, monto:String(monto), fecha, ...(cajaMovId ? { cajaMovId, origen:"rrhh" } : {}) });
+          showToast(cajaMovId ? "Pago registrado y descontado de la caja ✅" : "Pago registrado ✅"); setModalPago(false);
+        }} inicial={{ cuenta: cajaSugerida(cajaCfgEmp, "sueldo") }}
+        campos={[{key:"monto",label:"Monto",type:"number",placeholder:"0"},{key:"concepto",label:"Concepto",placeholder:"Sueldo quincenal..."},{key:"fecha",label:"Fecha",type:"date"},
+          {key:"cuenta",label:"¿De qué caja salió?",type:"select",sinVacio:true,options:[...cajaCfgEmp.cuentas.filter(x => x.moneda !== "USD").map(x => ({ value:x.id, label:`${x.icono} ${x.nombre}` })), { value:"", label:"No descontar de la caja" }]}]}/>
       )}
       {modalVaca && (
         <ModalSimple titulo="🏖️ Registrar Vacaciones" onClose={()=>setModalVaca(false)} onSave={async(form)=>{
@@ -10821,8 +10891,10 @@ function ModalSimple({ titulo, campos, onClose, onSave, inicial }) {
               <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>{c.label}</label>
               {c.type==="select"
                 ? <select value={form[c.key]||""} onChange={e=>setForm(f=>({...f,[c.key]:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
-                    <option value="">Seleccionar...</option>
-                    {c.options.map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}
+                    {!c.sinVacio && <option value="">Seleccionar...</option>}
+                    {c.options.map(o=> typeof o === "object"
+                      ? <option key={o.value} value={o.value}>{o.label}</option>
+                      : <option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}
                   </select>
                 : <input type={c.type||"text"} value={form[c.key]||""} onChange={e=>setForm(f=>({...f,[c.key]:e.target.value}))} placeholder={c.placeholder||""} style={inp}/>
               }
