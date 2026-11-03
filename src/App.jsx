@@ -1187,22 +1187,22 @@ function PedidosListosBase({ cel, pedidos, saldo, isHoy, handleEstadoChange, han
                           <span style={{ fontWeight:700, color:saldo(p)>0?"#c62828":"#2e7d32", fontSize:14 }}>{p.precio?`$${saldo(p).toLocaleString("es-AR")}`:"—"}</span>
                         </td>
                         <td style={{ padding:"13px 16px" }}>
-                          <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                          <div style={{ display:"grid", gridTemplateColumns:"repeat(2, 38px)", gap:5 }}>
                             <button title="Reimprimir orden de trabajo"
                               onClick={() => imprimirOrden(p, empresa)}
-                              style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"6px 9px", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"6px 0", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>
                               🖨️
                             </button>
-                            <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                            <button title="Avisar que está listo" style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 0", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
                               onClick={() => setMsgModal({ pedido: p })}>💬</button>
-                            {onRegistrarPago && saldo(p) > 0 && (
-                              <button title="Registrar un pago parcial" style={{ background:"#e8f5e9", color:"#2e7d32", border:"1.5px solid #a5d6a7", padding:"5px 9px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                            {onRegistrarPago && saldo(p) > 0 ? (
+                              <button title="Registrar un pago parcial" style={{ background:"#e8f5e9", color:"#2e7d32", border:"1.5px solid #a5d6a7", padding:"5px 0", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
                                 onClick={() => onRegistrarPago(p)}>💵</button>
-                            )}
-                            <button style={{ background:"var(--c-pri)", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
-                              onClick={() => handleEstadoChange(p.fireId || p.id, "Entregado")}>📦 Entregar</button>
-                            <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 10px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }}
+                            ) : <span/>}
+                            <button title="Eliminar" style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"6px 0", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }}
                               onClick={() => handleDelete(p.fireId || p.id)}>🗑</button>
+                            <button style={{ gridColumn:"1 / -1", background:"var(--c-pri)", color:"#fff", border:"none", padding:"7px 8px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap" }}
+                              onClick={() => handleEstadoChange(p.fireId || p.id, "Entregado")}>📦 Entregar</button>
                           </div>
                         </td>
                       </tr>
