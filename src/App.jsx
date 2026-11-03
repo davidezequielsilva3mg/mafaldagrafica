@@ -2481,7 +2481,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
       catch(e) { console.error(e); showToast("El pedido se creó, pero la seña no entró a la caja","error"); }
     }
     setMSeñaCuenta("");
-    showToast("Pedido creado ✅");
+    showToast(señaCuenta ? `Pedido creado ✅ · seña $${parseFloat(mSeña).toLocaleString("es-AR")} en ${nombreCajaCfg(cajaCfg, señaCuenta)}` : "Pedido creado ✅");
     avisarPedidoAgendado(docData);
     setSavingM(false);
     setModalNuevo(null);
@@ -7297,7 +7297,7 @@ function ModalAprobarPresupuesto({ pres, clientes, showToast, onClose, onDone })
         estado:"aprobado", aprobadoEn:new Date().toISOString(),
         pedidoFireId:ref.id, fechaEntrega, categoria,
       });
-      showToast(`✅ ${presNum(pres)} aprobado · pedido creado`);
+      showToast(`✅ ${presNum(pres)} aprobado · pedido creado${cuentaSeña ? ` · seña $${parseFloat(seña).toLocaleString("es-AR")} en ${nombreCajaCfg(cajaCfg, cuentaSeña)}` : ""}`);
       onDone();
       avisarPedidoAgendado(pedido);
     } catch(e) {
@@ -8949,9 +8949,10 @@ function cajaSugerida(cfg, metodo = "Efectivo") {
   const pesos = cfg.cuentas.filter(c => c.moneda !== "USD");
   let guardada = ""; try { guardada = localStorage.getItem("caja_cobro_" + metodo) || ""; } catch(e) {}
   if (pesos.some(c => c.id === guardada)) return guardada;
-  if (metodo === "Efectivo") return (pesos.find(esCajaEfectivo) || pesos[0])?.id || "";
+  if (metodo === "Efectivo" || metodo === "seña" || metodo === "pago") return (pesos.find(esCajaEfectivo) || pesos[0])?.id || "";
   return (pesos.find(c => !esCajaEfectivo(c)) || pesos[0])?.id || "";
 }
+const nombreCajaCfg = (cfg, id) => { const x = cfg.cuentas.find(c => c.id === id); return x ? `${x.icono||""} ${x.nombre}`.trim() : "la caja"; };
 function recordarCaja(metodo, cuentaId) { try { localStorage.setItem("caja_cobro_" + metodo, cuentaId); } catch(e) {} }
 // Categoría de ingreso que corresponde a la caja (efectivo → "Efectivo", el resto → "Transferencias")
 function categoriaCobro(cfg, cuentaId) {
@@ -11674,7 +11675,7 @@ export default function App() {
         try { await registrarCobroCaja({ pedido: nuevo, pedidoId: refNuevo.id, cobro:"seña", monto: nuevo.seña, cuenta: señaCuenta, fecha: nuevo.fechaPedido || hoyISO() }); recordarCaja("seña", señaCuenta); }
         catch(e) { console.error(e); showToast("El pedido se guardó, pero la seña no entró a la caja","error"); }
       }
-      showToast("Pedido cargado exitosamente 🎉");
+      showToast(parseFloat(nuevo.seña) > 0 ? `Pedido cargado 🎉 · seña $${parseFloat(nuevo.seña).toLocaleString("es-AR")} en ${nombreCajaCfg(cajaCfg, señaCuenta)}` : "Pedido cargado exitosamente 🎉");
       triggerPrintIfNeeded(null, nuevo);
       if (nuevo.estado === "Listo") triggerMsgIfNeeded(null, nuevo);
       else avisarPedidoAgendado(nuevo);
