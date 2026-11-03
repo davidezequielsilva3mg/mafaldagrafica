@@ -3284,6 +3284,122 @@ function TintaView({ showToast }) {
 }
 
 // ── Plotter Hancolor i3200 (ex ProduccionView) ────────────────────────────
+// ── Lector del RIPLOG.HTML de FlexiPRINT / Production Manager ────────────
+// Suma el área (ancho × alto × copias) de cada evento "Iniciar impresión", agrupado por el mes en que se imprimió.
+// No cuenta las impresiones canceladas ni las que dieron error.
+function leerRiplog(texto) {
+  const limpiar = (s) => (s||"").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+  const campo = (bloque, etiqueta) => {
+    const m = bloque.match(new RegExp(etiqueta + "[:\\s]*</TH>\\s*<TD[^>]*>([\\s\\S]*?)</TD>", "i"));
+    return m ? limpiar(m[1]) : "";
+  };
+  const meses = {};
+  let impresiones = 0, desde = null, hasta = null;
+  const bloques = texto.split(/<TABLE class="tab1"/i);
+  for (const b of bloques) {
+    if (!/Iniciar impresi/i.test(b)) continue;
+    const dim = campo(b, "Dimensi[óo]n");
+    const nums = (dim.match(/[\d]+(?:[.,]\d+)?/g) || []).map(x => parseFloat(x.replace(",", ".")));
+    if (nums.length < 2) continue;
+    const factor = /cm/i.test(dim) ? 1/2.54 : /mm/i.test(dim) ? 1/25.4 : 1;   // todo a pulgadas
+    const copias = parseInt(campo(b, "N[úu]mero de copias")) || 1;
+    const sqft = (nums[0] * factor) * (nums[1] * factor) * copias / 144;
+    const ini = campo(b, "Fecha y hora de inicio de la salida");          // "HH:MM:SS D/M/AAAA"
+    const fm = ini.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!fm) continue;
+    const fecha = `${fm[3]}-${fm[2].padStart(2,"0")}-${fm[1].padStart(2,"0")}`;
+    const clave = fecha.slice(0,7);
+    const r = meses[clave] || (meses[clave] = { sqft:0, trabajos:0, cancelados:0, errores:0, sqftNoImpreso:0 });
+    impresiones++;
+    if (!desde || fecha < desde) desde = fecha;
+    if (!hasta || fecha > hasta) hasta = fecha;
+    const cancelado = /Impresi[óo]n cancelada/i.test(b);
+    const error = /<TH[^>]*>[^<]*Error/i.test(b) || !campo(b, "Fecha y hora de finalizaci[óo]n de la salida");
+    if (cancelado) { r.cancelados++; r.sqftNoImpreso += sqft; continue; }
+    if (error) { r.errores++; r.sqftNoImpreso += sqft; continue; }
+    r.trabajos++; r.sqft += sqft;
+  }
+  return { meses, impresiones, desde, hasta };
+}
+
+function ModalRiplog({ datos, registros, onClose, showToast }) {
+  const hoyMes = new Date().toLocaleDateString("sv-SE").slice(0,7);
+  const filas = Object.entries(datos.meses).sort((a,b) => b[0].localeCompare(a[0])).map(([ym, d]) => {
+    const [y, m] = ym.split("-").map(Number);
+    const existe = registros.find(r => r.anio === y && r.mes === m - 1);
+    const parcial = datos.desde && datos.desde.startsWith(ym) && datos.desde.slice(8) !== "01" ? parseInt(datos.desde.slice(8)) : null;
+    return { ym, y, m, d, existe, enCurso: ym === hoyMes, parcial };
+  });
+  const [sel, setSel] = useState(() => Object.fromEntries(filas.map(f => [f.ym, !f.existe && !f.enCurso])));
+  const [saving, setSaving] = useState(false);
+  const elegidos = filas.filter(f => sel[f.ym]);
+  const fmt = (n) => (Math.round(n * 10) / 10).toLocaleString("es-AR", { maximumFractionDigits:1 });
+
+  const guardar = async () => {
+    if (!elegidos.length) { showToast("Elegí al menos un mes","error"); return; }
+    setSaving(true);
+    try {
+      for (const f of elegidos) {
+        const sqft = Math.round(f.d.sqft * 10) / 10;
+        const datosMes = { sqft, m2: sqft * SQ_FT_TO_M2, nota: `${f.d.trabajos} trabajos · RIPLOG`, origen:"riplog" };
+        if (f.existe) await updateDoc(doc(db, "produccion", f.existe.fireId), datosMes);
+        else await addDoc(collection(db, "produccion"), { mes: f.m - 1, anio: f.y, ...datosMes, cargadoEn: new Date().toISOString() });
+      }
+      showToast(`${elegidos.length} mes${elegidos.length > 1 ? "es" : ""} cargado${elegidos.length > 1 ? "s" : ""} desde el RIPLOG ✅`);
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al guardar","error"); }
+    setSaving(false);
+  };
+
+  const th = { padding:"9px 10px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", background:"var(--c-soft)", whiteSpace:"nowrap" };
+  const td = { padding:"9px 10px", borderTop:"1px solid var(--c-row)", fontSize:13, whiteSpace:"nowrap" };
+  return (
+    <div className="modal-ov" onClick={saving ? undefined : onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"24px 26px", width:"min(760px, 96vw)", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
+        <div style={{ fontSize:20, fontWeight:800, color:"#1a2340", marginBottom:4 }}>📥 Producción según el RIPLOG</div>
+        <div style={{ fontSize:13, color:"#a09080", marginBottom:14 }}>
+          {datos.impresiones.toLocaleString("es-AR")} impresiones del {fmtFecha(datos.desde)} al {fmtFecha(datos.hasta)}. Se suma ancho × alto × copias de cada trabajo; no se cuentan los cancelados ni los que dieron error.
+          Marcá los meses que querés guardar: los que no tenías cargados ya vienen marcados.
+        </div>
+        <div style={{ overflowX:"auto", border:"1px solid var(--c-border)", borderRadius:10 }}>
+          <table data-no-orden style={{ width:"100%", borderCollapse:"collapse" }}>
+            <thead><tr>
+              <th style={th}><input type="checkbox" checked={filas.length > 0 && filas.every(f => sel[f.ym])} onChange={e => setSel(Object.fromEntries(filas.map(f => [f.ym, e.target.checked])))} style={{ width:16, height:16, accentColor:"var(--c-pri)" }}/></th>
+              <th style={th}>Mes</th><th style={th}>RIPLOG</th><th style={th}>Trabajos</th><th style={th}>Anotado</th><th style={th}>Diferencia</th>
+            </tr></thead>
+            <tbody>
+              {filas.map(f => {
+                const dif = f.existe ? f.d.sqft - f.existe.sqft : null;
+                const pct = f.existe && f.existe.sqft ? dif / f.existe.sqft * 100 : null;
+                return (
+                  <tr key={f.ym} style={{ background: sel[f.ym] ? "var(--c-softer)" : "#fff" }}>
+                    <td style={td}><input type="checkbox" checked={!!sel[f.ym]} onChange={e => setSel(s => ({ ...s, [f.ym]: e.target.checked }))} style={{ width:16, height:16, accentColor:"var(--c-pri)" }}/></td>
+                    <td style={{ ...td, fontWeight:700, color:"#1a2340" }}>{MESES_ES[f.m-1]} {f.y}{f.enCurso && <span style={{ marginLeft:6, fontSize:10, color:"#f57f17", fontWeight:700 }}>EN CURSO</span>}{f.parcial && <span title="El archivo empieza a mitad de este mes" style={{ marginLeft:6, fontSize:10, color:"#f57f17", fontWeight:700 }}>PARCIAL (desde el {f.parcial})</span>}</td>
+                    <td style={td}><b>{fmt(f.d.sqft)} sq ft</b><div style={{ fontSize:11, color:"#a09080" }}>{fmt(f.d.sqft * SQ_FT_TO_M2)} m²</div></td>
+                    <td style={td}>{f.d.trabajos}{(f.d.cancelados + f.d.errores) > 0 && <div style={{ fontSize:11, color:"#a09080" }}>+{f.d.cancelados + f.d.errores} cancel./error</div>}</td>
+                    <td style={{ ...td, color: f.existe ? "#4a5568" : "#c0b0a0" }}>{f.existe ? `${fmt(f.existe.sqft)} sq ft` : "— sin cargar"}{f.existe?.nota && <div style={{ fontSize:11, color:"#a09080" }}>{f.existe.nota}</div>}</td>
+                    <td style={{ ...td, fontWeight:700, color: dif === null ? "#c0b0a0" : Math.abs(pct) < 1 ? "#2e7d32" : Math.abs(pct) < 5 ? "#f57f17" : "#c62828" }}>
+                      {dif === null ? "—" : `${dif > 0 ? "+" : ""}${fmt(dif)} (${pct > 0 ? "+" : ""}${pct.toFixed(1)}%)`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize:12, color:"#a09080", margin:"10px 0 16px" }}>Si marcás un mes que ya tenías anotado, se reemplaza por el valor del RIPLOG. El mes en curso todavía no está completo.</div>
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap" }}>
+          <button className="btn-g" onClick={onClose}>Cancelar</button>
+          <button onClick={guardar} disabled={saving || !elegidos.length}
+            style={{ background: elegidos.length ? "var(--c-pri)" : "var(--c-border)", color:"#fff", border:"none", borderRadius:8, padding:"11px 22px", fontWeight:700, cursor: elegidos.length ? "pointer" : "default", fontSize:14 }}>
+            {saving ? "Guardando…" : `💾 Guardar ${elegidos.length} mes${elegidos.length !== 1 ? "es" : ""}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlotterView({ showToast }) {
   const [registros, setRegistros] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -3296,6 +3412,19 @@ function PlotterView({ showToast }) {
   const [sqft,  setSqft]  = useState("");
   const [nota,  setNota]  = useState("");
   const [saving, setSaving] = useState(false);
+  const [riplog, setRiplog] = useState(null);      // resultado de leer el archivo
+  const [leyendo, setLeyendo] = useState(false);
+  const cargarRiplog = async (file) => {
+    if (!file) return;
+    setLeyendo(true);
+    try {
+      const texto = await file.text();
+      const datos = leerRiplog(texto);
+      if (!datos.impresiones) showToast("No encontré impresiones en ese archivo. ¿Es el RIPLOG.HTML del plotter?","error");
+      else setRiplog(datos);
+    } catch(e) { console.error(e); showToast("No pude leer el archivo","error"); }
+    setLeyendo(false);
+  };
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db,"produccion"), snap => {
@@ -3356,11 +3485,20 @@ function PlotterView({ showToast }) {
             </button>
           ))}
         </div>
-        <button onClick={()=>setModal(true)}
-          style={{ background:"var(--c-pri)", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
-          ➕ Cargar mes
-        </button>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          <label style={{ background:"#fff", color:"var(--c-pri)", border:"1.5px solid var(--c-pri)", padding:"9px 18px", borderRadius:8, fontSize:14, fontWeight:700, cursor: leyendo ? "wait" : "pointer" }}
+            title="Subí el archivo RIPLOG.HTML del plotter y la app calcula los sq ft de cada mes">
+            {leyendo ? "⏳ Leyendo…" : "📥 Cargar RIPLOG"}
+            <input type="file" accept=".html,.htm" style={{ display:"none" }} disabled={leyendo}
+              onChange={e => { cargarRiplog(e.target.files[0]); e.target.value = ""; }}/>
+          </label>
+          <button onClick={()=>setModal(true)}
+            style={{ background:"var(--c-pri)", color:"#fff", border:"none", padding:"10px 22px", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+            ➕ Cargar mes
+          </button>
+        </div>
       </div>
+      {riplog && <ModalRiplog datos={riplog} registros={registros} showToast={showToast} onClose={() => setRiplog(null)}/>}
 
       {/* KPIs */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:20 }}>
