@@ -6031,6 +6031,113 @@ function FormularioProveedor({ prov, setView, setSelected, showToast }) {
 }
 
 // ── Componente: Historial de Ventas ───────────────────────────────────────
+// ── Egreso rápido desde Ventas (para empleados, sin entrar a Finanzas) ──
+function ModalEgresoRapido({ onClose, showToast }) {
+  const cajaCfg = useCajaCfg();
+  const [empleados, setEmpleados] = useState([]);
+  useEffect(() => {
+    const u = onSnapshot(collection(db, "empleados"), snap => setEmpleados(snap.docs.map(d => ({ ...d.data(), fireId:d.id })).sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""))), () => {});
+    return () => u();
+  }, []);
+  const cajas = cajaCfg.cuentas.filter(x => x.moneda !== "USD");
+  const cats  = (cajaCfg.catsEgreso || []).filter(x => !x.personal);
+  const [monto, setMonto]   = useState("");
+  const [cuenta, setCuenta] = useState("");
+  const [cat, setCat]       = useState("");
+  const [detalle, setDetalle] = useState("");
+  const [quien, setQuien]   = useState(() => { try { return localStorage.getItem("egreso_quien") || ""; } catch(e) { return ""; } });
+  const [saving, setSaving] = useState(false);
+  const cuentaFinal = cuenta || (cajas.find(esCajaEfectivo) || cajas[0])?.id || "";
+  const catFinal = cat || (cats.find(x => /insumo/i.test(x.nombre)) || cats[0])?.nombre || "Otros";
+  const guardar = async () => {
+    const m = parseMonto(monto);
+    if (!m) { showToast("Ingresá el monto","error"); return; }
+    if (!detalle.trim()) { showToast("Escribí para qué fue","error"); return; }
+    if (!quien.trim()) { showToast("Indicá quién lo sacó","error"); return; }
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "cajaMovs"), { fecha: hoyISO(), tipo:"egreso", monto: m, cuenta: cuentaFinal, categoria: catFinal, subcategoria:"",
+        nota: detalle.trim(), registradoPor: quien.trim(), origen:"ventas", creadoEn: new Date().toISOString() });
+      try { localStorage.setItem("egreso_quien", quien.trim()); } catch(e) {}
+      showToast(`Egreso de $${m.toLocaleString("es-AR")} registrado ✅`);
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al registrar el egreso","error"); }
+    setSaving(false);
+  };
+  return (
+    <div className="modal-ov" onClick={saving ? undefined : onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"24px 26px", width:"min(440px, 94vw)", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+          <span style={{ background:"#ffebee", borderRadius:10, padding:"6px 10px", fontSize:20 }}>➖</span>
+          <div>
+            <div style={{ fontSize:20, fontWeight:800, color:"#1a2340" }}>Registrar egreso</div>
+            <div style={{ fontSize:12, color:"#a09080" }}>Plata que sale de la caja hoy ({fechaCorta(hoyISO())})</div>
+          </div>
+        </div>
+        <label style={cajaLbl}>Monto</label>
+        <input autoFocus inputMode="decimal" value={monto} onChange={e => setMonto(e.target.value)} placeholder="0" style={{ ...cajaInp, fontSize:20, fontWeight:700, marginBottom:12 }}/>
+        <label style={cajaLbl}>¿Para qué fue?</label>
+        <input value={detalle} onChange={e => setDetalle(e.target.value)} placeholder="Ej: flete, cinta, café para el local…" style={{ ...cajaInp, marginBottom:12 }}/>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+          <div>
+            <label style={cajaLbl}>Sale de</label>
+            <select value={cuentaFinal} onChange={e => setCuenta(e.target.value)} style={cajaInp}>
+              {cajas.map(x => <option key={x.id} value={x.id}>{x.icono} {x.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={cajaLbl}>Categoría</label>
+            <select value={catFinal} onChange={e => setCat(e.target.value)} style={cajaInp}>
+              {cats.map(x => <option key={x.nombre} value={x.nombre}>{x.icono} {x.nombre}</option>)}
+            </select>
+          </div>
+        </div>
+        <label style={cajaLbl}>¿Quién lo sacó?</label>
+        {empleados.length > 0 ? (
+          <select value={quien} onChange={e => setQuien(e.target.value)} style={{ ...cajaInp, marginBottom:18 }}>
+            <option value="">— Elegí —</option>
+            {empleados.map(e => <option key={e.fireId} value={e.nombre}>{e.nombre}</option>)}
+            {quien && !empleados.some(e => e.nombre === quien) && <option value={quien}>{quien}</option>}
+          </select>
+        ) : (
+          <input value={quien} onChange={e => setQuien(e.target.value)} placeholder="Nombre" style={{ ...cajaInp, marginBottom:18 }}/>
+        )}
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <button className="btn-g" onClick={onClose}>Cancelar</button>
+          <button onClick={guardar} disabled={saving} style={{ background:"#c62828", color:"#fff", border:"none", borderRadius:8, padding:"11px 22px", fontWeight:700, cursor:"pointer", fontSize:14 }}>{saving ? "Guardando…" : "➖ Registrar egreso"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Salidas de caja registradas hoy desde Ventas (solo lectura)
+function SalidasDeHoy() {
+  const cajaCfg = useCajaCfg();
+  const [lista, setLista] = useState([]);
+  useEffect(() => {
+    const u = onSnapshot(query(collection(db, "cajaMovs"), where("origen", "==", "ventas")),
+      snap => setLista(snap.docs.map(d => ({ ...d.data(), fireId:d.id })).filter(m => m.fecha === hoyISO()).sort((a,b) => (b.creadoEn||"").localeCompare(a.creadoEn||""))), () => {});
+    return () => u();
+  }, []);
+  if (!lista.length) return null;
+  const total = lista.reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
+  return (
+    <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px", marginTop:18 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:8 }}>
+        <div style={{ fontWeight:700, color:"#1a2340" }}>➖ Salidas de caja de hoy</div>
+        <div style={{ fontWeight:800, color:"#c62828" }}>-${total.toLocaleString("es-AR")}</div>
+      </div>
+      {lista.map(m => (
+        <div key={m.fireId} style={{ display:"flex", justifyContent:"space-between", gap:10, padding:"6px 0", borderTop:"1px solid var(--c-row)", fontSize:13 }}>
+          <span style={{ color:"#4a5568" }}>{(m.creadoEn||"").slice(11,16) && new Date(m.creadoEn).toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"})} · <b>{m.nota}</b> · {m.registradoPor} · {nombreCajaCfg(cajaCfg, m.cuenta)}</span>
+          <b style={{ color:"#c62828", whiteSpace:"nowrap" }}>-${parseFloat(m.monto).toLocaleString("es-AR")}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
   const [ventas, setVentas]           = useState([]);
   const [presupuestos, setPresupuestos] = useState([]);
@@ -6249,6 +6356,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
               </table>
             </div>
           )}
+          <SalidasDeHoy/>
         </div>
       )}
 
@@ -9345,7 +9453,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{titulo}</div>
               <div style={{ fontSize:12, color:"#a09080", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                {esMovAuto(m) && "🤖 "}{m.proveedorNombre ? "🏭 " + m.proveedorNombre + " · " : ""}{m.empleadoNombre ? "👷 " + m.empleadoNombre + " · " : ""}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
+                {esMovAuto(m) && "🤖 "}{m.proveedorNombre ? "🏭 " + m.proveedorNombre + " · " : ""}{m.empleadoNombre ? "👷 " + m.empleadoNombre + " · " : ""}{m.origen === "ventas" ? "🧾 " + (m.registradoPor||"Ventas") + " · " : ""}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
               </div>
             </div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
@@ -9383,6 +9491,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
                 <td style={{ padding:"10px 14px", color:"#4a5568", maxWidth:300 }}>
                   {m.proveedorNombre && <span style={{ background:"#eceff1", color:"#37474f", borderRadius:5, padding:"0 6px", fontSize:11, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>🏭 {m.proveedorNombre}</span>}
                   {m.empleadoNombre && <span style={{ background:"#e3f2fd", color:"#1565c0", borderRadius:5, padding:"0 6px", fontSize:11, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>👷 {m.empleadoNombre}</span>}
+                  {m.origen === "ventas" && <span title="Registrado desde Ventas" style={{ background:"#fff3e0", color:"#e65100", borderRadius:5, padding:"0 6px", fontSize:11, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>🧾 desde Ventas · {m.registradoPor}</span>}
                   {esMovAuto(m) && <span title="Entró solo desde la app" style={{ background:"#f1f8e9", color:"#558b2f", border:"1px solid #c5e1a5", borderRadius:5, padding:"0 5px", fontSize:10, fontWeight:700, marginRight:6, whiteSpace:"nowrap" }}>🤖 auto</span>}
                   {m.nota||""}
                 </td>
@@ -11467,6 +11576,7 @@ export default function App() {
   const cel = useEsCelular();
   const [masAbierto, setMasAbierto] = useState(false);
   const [pagoPedido, setPagoPedido] = useState(null);
+  const [egresoRapido, setEgresoRapido] = useState(false);
   const abrirNuevoPedido = () => { setFormData({ ...EMPTY_FORM, categoria: CATEGORIAS[0]||"", fechaPedido: new Date().toLocaleDateString("sv-SE") }); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); window.scrollTo(0,0); };
   const irA = (v) => { setView(v); setMasAbierto(false); window.scrollTo(0,0); };
   // Acceso directo: ?ir=caja | listos | calendario | agenda | pedidos | nuevo  (se usa desde el ícono "Caja" del celular)
@@ -12127,6 +12237,9 @@ export default function App() {
             )}
             {(view==="insumos"||view==="nuevoInsumo") && (
               <button className="ctx-btn" onClick={()=>setView("nuevoInsumo")}>➕ Nuevo Producto</button>
+            )}
+            {view==="ventas" && (
+              <button className="ctx-btn" onClick={()=>setEgresoRapido(true)} style={{ color:"#c62828", borderColor:"#ef9a9a", background:"#ffebee" }}>➖ Egreso</button>
             )}
             {(view==="ventas"||view==="nuevaVenta") && (
               <button className="ctx-btn" onClick={()=>setView("nuevaVenta")}>➕ Nueva Venta</button>
@@ -12904,6 +13017,7 @@ export default function App() {
         />
       )}
 
+      {egresoRapido && <ModalEgresoRapido showToast={showToast} onClose={() => setEgresoRapido(false)}/>}
       {pagoPedido && <ModalPagoPedido pedido={pedidos.find(x => x.fireId === pagoPedido.fireId) || pagoPedido} showToast={showToast} onClose={() => setPagoPedido(null)}/>}
       {entregaMultiple && (
         <EntregaMultipleModal
