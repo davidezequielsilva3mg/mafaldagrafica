@@ -987,7 +987,7 @@ function CalendarioView({ pedidos, setSelectedPedido, setView, CATEGORIA_COLOR, 
 
 
 function PedidosListos(props) { const cel = useEsCelular(); return <PedidosListosBase {...props} cel={cel}/>; }
-function PedidosListosBase({ cel, pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp, empresa, setView, clientes, setClienteDestacado, showToast, onEntregarVarios }) {
+function PedidosListosBase({ cel, pedidos, saldo, isHoy, handleEstadoChange, handleDelete, setMsgModal, CATEGORIA_COLOR, CATEGORIA_ICON, inp, empresa, setView, clientes, setClienteDestacado, showToast, onEntregarVarios, onRegistrarPago }) {
   const [seleccion, setSeleccion] = useState([]); // fireIds seleccionados
   const [busqL, setBusqL]         = useState("");
   const [busqH, setBusqH]         = useState("");
@@ -1129,6 +1129,7 @@ function PedidosListosBase({ cel, pedidos, saldo, isHoy, handleEstadoChange, han
                   acciones={[
                     { label:"🖨️", titulo:"Reimprimir orden", onClick:() => imprimirOrden(p, empresa) },
                     { label:"💬", titulo:"Avisar que está listo", bg:"#25d366", color:"#fff", onClick:() => setMsgModal({ pedido: p }) },
+                    ...(onRegistrarPago && saldo(p) > 0 ? [{ label:"💵", titulo:"Registrar un pago parcial", bg:"#e8f5e9", color:"#2e7d32", onClick:() => onRegistrarPago(p) }] : []),
                     { label:"📦 Entregar", grande:true, bg:"var(--c-pri)", color:"#fff", onClick:() => handleEstadoChange(p.fireId || p.id, "Entregado") },
                     { label:"🗑", titulo:"Eliminar", bg:"#ffebee", color:"#c62828", onClick:() => handleDelete(p.fireId || p.id) },
                   ]}/>
@@ -1194,6 +1195,10 @@ function PedidosListosBase({ cel, pedidos, saldo, isHoy, handleEstadoChange, han
                             </button>
                             <button style={{ background:"#25d366", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
                               onClick={() => setMsgModal({ pedido: p })}>💬</button>
+                            {onRegistrarPago && saldo(p) > 0 && (
+                              <button title="Registrar un pago parcial" style={{ background:"#e8f5e9", color:"#2e7d32", border:"1.5px solid #a5d6a7", padding:"5px 9px", borderRadius:7, fontSize:13, fontWeight:700, cursor:"pointer" }}
+                                onClick={() => onRegistrarPago(p)}>💵</button>
+                            )}
                             <button style={{ background:"var(--c-pri)", color:"#fff", border:"none", padding:"6px 10px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
                               onClick={() => handleEstadoChange(p.fireId || p.id, "Entregado")}>📦 Entregar</button>
                             <button style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 10px", borderRadius:7, fontSize:13, fontWeight:600, cursor:"pointer" }}
@@ -11111,7 +11116,12 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
   const [cuenta, setCuenta] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => { setCuenta(cajaSugerida(cajaCfg, metodoPago)); }, [metodoPago, cajaCfg]);
-  const vaACaja = metodoPago !== "Cuenta Corriente" && saldo > 0;
+  const [montoTxt, setMontoTxt] = useState(String(Math.max(0, saldo)));
+  const esCtaCte = metodoPago === "Cuenta Corriente";
+  const cobra = esCtaCte ? 0 : Math.min(Math.max(0, parseMonto(montoTxt)), Math.max(0, saldo));
+  const resto = Math.max(0, saldo - cobra);
+  const vaACaja = !esCtaCte && cobra > 0;
+  const sinClienteParaResto = resto > 0 && !pedido.clienteId;
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:600 }} onClick={onClose}>
@@ -11130,7 +11140,7 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
             <span style={{ fontWeight:700 }}>${parseFloat(pedido.precio||0).toLocaleString("es-AR")}</span>
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6, fontSize:13 }}>
-            <span style={{ color:"#a09080" }}>Seña cobrada:</span>
+            <span style={{ color:"#a09080" }}>{(pedido.pagos||[]).length ? "Pagado hasta ahora:" : "Seña cobrada:"}</span>
             <span style={{ fontWeight:700, color:"#2e7d32" }}>${parseFloat(pedido.seña||0).toLocaleString("es-AR")}</span>
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", borderTop:"1.5px solid var(--c-border)", paddingTop:8, marginTop:4 }}>
@@ -11157,9 +11167,21 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
           </div>
         </div>
 
-        {vaACaja && (
-          <div style={{ marginBottom:20 }}>
-            <SelectorCajaCobro cfg={cajaCfg} value={cuenta} onChange={setCuenta} label={`¿En qué caja entran los $${saldo.toLocaleString("es-AR")}?`}/>
+        {!esCtaCte && saldo > 0 && (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+            <div>
+              <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>¿Cuánto paga ahora?</label>
+              <input inputMode="decimal" value={montoTxt} onChange={e => setMontoTxt(e.target.value)}
+                style={{ width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:17, fontWeight:700, outline:"none", boxSizing:"border-box" }}/>
+            </div>
+            {vaACaja && <SelectorCajaCobro cfg={cajaCfg} compacto value={cuenta} onChange={setCuenta} label="¿En qué caja entra?"/>}
+          </div>
+        )}
+        {resto > 0 && (
+          <div style={{ background: sinClienteParaResto ? "#ffebee" : "#fff8e1", color: sinClienteParaResto ? "#c62828" : "#e65100", borderRadius:8, padding:"10px 12px", fontSize:13, fontWeight:600, marginBottom:16 }}>
+            {sinClienteParaResto
+              ? <>⚠️ Quedan ${resto.toLocaleString("es-AR")} sin pagar y el pedido no tiene un cliente vinculado. Editá el pedido y elegí el cliente para pasarlo a su cuenta corriente.</>
+              : <>📒 ${resto.toLocaleString("es-AR")} pasan a la cuenta corriente de <b>{pedido.cliente}</b>.</>}
           </div>
         )}
 
@@ -11168,10 +11190,65 @@ function EntregaModal({ pedido, onConfirmar, onClose }) {
             style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer" }}>
             Cancelar
           </button>
-          <button disabled={saving} onClick={async ()=>{ setSaving(true); try { await onConfirmar(pedido, metodoPago, vaACaja ? cuenta : ""); } catch(e) { console.error(e); setSaving(false); } }}
-            style={{ flex:2, padding:"11px", background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+          <button disabled={saving || sinClienteParaResto} onClick={async ()=>{ setSaving(true); try { await onConfirmar(pedido, metodoPago, vaACaja ? cuenta : "", cobra); } catch(e) { console.error(e); setSaving(false); } }}
+            style={{ flex:2, padding:"11px", background: sinClienteParaResto ? "var(--c-border)" : "var(--c-pri)", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor: sinClienteParaResto ? "default" : "pointer" }}>
             {saving ? "Registrando..." : "✅ Confirmar Entrega"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: registrar un pago parcial de un pedido (antes de retirarlo) ──
+function ModalPagoPedido({ pedido, onClose, showToast }) {
+  const cajaCfg = useCajaCfg();
+  const precio = parseFloat(pedido.precio||0), pagado = parseFloat(pedido.seña||0);
+  const saldo = Math.max(0, precio - pagado);
+  const [monto, setMonto]   = useState("");
+  const [cuenta, setCuenta] = useState("");
+  const [fecha, setFecha]   = useState(hoyISO());
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (!cuenta) setCuenta(cajaSugerida(cajaCfg, "pago")); }, [cajaCfg]);
+  const m = parseMonto(monto);
+  const guardar = async () => {
+    if (!m) { showToast("Ingresá el monto","error"); return; }
+    if (precio && m > saldo && !window.confirm(`El pago ($${m.toLocaleString("es-AR")}) es mayor al saldo ($${saldo.toLocaleString("es-AR")}). ¿Registrarlo igual?`)) return;
+    setSaving(true);
+    try {
+      const pagos = [...(pedido.pagos||[]), { fecha, monto: m, cuenta, creadoEn: new Date().toISOString() }];
+      await updateDoc(doc(db, "pedidos", pedido.fireId), { seña: String(Math.round((pagado + m) * 100) / 100), pagos });
+      await registrarCobroCaja({ pedido, pedidoId: pedido.fireId, cobro:"seña", monto: m, cuenta, fecha, nota: `Pago a cuenta · ${etiquetaPedido(pedido)}` });
+      recordarCaja("pago", cuenta);
+      showToast(`Pago de $${m.toLocaleString("es-AR")} registrado · resta $${Math.max(0, saldo - m).toLocaleString("es-AR")} ✅`);
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al registrar el pago","error"); }
+    setSaving(false);
+  };
+  return (
+    <div className="modal-ov" onClick={saving ? undefined : onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:16, padding:"24px 26px", width:"min(420px, 94vw)", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
+        <div style={{ fontSize:20, fontWeight:800, color:"#1a2340" }}>💵 Registrar pago</div>
+        <div style={{ fontSize:13, color:"#a09080", marginBottom:14 }}>{etiquetaPedido(pedido)}</div>
+        <div style={{ background:"var(--c-soft)", borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13 }}>
+          {[["Total del pedido", precio, "#1a2340"], ["Pagado hasta ahora", pagado, "#2e7d32"]].map(([l,v,col]) => (
+            <div key={l} style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ color:"#a09080" }}>{l}</span><b style={{ color:col }}>${v.toLocaleString("es-AR")}</b></div>
+          ))}
+          <div style={{ display:"flex", justifyContent:"space-between", borderTop:"1.5px solid var(--c-border)", paddingTop:6, marginTop:4 }}>
+            <b>Saldo</b><b style={{ fontSize:17, color: saldo > 0 ? "#c62828" : "#2e7d32" }}>${saldo.toLocaleString("es-AR")}</b>
+          </div>
+        </div>
+        <label style={cajaLbl}>¿Cuánto paga?</label>
+        <input autoFocus inputMode="decimal" value={monto} onChange={e => setMonto(e.target.value)} placeholder="0"
+          onKeyDown={e => { if (e.key === "Enter") guardar(); }} style={{ ...cajaInp, fontSize:20, fontWeight:700, marginBottom:4 }}/>
+        <div style={{ fontSize:12, color:"#558b2f", minHeight:16, marginBottom:10 }}>{m ? `Después de este pago resta $${Math.max(0, saldo - m).toLocaleString("es-AR")}` : ""}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
+          <SelectorCajaCobro cfg={cajaCfg} compacto value={cuenta} onChange={setCuenta} label="¿En qué caja entra?"/>
+          <div><label style={cajaLbl}>Fecha</label><input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={cajaInp}/></div>
+        </div>
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <button className="btn-g" onClick={onClose}>Cancelar</button>
+          <button onClick={guardar} disabled={saving} style={{ background:"#2e7d32", color:"#fff", border:"none", borderRadius:8, padding:"11px 22px", fontWeight:700, cursor:"pointer", fontSize:14 }}>{saving ? "Guardando…" : "💵 Registrar pago"}</button>
         </div>
       </div>
     </div>
@@ -11388,6 +11465,7 @@ export default function App() {
   const cajaCfg = useCajaCfg();
   const cel = useEsCelular();
   const [masAbierto, setMasAbierto] = useState(false);
+  const [pagoPedido, setPagoPedido] = useState(null);
   const abrirNuevoPedido = () => { setFormData({ ...EMPTY_FORM, categoria: CATEGORIAS[0]||"", fechaPedido: new Date().toLocaleDateString("sv-SE") }); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("formulario"); window.scrollTo(0,0); };
   const irA = (v) => { setView(v); setMasAbierto(false); window.scrollTo(0,0); };
   // Acceso directo: ?ir=caja | listos | calendario | agenda | pedidos | nuevo  (se usa desde el ícono "Caja" del celular)
@@ -11657,12 +11735,13 @@ export default function App() {
   const [entregaMultiple, setEntregaMultiple] = useState(null); // array de pedidos
 
   const saldoPedido = (p) => Math.max(0, parseFloat(p.precio||0) - parseFloat(p.seña||0));
-  const confirmarEntrega = async (pedido, metodoPago, cuenta) => {
-    await registrarEntrega(pedido, metodoPago, cuenta);
+  const confirmarEntrega = async (pedido, metodoPago, cuenta, montoCobrado) => {
+    const { cobrado, resto } = await registrarEntrega(pedido, metodoPago, cuenta, montoCobrado);
     setEntregaModal(null);
-    const s = saldoPedido(pedido);
-    showToast(metodoPago === "Cuenta Corriente" ? `Pedido entregado · $${s.toLocaleString("es-AR")} a cuenta corriente ✅`
-      : s > 0 ? `Pedido entregado · $${s.toLocaleString("es-AR")} entraron a la caja ✅` : "Pedido entregado ✅");
+    const partes = [];
+    if (cobrado > 0) partes.push(`$${cobrado.toLocaleString("es-AR")} a la caja`);
+    if (resto > 0) partes.push(`$${resto.toLocaleString("es-AR")} a cuenta corriente`);
+    showToast(`Pedido entregado${partes.length ? " · " + partes.join(" · ") : ""} ✅`);
   };
 
   const confirmarEntregaMultiple = async (lista, metodoPago, cuenta) => {
@@ -11672,10 +11751,14 @@ export default function App() {
     showToast(`${lista.length} pedido${lista.length!==1?"s":""} entregado${lista.length!==1?"s":""} · $${total.toLocaleString("es-AR")} ${metodoPago === "Cuenta Corriente" ? "a cuenta corriente" : "entraron a la caja"} ✅`);
   };
 
-  const registrarEntrega = async (pedido, metodoPago, cuenta) => {
+  const registrarEntrega = async (pedido, metodoPago, cuenta, montoCobrado) => {
     const saldoEnt = saldoPedido(pedido);
+    // Lo que paga al retirar (puede ser menos que el saldo: el resto va a su cuenta corriente)
+    const cobrado = metodoPago === "Cuenta Corriente" ? 0
+      : Math.round(Math.min(saldoEnt, Math.max(0, montoCobrado === undefined ? saldoEnt : parseFloat(montoCobrado)||0)) * 100) / 100;
+    const resto = Math.round((saldoEnt - cobrado) * 100) / 100;
     // 1. Marcar pedido como entregado
-    await updateDoc(doc(db, "pedidos", pedido.fireId), { estado: "Entregado" });
+    await updateDoc(doc(db, "pedidos", pedido.fireId), { estado: "Entregado", pagadoAlEntregar: cobrado, aCuentaCorriente: resto, fechaEntregado: hoyISO() });
     // 2. Registrar en ventas de finanzas
     const ventasSnap = await getDocs(collection(db, "ventas"));
     const numero = ventasSnap.size + 1;
@@ -11690,22 +11773,28 @@ export default function App() {
       items:         [{ nombre: pedido.nombre, cantidad: 1, precio: parseFloat(pedido.precio||0) }],
       total:         parseFloat(pedido.precio||0),
       seña:          parseFloat(pedido.seña||0),
-      cobradoAlEntregar: saldoEnt,
+      cobradoAlEntregar: cobrado,
+      aCuentaCorriente: resto,
       creadoEn:      new Date().toISOString(),
     });
     // 3. Lo que se cobra al entregar entra a la Caja diaria
-    if (metodoPago !== "Cuenta Corriente" && saldoEnt > 0 && cuenta) {
-      try { await registrarCobroCaja({ pedido, cobro:"saldo", monto: saldoEnt, cuenta }); recordarCaja(metodoPago, cuenta); }
+    if (cobrado > 0 && cuenta) {
+      try { await registrarCobroCaja({ pedido, cobro:"saldo", monto: cobrado, cuenta }); recordarCaja(metodoPago, cuenta); }
       catch(e) { console.error(e); showToast("Se entregó, pero el cobro no entró a la caja","error"); }
     }
-    // 4. Si es cuenta corriente, sumar al cliente lo que falta pagar (la seña ya la pagó)
-    if (metodoPago === "Cuenta Corriente" && pedido.clienteId) {
+    // 4. Lo que queda sin pagar va a la cuenta corriente del cliente
+    if (resto > 0 && pedido.clienteId) {
       const clSnap = await getDoc(doc(db, "clientes", pedido.clienteId));
       if (clSnap.exists()) {
-        const nuevoSaldo = (parseFloat(clSnap.data().saldoCuenta)||0) + saldoEnt;
+        const nuevoSaldo = (parseFloat(clSnap.data().saldoCuenta)||0) + resto;
         await updateDoc(doc(db, "clientes", pedido.clienteId), { saldoCuenta: nuevoSaldo });
+        await addDoc(collection(db, "movimientosCuenta"), {
+          clienteId: pedido.clienteId, tipo:"cargo", monto: resto, fecha: hoyISO(),
+          descripcion: `Saldo pedido ${pedido.nroOT ? fmtOT(pedido.nroOT) + " · " : ""}${pedido.nombre||""}`, pedidoId: pedido.fireId,
+        });
       }
     }
+    return { cobrado, resto };
   };
 
   const handleEdit = (p) => {
@@ -12580,7 +12669,7 @@ export default function App() {
                 {/* Precio — editable inline */}
                 {[
                   { label:"Precio Total", field:"precio", color:"#1a2340" },
-                  { label:"Seña / Adelanto", field:"seña", color:"#2e7d32" },
+                  { label:(p.pagos||[]).length ? "Pagado" : "Seña / Adelanto", field:"seña", color:"#2e7d32" },
                 ].map(f => (
                   <div key={f.field} style={{ textAlign:"center" }}>
                     <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:5 }}>{f.label}</div>
@@ -12606,6 +12695,32 @@ export default function App() {
                 </div>
               </div>
 
+              {(() => {
+                const pagos = p.pagos || [];
+                const sumaPagos = pagos.reduce((s,x) => s + (parseFloat(x.monto)||0), 0);
+                const señaInicial = Math.max(0, parseFloat(p.seña||0) - sumaPagos);
+                const hay = pagos.length > 0 || p.estado === "Entregado";
+                return (
+                  <div style={{ background:"#fff", border:"1.5px solid var(--c-border)", borderRadius:12, padding:"12px 16px", marginBottom:16 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom: hay ? 8 : 0 }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px" }}>💵 Pagos</div>
+                      {p.estado !== "Entregado" && saldo(p) > 0 && (
+                        <button onClick={() => setPagoPedido(p)} style={{ background:"#2e7d32", color:"#fff", border:"none", borderRadius:8, padding:"7px 14px", fontWeight:700, cursor:"pointer", fontSize:13 }}>+ Registrar pago</button>
+                      )}
+                    </div>
+                    {!hay && <div style={{ fontSize:13, color:"#a09080" }}>{parseFloat(p.seña||0) > 0 ? `Seña: $${parseFloat(p.seña).toLocaleString("es-AR")}` : "Todavía no pagó nada."} Si deja más plata antes de retirar, registrala acá.</div>}
+                    {hay && (
+                      <div style={{ fontSize:13 }}>
+                        {señaInicial > 0 && <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0" }}><span style={{ color:"#4a5568" }}>Seña{p.fechaPedido ? ` · ${fmtFecha(p.fechaPedido)}` : ""}</span><b style={{ color:"#2e7d32" }}>${señaInicial.toLocaleString("es-AR")}</b></div>}
+                        {pagos.map((x, k) => <div key={k} style={{ display:"flex", justifyContent:"space-between", padding:"3px 0" }}><span style={{ color:"#4a5568" }}>Pago a cuenta · {fmtFecha(x.fecha)}</span><b style={{ color:"#2e7d32" }}>${parseFloat(x.monto).toLocaleString("es-AR")}</b></div>)}
+                        {p.estado === "Entregado" && p.pagadoAlEntregar !== undefined && <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0" }}><span style={{ color:"#4a5568" }}>Al retirar{p.fechaEntregado ? ` · ${fmtFecha(p.fechaEntregado)}` : ""}</span><b style={{ color:"#2e7d32" }}>${parseFloat(p.pagadoAlEntregar||0).toLocaleString("es-AR")}</b></div>}
+                        {p.estado === "Entregado" && parseFloat(p.aCuentaCorriente||0) > 0 && <div style={{ display:"flex", justifyContent:"space-between", padding:"3px 0" }}><span style={{ color:"#e65100" }}>📒 A cuenta corriente</span><b style={{ color:"#e65100" }}>${parseFloat(p.aCuentaCorriente).toLocaleString("es-AR")}</b></div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {p.notas && (
                 <div style={{ background:"var(--c-softer)", borderRadius:10, padding:"16px 18px" }}>
                   <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:7 }}>📝 Notas</div>
@@ -12622,6 +12737,7 @@ export default function App() {
           <PedidosListos
             showToast={showToast}
             onEntregarVarios={lista => setEntregaMultiple(lista)}
+            onRegistrarPago={p => setPagoPedido(p)}
             pedidos={pedidos}
             saldo={saldo}
             isHoy={isHoy}
@@ -12787,6 +12903,7 @@ export default function App() {
         />
       )}
 
+      {pagoPedido && <ModalPagoPedido pedido={pedidos.find(x => x.fireId === pagoPedido.fireId) || pagoPedido} showToast={showToast} onClose={() => setPagoPedido(null)}/>}
       {entregaMultiple && (
         <EntregaMultipleModal
           pedidos={entregaMultiple}
