@@ -6311,9 +6311,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
       {/* ── TAB VENTAS ── */}
       {tabActiva==="ventas" && (
         <div>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
-            <p style={{ fontSize:14, color:"#a09080" }}>{nVentas} venta{nVentas!==1?"s":""}{nCobros ? ` + ${nCobros} seña${nCobros!==1?"s":""}/pago${nCobros!==1?"s":""}` : ""} · Total cobrado: <strong style={{color:"var(--c-pri)"}}>${totalFiltrado.toLocaleString("es-AR")}</strong></p>
-          </div>
+          {/* El total cobrado se ve solo en Finanzas (Caja diaria), no acá */}
 
           {/* Filtros */}
           <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
