@@ -6144,6 +6144,8 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
   const [loading, setLoading]         = useState(true);
   const [busq, setBusq]               = useState("");
   const [filtroFecha, setFiltroFecha] = useState("hoy");
+  const [fechaDia, setFechaDia]       = useState(hoyISO());
+  const [cobrosApp, setCobrosApp]     = useState([]);   // señas, pagos a cuenta y pagos de cta. cte. (desde la Caja diaria)
   const [tabActiva, setTabActiva]     = useState("ventas"); // ventas | presupuestos
   const [convirtiendo, setConvirtiendo] = useState(null);
   const cajaCfg = useCajaCfg();
@@ -6161,26 +6163,45 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
       setPresupuestos(snap.docs.map(d=>({...d.data(), fireId:d.id}))
         .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")||0));
     });
-    return () => { u1(); u2(); };
+    const cobrosPorOrigen = {};
+    const juntar = () => setCobrosApp(Object.values(cobrosPorOrigen).flat());
+    const u3 = onSnapshot(query(collection(db, "cajaMovs"), where("origen", "==", "pedido")), snap => { cobrosPorOrigen.pedido = snap.docs.map(d => ({ ...d.data(), fireId:d.id })).filter(m => m.cobro === "seña"); juntar(); }, () => {});
+    const u4 = onSnapshot(query(collection(db, "cajaMovs"), where("origen", "==", "ctacte")), snap => { cobrosPorOrigen.ctacte = snap.docs.map(d => ({ ...d.data(), fireId:d.id })); juntar(); }, () => {});
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
-
-  const hoy = new Date().toISOString().split("T")[0];
-
-  const filtradas = ventas.filter(v => {
-    const q = busq.toLowerCase();
-    const matchBusq = !busq || v.clienteNombre?.toLowerCase().includes(q) || v.numero?.toString().includes(q);
-    if (filtroFecha==="hoy")    return matchBusq && v.fecha===hoy;
-    if (filtroFecha==="semana") { const d=new Date(); d.setDate(d.getDate()-7); return matchBusq && v.fecha>=d.toISOString().split("T")[0]; }
-    if (filtroFecha==="mes")    return matchBusq && v.fecha?.startsWith(hoy.slice(0,7));
-    return matchBusq;
+  const hoy = hoyISO();
+  // Ventas + señas/pagos de pedidos + pagos de cuenta corriente, todo junto = plata que entró
+  const nombreCajaV = (id) => { const x = cajaCfg.cuentas.find(c => c.id === id); return x ? (esCajaEfectivo(x) ? "Efectivo" : x.nombre) : "—"; };
+  const filasCobro = cobrosApp.map(m => {
+    const partes = (m.nota||"").split(" · ");
+    const etiqueta = m.origen === "ctacte" ? "CTA. CTE." : /^pago a cuenta/i.test(m.nota||"") ? "PAGO A CUENTA" : "SEÑA";
+    const resto = partes.slice(1).join(" · ");
+    const cliente = m.origen === "ctacte" ? resto : ((resto.match(/\(([^)]+)\)\s*$/) || [])[1] || "—");
+    const detalle = m.origen === "ctacte" ? "Pago de cuenta corriente" : resto.replace(/\s*\([^)]+\)\s*$/, "");
+    return { clase:"cobro", fireId:"c" + m.fireId, fecha:m.fecha, creadoEn:m.creadoEn, clienteNombre:cliente, detalle, etiqueta, metodoPago:nombreCajaV(m.cuenta), monto:parseFloat(m.monto)||0 };
   });
+  const filasVenta = ventas.map(v => ({ ...v, clase:"venta",
+    monto: v.origen === "pedido" && v.cobradoAlEntregar !== undefined ? parseFloat(v.cobradoAlEntregar)||0 : parseFloat(v.total||0) }));
+  const enPeriodo = (f) => {
+    if (filtroFecha==="hoy")    return f===hoy;
+    if (filtroFecha==="dia")    return f===fechaDia;
+    if (filtroFecha==="semana") { const d=new Date(); d.setDate(d.getDate()-7); return f>=isoDe(d); }
+    if (filtroFecha==="mes")    return (f||"").startsWith(hoy.slice(0,7));
+    return true;
+  };
+  const filtradas = [...filasVenta, ...filasCobro].filter(v => {
+    const q = busq.toLowerCase();
+    const matchBusq = !busq || v.clienteNombre?.toLowerCase().includes(q) || v.numero?.toString().includes(q) || (v.detalle||"").toLowerCase().includes(q);
+    return matchBusq && enPeriodo(v.fecha);
+  }).sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""));
 
   const presFiltrados = presupuestos.filter(p => {
     const q = busq.toLowerCase();
     return !busq || p.clienteNombre?.toLowerCase().includes(q) || p.numero?.toString().includes(q);
   });
 
-  const totalFiltrado = filtradas.reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const totalFiltrado = filtradas.reduce((s,v)=>s+(v.monto||0),0);
+  const nVentas = filtradas.filter(v => v.clase === "venta").length, nCobros = filtradas.length - nVentas;
 
   const handleDelete = async (v) => {
     if (!window.confirm("¿Eliminar esta venta?")) return;
@@ -6289,7 +6310,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
       {tabActiva==="ventas" && (
         <div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
-            <p style={{ fontSize:14, color:"#a09080" }}>{filtradas.length} venta{filtradas.length!==1?"s":""} · Total: <strong style={{color:"var(--c-pri)"}}>${totalFiltrado.toLocaleString("es-AR")}</strong></p>
+            <p style={{ fontSize:14, color:"#a09080" }}>{nVentas} venta{nVentas!==1?"s":""}{nCobros ? ` + ${nCobros} seña${nCobros!==1?"s":""}/pago${nCobros!==1?"s":""}` : ""} · Total cobrado: <strong style={{color:"var(--c-pri)"}}>${totalFiltrado.toLocaleString("es-AR")}</strong></p>
           </div>
 
           {/* Filtros */}
@@ -6299,22 +6320,33 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
               <input placeholder="Buscar por cliente o número..." value={busq} onChange={e=>setBusq(e.target.value)}
                 style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
             </div>
-            {["hoy","semana","mes","todos"].map(f => (
+            {["hoy","dia","semana","mes","todos"].map(f => (
               <button key={f} onClick={() => setFiltroFecha(f)}
                 style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
                   background:filtroFecha===f?"var(--c-pri)":"var(--c-soft)", color:filtroFecha===f?"#fff":"#a09080",
                   boxShadow:filtroFecha===f?"0 3px 10px rgba(var(--c-pri-rgb),.2)":"none" }}>
-                {f==="hoy"?"Hoy":f==="semana"?"Esta semana":f==="mes"?"Este mes":"Todas"}
+                {f==="hoy"?"Hoy":f==="dia"?"📅 Día":f==="semana"?"Esta semana":f==="mes"?"Este mes":"Todas"}
               </button>
             ))}
           </div>
+
+          {filtroFecha === "dia" && (
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginTop:-6, marginBottom:16 }}>
+              <button onClick={() => setFechaDia(moverDia(fechaDia, -1))} style={{ background:"#fff", border:"1.5px solid var(--c-border)", borderRadius:8, width:40, height:38, fontSize:20, cursor:"pointer", color:"#4a5568" }}>‹</button>
+              <div style={{ position:"relative" }}>
+                <div style={{ background:"#fff", border:"1.5px solid var(--c-pri)", borderRadius:8, padding:"8px 16px", fontWeight:700, color:"#1a2340", minWidth:200, textAlign:"center" }}>{fechaConDia(fechaDia)}</div>
+                <input type="date" value={fechaDia} onChange={e => e.target.value && setFechaDia(e.target.value)} style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", width:"100%" }}/>
+              </div>
+              <button onClick={() => setFechaDia(moverDia(fechaDia, 1))} style={{ background:"#fff", border:"1.5px solid var(--c-border)", borderRadius:8, width:40, height:38, fontSize:20, cursor:"pointer", color:"#4a5568" }}>›</button>
+            </div>
+          )}
 
           {loading ? (
             <div style={{ textAlign:"center", padding:40, color:"#a09080" }}>Cargando ventas...</div>
           ) : filtradas.length === 0 ? (
             <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"52px 24px", textAlign:"center" }}>
               <div style={{ fontSize:40, marginBottom:14 }}>💰</div>
-              <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>Sin ventas {filtroFecha==="hoy"?"hoy":filtroFecha==="semana"?"esta semana":filtroFecha==="mes"?"este mes":""}</div>
+              <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>Sin ventas {filtroFecha==="hoy"?"hoy":filtroFecha==="dia"?"ese día":filtroFecha==="semana"?"esta semana":filtroFecha==="mes"?"este mes":""}</div>
               <div style={{ color:"#a09080", fontSize:14 }}>Registrá una nueva venta con el botón de arriba</div>
             </div>
           ) : (
@@ -6326,7 +6358,22 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
                   ))}
                 </tr></thead>
                 <tbody>
-                  {filtradas.map(v=>(
+                  {filtradas.map(v=> v.clase === "cobro" ? (
+                    <tr key={v.fireId} style={{ borderBottom:"1px solid var(--c-row)", background:"#fbfdf8" }}>
+                      <td style={{ padding:"11px 16px", color:"#a09080", fontFamily:"monospace", fontSize:12 }}>—</td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568" }}>{v.fecha}</td>
+                      <td style={{ padding:"11px 16px", fontWeight:600, color:"#1a2340" }}>
+                        {v.clienteNombre}
+                        <span style={{ marginLeft:6, background:"#e8f5e9", color:"#2e7d32", padding:"1px 6px", borderRadius:10, fontSize:10, fontWeight:700 }}>{v.etiqueta}</span>
+                      </td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568", maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{v.detalle}</td>
+                      <td style={{ padding:"11px 16px" }}>
+                        <span style={{ background:"var(--c-tint)", color:"var(--c-pri)", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.metodoPago}</span>
+                      </td>
+                      <td style={{ padding:"11px 16px", fontWeight:800, color:"#2e7d32", fontSize:15 }}>${v.monto.toLocaleString("es-AR")}</td>
+                      <td style={{ padding:"11px 14px", fontSize:11, color:"#a09080" }} title="Se modifica desde el pedido o desde Finanzas">🔒</td>
+                    </tr>
+                  ) : (
                     <tr key={v.fireId} style={{ borderBottom:"1px solid var(--c-row)" }}>
                       <td style={{ padding:"11px 16px", color:"#a09080", fontFamily:"monospace", fontSize:12 }}>X-{String(v.numero||1).padStart(5,"0")}</td>
                       <td style={{ padding:"11px 16px", color:"#4a5568" }}>{v.fecha}</td>
@@ -6341,7 +6388,10 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
                       <td style={{ padding:"11px 16px" }}>
                         <span style={{ background:"var(--c-tint)", color:"var(--c-pri)", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{v.metodoPago}</span>
                       </td>
-                      <td style={{ padding:"11px 16px", fontWeight:800, color:"var(--c-pri)", fontSize:15 }}>${parseFloat(v.total||0).toLocaleString("es-AR")}</td>
+                      <td style={{ padding:"11px 16px", fontWeight:800, color:"var(--c-pri)", fontSize:15 }}>
+                        ${v.monto.toLocaleString("es-AR")}
+                        {v.monto !== parseFloat(v.total||0) && <div style={{ fontSize:11, fontWeight:500, color:"#a09080" }}>de ${parseFloat(v.total||0).toLocaleString("es-AR")}{parseFloat(v.aCuentaCorriente||0) > 0 ? ` · $${parseFloat(v.aCuentaCorriente).toLocaleString("es-AR")} a cta. cte.` : ""}</div>}
+                      </td>
                       <td style={{ padding:"11px 14px" }}>
                         <div style={{ display:"flex", gap:6 }}>
                           <button onClick={() => imprimirComprobante(v, empresa)}
@@ -9988,42 +10038,183 @@ function CajaCierres({ cierres, movs, cfg, onCerrar }) {
   );
 }
 
-// ── Todos los movimientos (con filtros) ──────────────────────────────────
+// ── Movimientos: por período (día / semana / mes / año / período) con gráfico de anillo ──
+const PALETA_CATS = ["#d6427f","#7fa36b","#f5a623","#4a90d9","#9b59b6","#e67e22","#1abc9c","#e74c3c","#34495e","#16a085","#c0392b","#8e44ad","#2ecc71","#f39c12","#7f8c8d"];
+const isoDe = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const dateDe = (iso) => { const [y,m,d] = iso.split("-").map(Number); return new Date(y, m-1, d); };
+const MESES_CORTOS = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+// Rango [desde, hasta] (inclusive) para el modo y la fecha de referencia
+function rangoPeriodo(modo, ref, desde, hasta) {
+  const d = dateDe(ref);
+  if (modo === "dia") return [ref, ref];
+  if (modo === "semana") { const dow = (d.getDay() + 6) % 7; const ini = new Date(d); ini.setDate(d.getDate() - dow); const fin = new Date(ini); fin.setDate(ini.getDate() + 6); return [isoDe(ini), isoDe(fin)]; }
+  if (modo === "mes") return [isoDe(new Date(d.getFullYear(), d.getMonth(), 1)), isoDe(new Date(d.getFullYear(), d.getMonth() + 1, 0))];
+  if (modo === "anio") return [`${d.getFullYear()}-01-01`, `${d.getFullYear()}-12-31`];
+  return [desde <= hasta ? desde : hasta, desde <= hasta ? hasta : desde];
+}
+function etiquetaPeriodo(modo, ref, desde, hasta) {
+  const d = dateDe(ref);
+  if (modo === "dia") return `${d.getDate()} de ${MESES_ES[d.getMonth()].toLowerCase()} (${DIAS_CORTOS[d.getDay()].toLowerCase()})`;
+  if (modo === "semana") { const [a, b] = rangoPeriodo("semana", ref).map(dateDe); return `${a.getDate()} ${MESES_CORTOS[a.getMonth()]} – ${b.getDate()} ${MESES_CORTOS[b.getMonth()]}${b.getFullYear() !== new Date().getFullYear() ? " " + b.getFullYear() : ""}`; }
+  if (modo === "mes") return `${MESES_ES[d.getMonth()]} ${d.getFullYear()}`;
+  if (modo === "anio") return String(d.getFullYear());
+  return `${fechaCorta(desde)} al ${fechaCorta(hasta)}`;
+}
+function moverPeriodo(modo, ref, n) {
+  const d = dateDe(ref);
+  if (modo === "dia") d.setDate(d.getDate() + n);
+  else if (modo === "semana") d.setDate(d.getDate() + 7 * n);
+  else if (modo === "mes") return isoDe(new Date(d.getFullYear(), d.getMonth() + n, 1));
+  else if (modo === "anio") return isoDe(new Date(d.getFullYear() + n, 0, 1));
+  return isoDe(d);
+}
+
+function Anillo({ partes, total, centro, sub }) {
+  const R = 80, r = 54, cx = 100, cy = 100;
+  let ang = -Math.PI / 2;
+  const arcos = total > 0 ? partes.filter(p => p.valor > 0).map(p => {
+    const frac = p.valor / total;
+    const a0 = ang, a1 = ang + frac * Math.PI * 2 - (partes.length > 1 ? 0.012 : 0);
+    ang += frac * Math.PI * 2;
+    if (frac >= 0.9999) return { ...p, d: null };
+    const large = a1 - a0 > Math.PI ? 1 : 0;
+    const pt = (rad, a) => `${cx + rad * Math.cos(a)} ${cy + rad * Math.sin(a)}`;
+    return { ...p, d: `M ${pt(R,a0)} A ${R} ${R} 0 ${large} 1 ${pt(R,a1)} L ${pt(r,a1)} A ${r} ${r} 0 ${large} 0 ${pt(r,a0)} Z` };
+  }) : [];
+  return (
+    <svg viewBox="0 0 200 200" style={{ width:"100%", maxWidth:250, display:"block", margin:"0 auto" }}>
+      {total <= 0 && <circle cx={cx} cy={cy} r={(R + r) / 2} fill="none" stroke="#eee" strokeWidth={R - r}/>}
+      {arcos.map(a => a.d
+        ? <path key={a.nombre} d={a.d} fill={a.color} opacity={a.apagado ? .25 : 1}/>
+        : <circle key={a.nombre} cx={cx} cy={cy} r={(R + r) / 2} fill="none" stroke={a.color} strokeWidth={R - r} opacity={a.apagado ? .25 : 1}/>)}
+      <circle cx={cx} cy={cy} r={r - 6} fill="none" stroke="#e0e0e0" strokeDasharray="3 4"/>
+      <text x={cx} y={sub ? cy + 2 : cy + 7} textAnchor="middle" style={{ fontSize: centro.length > 12 ? 15 : 18, fontWeight:800, fill:"#1a2340", fontFamily:"'DM Sans',sans-serif" }}>{centro}</text>
+      {sub && <text x={cx} y={cy + 20} textAnchor="middle" style={{ fontSize:10, fill:"#a09080", fontFamily:"'DM Sans',sans-serif" }}>{sub}</text>}
+    </svg>
+  );
+}
+
 function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar, onBorrar }) {
-  const meses = [...new Set(movs.map(m => (m.fecha||"").slice(0,7)).filter(Boolean))].sort().reverse();
-  const [mes, setMes]     = useState(meses[0] || hoyISO().slice(0,7));
-  const [tipo, setTipo]   = useState("todos");
-  const [cat, setCat]     = useState("todas");
-  const [cuenta, setCuenta] = useState("todas");
-  const [busq, setBusq]   = useState("");
-  const [prov, setProv]   = useState("todos");
-  const provs = Object.entries(movs.reduce((a,m) => { if (m.proveedorId) a[m.proveedorId] = m.proveedorNombre || "Proveedor"; return a; }, {})).sort((a,b) => a[1].localeCompare(b[1]));
-  const lista = movs
-    .filter(m => prov === "todos" || m.proveedorId === prov)
-    .filter(m => mes === "todos" || (m.fecha||"").startsWith(mes))
-    .filter(m => tipo === "todos" || m.tipo === tipo)
-    .filter(m => cat === "todas" || m.categoria === cat)
+  const leer = (k, def) => { try { return localStorage.getItem("movs_" + k) || def; } catch(e) { return def; } };
+  const [tipoVer, setTipoVer] = useState(() => leer("tipo", "egreso"));   // egreso | ingreso | todo
+  const [modo, setModo]       = useState(() => leer("modo", "dia"));      // dia | semana | mes | anio | periodo
+  const [ref, setRef]         = useState(hoyISO());
+  const [desde, setDesde]     = useState(() => isoDe(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
+  const [hasta, setHasta]     = useState(hoyISO());
+  const [cat, setCat]         = useState(null);
+  const [cuenta, setCuenta]   = useState("todas");
+  const [prov, setProv]       = useState("todos");
+  const [busq, setBusq]       = useState("");
+  useEffect(() => { try { localStorage.setItem("movs_tipo", tipoVer); localStorage.setItem("movs_modo", modo); } catch(e) {} }, [tipoVer, modo]);
+  useEffect(() => { setCat(null); }, [tipoVer, modo, ref, desde, hasta]);
+
+  const [ini, fin] = rangoPeriodo(modo, ref, desde, hasta);
+  const enRango = movs.filter(m => m.fecha && m.fecha >= ini && m.fecha <= fin)
     .filter(m => cuenta === "todas" || m.cuenta === cuenta || m.cuentaDestino === cuenta)
-    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""} ${m.subcategoria||""} ${m.proveedorNombre||""} ${m.empleadoNombre||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
+    .filter(m => prov === "todos" || m.proveedorId === prov);
+  const delTipo = tipoVer === "todo" ? enRango : enRango.filter(m => m.tipo === tipoVer);
+
+  // Gráfico: por categoría, en pesos
+  const enPesos = delTipo.filter(m => (m.tipo === "ingreso" || m.tipo === "egreso") && monedaDe(m.cuenta) === "ARS");
+  const porCat = {};
+  enPesos.forEach(m => {
+    const k = tipoVer === "todo" ? (m.tipo === "ingreso" ? "⬆️ Ingresos" : "⬇️ Egresos") : (m.categoria || "Sin categoría");
+    porCat[k] = (porCat[k]||0) + (parseFloat(m.monto)||0);
+  });
+  const catsCfg = [...(cfg.catsEgreso||[]), ...(cfg.catsIngreso||[])];
+  const colorDe = (nombre, i) => {
+    if (nombre === "⬆️ Ingresos") return "#2e7d32";
+    if (nombre === "⬇️ Egresos") return "#c62828";
+    const idx = catsCfg.findIndex(c => c.nombre === nombre);
+    return PALETA_CATS[(idx >= 0 ? idx : i + 7) % PALETA_CATS.length];
+  };
+  const partes = Object.entries(porCat).sort((a,b) => b[1]-a[1]).map(([nombre, valor], i) => ({ nombre, valor, color: colorDe(nombre, i), apagado: cat && cat !== nombre }));
+  const total = partes.reduce((s,p) => s + p.valor, 0);
+  const usd = delTipo.filter(m => (m.tipo === "ingreso" || m.tipo === "egreso") && monedaDe(m.cuenta) === "USD").reduce((s,m) => s + (m.tipo === "egreso" && tipoVer === "todo" ? -1 : 1) * (parseFloat(m.monto)||0), 0);
+  const totalTodo = tipoVer === "todo" ? (porCat["⬆️ Ingresos"]||0) - (porCat["⬇️ Egresos"]||0) : total;
+
+  const lista = delTipo
+    .filter(m => !cat || (tipoVer === "todo" ? (cat === "⬆️ Ingresos" ? m.tipo === "ingreso" : m.tipo === "egreso") : (m.categoria || "Sin categoría") === cat))
+    .filter(m => !busq.trim() || `${m.nota||""} ${m.categoria||""} ${m.subcategoria||""} ${m.proveedorNombre||""} ${m.empleadoNombre||""} ${m.registradoPor||""}`.toLowerCase().includes(busq.trim().toLowerCase()))
     .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""));
-  const cats = [...new Set([...cfg.catsIngreso, ...cfg.catsEgreso].map(c => c.nombre).concat(movs.map(m => m.categoria).filter(Boolean)))];
-  const tot = (t, mon) => lista.filter(m => m.tipo === t && monedaDe(m.cuenta) === mon).reduce((s,m) => s + (parseFloat(m.monto)||0), 0);
-  const sel = { ...cajaInp, width:"auto", minWidth:140 };
+  const provs = Object.entries(movs.reduce((a,m) => { if (m.proveedorId) a[m.proveedorId] = m.proveedorNombre || "Proveedor"; return a; }, {})).sort((a,b) => a[1].localeCompare(b[1]));
+  const esHoyRango = ref === hoyISO() || (ini <= hoyISO() && fin >= hoyISO());
+  const colorTipo = tipoVer === "egreso" ? "#c62828" : tipoVer === "ingreso" ? "#2e7d32" : "#1a2340";
+
+  const pill = (activo) => ({ padding:"8px 4px", flex:1, border:"none", background:"transparent", cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+    fontSize:15, fontWeight: activo ? 800 : 500, color: activo ? colorTipo : "#7a7f8c", borderBottom:`3px solid ${activo ? colorTipo : "transparent"}` });
+  const flecha = { background:"none", border:"none", fontSize:26, color:"#a09080", cursor:"pointer", padding:"0 10px", lineHeight:1 };
+  const sel = { ...cajaInp, width:"auto", flex:"1 1 150px", minWidth:0 };
+
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-      <div style={{ ...cajaCard, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
-        <select value={mes} onChange={e => setMes(e.target.value)} style={sel}>
-          <option value="todos">Todos los meses</option>
-          {meses.map(m => <option key={m} value={m}>{nombreMes(m)}</option>)}
-        </select>
-        <select value={tipo} onChange={e => setTipo(e.target.value)} style={sel}>
-          <option value="todos">Todos los tipos</option>
-          {Object.entries(TIPO_MOV).map(([k,v]) => <option key={k} value={k}>{v.icono} {v.label}</option>)}
-        </select>
-        <select value={cat} onChange={e => setCat(e.target.value)} style={sel}>
-          <option value="todas">Todas las categorías</option>
-          {cats.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+      {/* Gastos / Ingresos / Todo */}
+      <div style={{ display:"flex", background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"4px 8px" }}>
+        {[["egreso","Gastos"],["ingreso","Ingresos"],["todo","Todo"]].map(([k,l]) => (
+          <button key={k} onClick={() => setTipoVer(k)} style={{ ...pill(tipoVer === k), color: tipoVer === k ? (k==="egreso" ? "#c62828" : k==="ingreso" ? "#2e7d32" : "#1a2340") : "#7a7f8c",
+            borderBottom:`3px solid ${tipoVer === k ? (k==="egreso" ? "#c62828" : k==="ingreso" ? "#2e7d32" : "#1a2340") : "transparent"}` }}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{ ...cajaCard, padding:"10px 14px 16px" }}>
+        {/* Día · Semana · Mes · Año · Período */}
+        <div style={{ display:"flex", borderBottom:"1px solid var(--c-row)", marginBottom:10, overflowX:"auto" }}>
+          {[["dia","Día"],["semana","Semana"],["mes","Mes"],["anio","Año"],["periodo","Período"]].map(([k,l]) => (
+            <button key={k} onClick={() => { setModo(k); if (k !== "periodo") setRef(hoyISO()); }}
+              style={{ flex:1, padding:"10px 6px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap",
+                fontSize:15, fontWeight: modo === k ? 800 : 500, color: modo === k ? "var(--c-pri)" : "#7a7f8c", borderBottom:`3px solid ${modo === k ? "var(--c-pri)" : "transparent"}` }}>{l}</button>
+          ))}
+        </div>
+
+        {/* Navegación del período */}
+        {modo !== "periodo" ? (
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <button onClick={() => setRef(moverPeriodo(modo, ref, -1))} style={flecha} aria-label="Anterior">‹</button>
+            <div style={{ position:"relative", flex:1, textAlign:"center" }}>
+              <span style={{ fontSize:17, fontWeight:700, color:"#1a2340", textDecoration:"underline", textUnderlineOffset:4, cursor:"pointer" }}>{etiquetaPeriodo(modo, ref)}</span>
+              {modo === "dia" && <input type="date" value={ref} onChange={e => e.target.value && setRef(e.target.value)} title="Elegir día"
+                style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", width:"100%" }}/>}
+            </div>
+            {!esHoyRango && <button onClick={() => setRef(hoyISO())} title="Ir a hoy" style={{ ...flecha, fontSize:16, color:"var(--c-pri)", fontWeight:700 }}>⏭</button>}
+            <button onClick={() => setRef(moverPeriodo(modo, ref, 1))} style={flecha} aria-label="Siguiente">›</button>
+          </div>
+        ) : (
+          <div style={{ display:"flex", alignItems:"center", gap:8, justifyContent:"center", flexWrap:"wrap", marginBottom:8 }}>
+            <input type="date" value={desde} onChange={e => e.target.value && setDesde(e.target.value)} style={{ ...cajaInp, width:"auto" }}/>
+            <span style={{ color:"#a09080" }}>al</span>
+            <input type="date" value={hasta} onChange={e => e.target.value && setHasta(e.target.value)} style={{ ...cajaInp, width:"auto" }}/>
+          </div>
+        )}
+
+        {/* Anillo + categorías */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(250px, 1fr))", gap:16, alignItems:"center" }}>
+          <div>
+            <Anillo partes={partes} total={total}
+              centro={tipoVer === "todo" ? fmtMoneda(totalTodo) : fmtMoneda(cat ? (porCat[cat]||0) : total)}
+              sub={tipoVer === "todo" ? "resultado" : cat ? cat : (usd ? `+ ${fmtMoneda(usd, "USD")}` : "")}/>
+          </div>
+          <div>
+            {partes.length === 0 && <div style={{ textAlign:"center", color:"#a09080", fontSize:14, padding:"10px 0" }}>Sin {tipoVer === "egreso" ? "gastos" : tipoVer === "ingreso" ? "ingresos" : "movimientos"} en este período.</div>}
+            {partes.map(p => {
+              const ico = tipoVer === "todo" ? "" : iconoCat(tipoVer, p.nombre);
+              const activo = cat === p.nombre;
+              return (
+                <div key={p.nombre} onClick={() => setCat(activo ? null : p.nombre)}
+                  style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 10px", marginBottom:6, borderRadius:12, cursor:"pointer",
+                    background: activo ? "var(--c-soft)" : "#fff", border:`1.5px solid ${activo ? p.color : "var(--c-row)"}`, opacity: cat && !activo ? .55 : 1 }}>
+                  <div style={{ width:34, height:34, borderRadius:"50%", background:p.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{ico}</div>
+                  <div style={{ flex:1, minWidth:0, fontSize:15, color:"#1a2340", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.nombre.replace(/^[⬆️⬇️]+\s*/u, "")}</div>
+                  {tipoVer !== "todo" && <div style={{ fontSize:13, color:"#a09080", width:44, textAlign:"right" }}>{total ? Math.round(p.valor / total * 100) : 0} %</div>}
+                  <div style={{ fontSize:15, fontWeight:700, color:"#1a2340", minWidth:90, textAlign:"right" }}>{fmtMoneda(p.valor)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Más filtros */}
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
         <select value={cuenta} onChange={e => setCuenta(e.target.value)} style={sel}>
           <option value="todas">Todas las cajas</option>
           {cfg.cuentas.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
@@ -10034,26 +10225,19 @@ function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar
             {provs.map(([id, n]) => <option key={id} value={id}>🏭 {n}</option>)}
           </select>
         )}
-        <input value={busq} onChange={e => setBusq(e.target.value)} placeholder="🔍 Buscar en el detalle…" style={{ ...cajaInp, flex:1, minWidth:180 }}/>
+        <input value={busq} onChange={e => setBusq(e.target.value)} placeholder="🔍 Buscar en el detalle…" style={{ ...cajaInp, flex:"2 1 200px", minWidth:0 }}/>
       </div>
-      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-        {[["Ingresos", "ingreso", "#2e7d32"], ["Egresos", "egreso", "#c62828"]].map(([l, t, col]) => (
-          <div key={t} style={{ ...cajaCard, padding:"12px 18px" }}>
-            <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{l}</div>
-            <div style={{ fontSize:19, fontWeight:800, color:col }}>{fmtMoneda(tot(t,"ARS"))}</div>
-            {tot(t,"USD") ? <div style={{ fontSize:13, fontWeight:700, color:"#2e7d32" }}>{fmtMoneda(tot(t,"USD"),"USD")}</div> : null}
-          </div>
-        ))}
-        <div style={{ ...cajaCard, padding:"12px 18px" }}>
-          <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>Movimientos</div>
-          <div style={{ fontSize:19, fontWeight:800, color:"#1a2340" }}>{lista.length}</div>
-        </div>
-      </div>
+
+      {/* Lista */}
       <div style={{ ...cajaCard, padding:0, overflow:"hidden" }}>
+        <div style={{ padding:"12px 16px", fontWeight:700, color:"#1a2340", borderBottom:"1px solid var(--c-border)", display:"flex", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+          <span>{lista.length} movimiento{lista.length !== 1 ? "s" : ""}{cat ? ` · ${cat.replace(/^[⬆️⬇️]+\s*/u, "")}` : ""}</span>
+          {cat && <button onClick={() => setCat(null)} style={{ background:"none", border:"none", color:"var(--c-pri)", fontWeight:700, cursor:"pointer" }}>✕ Quitar filtro</button>}
+        </div>
         {lista.length === 0
           ? <div style={{ padding:"28px", textAlign:"center", color:"#a09080" }}>No hay movimientos con estos filtros.</div>
-          : <TablaMovsCaja lista={lista.slice(0, 500)} mostrarFecha nombreCuenta={nombreCuenta} monedaDe={monedaDe} iconoCat={iconoCat} onEditar={onEditar} onBorrar={onBorrar}/>}
-        {lista.length > 500 && <div style={{ padding:"10px 16px", fontSize:12, color:"#a09080" }}>Se muestran los últimos 500. Usá los filtros para ver el resto.</div>}
+          : <TablaMovsCaja lista={lista.slice(0, 500)} mostrarFecha={modo !== "dia"} nombreCuenta={nombreCuenta} monedaDe={monedaDe} iconoCat={iconoCat} onEditar={onEditar} onBorrar={onBorrar}/>}
+        {lista.length > 500 && <div style={{ padding:"10px 16px", fontSize:12, color:"#a09080" }}>Se muestran los últimos 500. Achicá el período para ver el resto.</div>}
       </div>
     </div>
   );
