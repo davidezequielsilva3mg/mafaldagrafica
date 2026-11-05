@@ -480,10 +480,12 @@ function instalarOrdenTablas() {
       } else {
         const textos = grupos.map(g => textoCelda(celdaEn(g[0], st.col)));
         const llenos = textos.filter(Boolean);
-        const tipo = llenos.length && llenos.every(t => aFecha(t) !== null) ? "fecha"
+        const esHora = (t) => /^\d{1,2}:\d{2}$/.test(t);
+        const tipo = llenos.length && llenos.filter(t => t !== "—").length && llenos.every(t => t === "—" || esHora(t)) ? "hora"
+                   : llenos.length && llenos.every(t => aFecha(t) !== null) ? "fecha"
                    : llenos.length && llenos.every(t => aNumero(t) !== null) ? "numero" : "texto";
         // en texto se ignoran emojis y símbolos del principio (ej: "🪧 Lona" se ordena como "Lona")
-        const valor = (t) => !t ? null : tipo === "fecha" ? aFecha(t) : tipo === "numero" ? aNumero(t) : (t.replace(/^[^\p{L}\p{N}]+/u, "") || t);
+        const valor = (t) => !t || (tipo === "hora" && t === "—") ? null : tipo === "hora" ? (([h,m]) => +h * 60 + +m)(t.split(":")) : tipo === "fecha" ? aFecha(t) : tipo === "numero" ? aNumero(t) : (t.replace(/^[^\p{L}\p{N}]+/u, "") || t);
         const vals = textos.map(valor);
         const idx = grupos.map((_, i) => i);
         idx.sort((i, j) => {
@@ -491,7 +493,7 @@ function instalarOrdenTablas() {
           if (a === null && b === null) return i - j;
           if (a === null) return 1;            // vacíos siempre al final
           if (b === null) return -1;
-          const d = tipo === "texto" ? a.localeCompare(b, "es", { numeric:true, sensitivity:"base" }) : a - b;
+          const d = typeof a === "string" ? a.localeCompare(b, "es", { numeric:true, sensitivity:"base" }) : a - b;
           return (st.dir === "desc" ? -d : d) || i - j;
         });
         orden = idx.map(i => grupos[i]);
@@ -6353,7 +6355,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
             <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
                 <thead><tr style={{ background:"var(--c-softer)" }}>
-                  {["N°","Fecha","Cliente","Items","Método","Total",""].map(h=>(
+                  {["N°","Fecha","Hora","Cliente","Items","Método","Total",""].map(h=>(
                     <th key={h} style={{ padding:"11px 16px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid var(--c-row2)" }}>{h}</th>
                   ))}
                 </tr></thead>
@@ -6361,7 +6363,8 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
                   {filtradas.map(v=> v.clase === "cobro" ? (
                     <tr key={v.fireId} style={{ borderBottom:"1px solid var(--c-row)", background:"#fbfdf8" }}>
                       <td style={{ padding:"11px 16px", color:"#a09080", fontFamily:"monospace", fontSize:12 }}>—</td>
-                      <td style={{ padding:"11px 16px", color:"#4a5568" }}>{v.fecha}</td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568" }}>{fechaCorta(v.fecha)}</td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568", fontWeight:600 }}>{horaDe(v.creadoEn) || "—"}</td>
                       <td style={{ padding:"11px 16px", fontWeight:600, color:"#1a2340" }}>
                         {v.clienteNombre}
                         <span style={{ marginLeft:6, background:"#e8f5e9", color:"#2e7d32", padding:"1px 6px", borderRadius:10, fontSize:10, fontWeight:700 }}>{v.etiqueta}</span>
@@ -6376,7 +6379,8 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
                   ) : (
                     <tr key={v.fireId} style={{ borderBottom:"1px solid var(--c-row)" }}>
                       <td style={{ padding:"11px 16px", color:"#a09080", fontFamily:"monospace", fontSize:12 }}>X-{String(v.numero||1).padStart(5,"0")}</td>
-                      <td style={{ padding:"11px 16px", color:"#4a5568" }}>{v.fecha}</td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568" }}>{fechaCorta(v.fecha)}</td>
+                      <td style={{ padding:"11px 16px", color:"#4a5568", fontWeight:600 }}>{horaDe(v.creadoEn) || "—"}</td>
                       <td style={{ padding:"11px 16px", fontWeight:600, color:"#1a2340" }}>
                         {v.clienteNombre||"Consumidor Final"}
                         {v.origen==="pedido" && <span style={{ marginLeft:6, background:"#e8eaf6", color:"#3949ab", padding:"1px 6px", borderRadius:10, fontSize:10, fontWeight:700 }}>PEDIDO</span>}
@@ -9209,6 +9213,7 @@ const fmtMoneda = (n, moneda="ARS") => {
 };
 const MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const nombreMes = (ym) => { const [y,m] = ym.split("-"); return `${MESES_ES[+m-1]} ${y}`; };
+const horaDe = (iso) => { if (!iso || iso.length < 16) return ""; try { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("es-AR", { hour:"2-digit", minute:"2-digit", hour12:false }); } catch(e) { return ""; } };
 const fechaCorta = (f) => { if (!f) return ""; const [y,m,d] = f.split("-"); return `${d}/${m}/${y}`; };
 const fechaConDia = (f) => {
   const [y,m,d] = f.split("-").map(Number);
@@ -9382,7 +9387,7 @@ function CajaDia({ fecha, setFecha, movs, cfg, ventas, cierres = [], onCerrar, n
   const cierre = cierres.find(x => x.fecha === fecha);
   const ayer = moverDia(hoyISO(), -1);
   const ayerSinCerrar = fecha === hoyISO() && movs.some(m => m.fecha === ayer) && !cierres.some(x => x.fecha === ayer);
-  const delDia = movs.filter(m => m.fecha === fecha).sort((a,b) => (a.creadoEn||"").localeCompare(b.creadoEn||""));
+  const delDia = movs.filter(m => m.fecha === fecha).sort((a,b) => (b.creadoEn||"").localeCompare(a.creadoEn||""));
   const suma = (tipo, moneda) => delDia.filter(m => m.tipo === tipo && monedaDe(m.cuenta) === moneda).reduce((t,m) => t + (parseFloat(m.monto)||0), 0);
   const ingARS = suma("ingreso","ARS"), egrARS = suma("egreso","ARS");
   const ingUSD = suma("ingreso","USD"), egrUSD = suma("egreso","USD");
@@ -9503,7 +9508,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontWeight:700, fontSize:14, color:"#1a2340", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{titulo}</div>
               <div style={{ fontSize:12, color:"#a09080", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                {esMovAuto(m) && "🤖 "}{m.proveedorNombre ? "🏭 " + m.proveedorNombre + " · " : ""}{m.empleadoNombre ? "👷 " + m.empleadoNombre + " · " : ""}{m.origen === "ventas" ? "🧾 " + (m.registradoPor||"Ventas") + " · " : ""}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
+                {m.origen !== "gestor" && horaDe(m.creadoEn) ? horaDe(m.creadoEn) + " · " : ""}{esMovAuto(m) && "🤖 "}{m.proveedorNombre ? "🏭 " + m.proveedorNombre + " · " : ""}{m.empleadoNombre ? "👷 " + m.empleadoNombre + " · " : ""}{m.origen === "ventas" ? "🧾 " + (m.registradoPor||"Ventas") + " · " : ""}{mostrarFecha ? fechaCorta(m.fecha) + " · " : ""}{m.tipo !== "transferencia" ? nombreCuenta(m.cuenta) : ""}{m.nota ? (m.tipo !== "transferencia" ? " · " : "") + m.nota : ""}
               </div>
             </div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
@@ -9520,7 +9525,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
     <div style={{ overflowX:"auto" }}>
       <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
         <thead><tr style={{ background:"var(--c-soft)" }}>
-          {[...(mostrarFecha ? ["Fecha"] : []), "Tipo", "Categoría", "Caja", "Detalle", "Monto", ""].map(h => (
+          {[...(mostrarFecha ? ["Fecha"] : []), "Hora", "Tipo", "Categoría", "Caja", "Detalle", "Monto", ""].map(h => (
             <th key={h} style={{ padding:"10px 14px", textAlign: h==="Monto" ? "right" : "left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", whiteSpace:"nowrap" }}>{h}</th>
           ))}
         </tr></thead>
@@ -9532,6 +9537,7 @@ function TablaMovsCaja({ lista, mostrarFecha, nombreCuenta, monedaDe, iconoCat, 
             return (
               <tr key={m.fireId} style={{ borderTop:"1px solid var(--c-row)" }}>
                 {mostrarFecha && <td style={{ padding:"10px 14px", whiteSpace:"nowrap", color:"#4a5568" }}>{fechaCorta(m.fecha)}</td>}
+                <td style={{ padding:"10px 14px", whiteSpace:"nowrap", color:"#4a5568", fontWeight:600 }}>{m.origen === "gestor" ? "—" : (horaDe(m.creadoEn) || "—")}</td>
                 <td style={{ padding:"10px 14px" }}><span style={{ background:t.bg, color:t.color, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{t.icono} {t.label}</span></td>
                 <td style={{ padding:"10px 14px", fontWeight:600, color:"#1a2340" }}>{m.tipo==="transferencia" ? "—" : m.tipo==="ajuste" ? "Ajuste de saldo" : `${iconoCat(m.tipo, m.categoria)} ${m.categoria||"—"}`}
                   {m.subcategoria ? <div style={{ fontSize:11, fontWeight:500, color:"#a09080" }}>↳ {m.subcategoria}</div> : null}</td>
