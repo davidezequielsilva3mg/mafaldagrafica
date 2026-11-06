@@ -2789,7 +2789,7 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                           style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--c-row)", fontSize:13 }}
                           onMouseEnter={e=>e.currentTarget.style.background="var(--c-soft)"}
                           onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
-                          <div style={{ fontWeight:600, color:"#1a2340" }}>{`${c.nombre||""} ${c.apellido||""}`.trim()}</div>
+                          <div style={{ fontWeight:600, color:"#1a2340" }}>{`${c.nombre||""} ${c.apellido||""}`.trim()}<BadgeDeuda cl={c}/></div>
                           <div style={{ fontSize:11, color:"#a09080" }}>{c.telefono}</div>
                         </div>
                       ))}
@@ -2830,13 +2830,14 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
                           style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--c-row)", fontSize:13 }}
                           onMouseEnter={e=>e.currentTarget.style.background="var(--c-soft)"}
                           onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
-                          <div style={{ fontWeight:600, color:"#1a2340" }}>{`${c.nombre||""} ${c.apellido||""}`.trim()}</div>
+                          <div style={{ fontWeight:600, color:"#1a2340" }}>{`${c.nombre||""} ${c.apellido||""}`.trim()}<BadgeDeuda cl={c}/></div>
                           <div style={{ fontSize:11, color:"#a09080" }}>{c.telefono} {c.empresa ? `· ${c.empresa}`:""}</div>
                         </div>
                       ))}
                     </div>
                   ) : null;
                 })()}
+                {mClienteId && <AvisoDeuda cl={clientes.find(c => c.fireId === mClienteId)}/>}
               </div>
 
               {/* Nombre del pedido */}
@@ -6518,6 +6519,116 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
   );
 }
 
+// ── Aviso: el cliente elegido debe plata en cuenta corriente ─────────────
+function AvisoDeuda({ cl }) {
+  const saldo = parseFloat(cl?.saldoCuenta)||0;
+  if (!(saldo > 0)) return null;
+  return (
+    <div className="aviso-deuda" role="alert"
+      style={{ marginTop:8, display:"flex", gap:10, alignItems:"center", background:"#ffebee", border:"1.5px solid #ef5350", borderRadius:9, padding:"10px 14px", color:"#b71c1c" }}>
+      <span style={{ fontSize:22, lineHeight:1 }}>⚠️</span>
+      <div style={{ fontSize:13, lineHeight:1.35 }}>
+        <div style={{ fontWeight:800 }}>Este cliente debe ${saldo.toLocaleString("es-AR")} en cuenta corriente</div>
+        <div style={{ fontSize:12, color:"#c62828" }}>Antes de tomar el trabajo, pedile que regularice o cobrá una parte.</div>
+      </div>
+    </div>
+  );
+}
+function BadgeDeuda({ cl }) {
+  const saldo = parseFloat(cl?.saldoCuenta)||0;
+  return saldo > 0 ? <span style={{ marginLeft:8, fontSize:11, color:"#c62828", background:"#ffebee", borderRadius:10, padding:"1px 7px", fontWeight:700, whiteSpace:"nowrap" }}>⚠️ Debe ${saldo.toLocaleString("es-AR")}</span> : null;
+}
+
+// ── Precios por cantidad (escalas) ───────────────────────────────────────
+// Cada producto puede tener escalas: [{ desde:10, precio:2800, precioGremio:0 }, ...]
+// Desde esa cantidad en adelante se cobra ese precio unitario.
+function escalasDe(ins) {
+  return (ins?.escalas || [])
+    .map(e => ({ desde: parseInt(e.desde)||0, precio: parseFloat(e.precio)||0, precioGremio: parseFloat(e.precioGremio)||0 }))
+    .filter(e => e.desde > 1 && (e.precio > 0 || e.precioGremio > 0))
+    .sort((a,b) => a.desde - b.desde);
+}
+function limpiarEscalas(lista) {
+  const vistas = new Set();
+  return escalasDe({ escalas: lista }).filter(e => { if (vistas.has(e.desde)) return false; vistas.add(e.desde); return true; });
+}
+function precioPorCantidad(ins, cant, tipo) {
+  const gremio = tipo === "gremio" && parseFloat(ins?.precioGremio) > 0;
+  let precio = gremio ? parseFloat(ins.precioGremio) : (parseFloat(ins?.precioVenta)||0);
+  let escala = null;
+  for (const e of escalasDe(ins)) {
+    if (cant < e.desde) break;
+    const p = gremio ? e.precioGremio : e.precio;
+    if (p > 0) { precio = p; escala = e; }
+  }
+  return { precio, escala };
+}
+function textoEscalas(ins, tipo) {
+  const gremio = tipo === "gremio" && parseFloat(ins?.precioGremio) > 0;
+  return escalasDe(ins).filter(e => (gremio ? e.precioGremio : e.precio) > 0)
+    .map(e => `${e.desde}+ $${(gremio ? e.precioGremio : e.precio).toLocaleString("es-AR")}`).join(" · ");
+}
+// Cambia la cantidad de un ítem del carrito y, si el precio no se tocó a mano, aplica la escala
+function itemConCantidad(it, cant, insumos, tipo) {
+  const ins = !it.esLibre && insumos.find(i => i.fireId === it.insumoId);
+  if (!ins || it.precioManual) return { ...it, cantidad: cant };
+  return { ...it, cantidad: cant, precio: precioPorCantidad(ins, cant, it.tipoPrecio || tipo).precio };
+}
+// Línea chica debajo del ítem del carrito: escalas del producto y cuál se está aplicando
+function EscalasItemCarrito({ it, insumos, tipo, onRestablecer }) {
+  const ins = !it.esLibre && insumos.find(i => i.fireId === it.insumoId);
+  if (!ins) return null;
+  const t = it.tipoPrecio || tipo;
+  const txt = textoEscalas(ins, t);
+  if (!txt && !it.precioManual) return null;
+  const { precio, escala } = precioPorCantidad(ins, it.cantidad, t);
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginTop:5, fontSize:11, color:"#a09080" }}>
+      {txt && <span>🔻 {txt}</span>}
+      {!it.precioManual && escala && <span style={{ background:"#e8f5e9", color:"#2e7d32", fontWeight:700, borderRadius:10, padding:"1px 7px" }}>precio x{escala.desde}+</span>}
+      {it.precioManual && precio !== it.precio && (
+        <button onClick={onRestablecer} title="Volver al precio de lista según la cantidad"
+          style={{ background:"transparent", border:"1px solid var(--c-border)", color:"var(--c-pri)", borderRadius:10, padding:"1px 7px", fontSize:11, fontWeight:600, cursor:"pointer" }}>
+          ↺ precio de lista ${precio.toLocaleString("es-AR")}
+        </button>
+      )}
+    </div>
+  );
+}
+// Editor de escalas para el formulario del producto
+function EditorEscalas({ escalas, onChange, compacto }) {
+  const lista = escalas || [];
+  const set = (i, campo, val) => onChange(lista.map((e, j) => j === i ? { ...e, [campo]: val } : e));
+  const inpE = { width:"100%", padding: compacto?"7px 9px":"9px 12px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
+  return (
+    <div style={{ background:"var(--c-softer)", border:"1.5px dashed var(--c-border)", borderRadius:10, padding: compacto?"10px 12px":"14px 16px" }}>
+      <div style={{ fontSize:13, fontWeight:700, color:"#1a2340", marginBottom:2 }}>🔻 Precios por cantidad <span style={{ fontWeight:400, color:"#a09080", fontSize:12 }}>(opcional)</span></div>
+      <div style={{ fontSize:12, color:"#a09080", marginBottom:10 }}>Desde esa cantidad, cada unidad sale al precio que pongas. Al vender, el precio cambia solo cuando subís la cantidad.</div>
+      {lista.length > 0 && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1.3fr 1.3fr 28px", gap:6, fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", marginBottom:4 }}>
+          <span>Desde (unid.)</span><span>Precio c/u</span><span>Gremio c/u</span><span/>
+        </div>
+      )}
+      {lista.map((e, i) => (
+        <div key={i} style={{ display:"grid", gridTemplateColumns:"1fr 1.3fr 1.3fr 28px", gap:6, marginBottom:6, alignItems:"center" }}>
+          <input type="number" min="2" value={e.desde ?? ""} onChange={ev=>set(i,"desde",ev.target.value)} placeholder="10" style={inpE}/>
+          <input type="number" value={e.precio ?? ""} onChange={ev=>set(i,"precio",ev.target.value)} placeholder="$" style={inpE}/>
+          <input type="number" value={e.precioGremio ?? ""} onChange={ev=>set(i,"precioGremio",ev.target.value)} placeholder="(opcional)" style={inpE}/>
+          <button onClick={()=>onChange(lista.filter((_,j)=>j!==i))} title="Quitar"
+            style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:15, fontWeight:700 }}>✕</button>
+        </div>
+      ))}
+      <button onClick={()=>{
+          const ult = lista[lista.length-1];
+          onChange([...lista, { desde: ult ? (parseInt(ult.desde)||0) + 10 : 10, precio:"", precioGremio:"" }]);
+        }}
+        style={{ marginTop:4, background:"#fff", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:7, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+        ➕ Agregar escala
+      </button>
+    </div>
+  );
+}
+
 // ── Componente: Nueva Venta ───────────────────────────────────────────────
 function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }) {
   const cajaCfg = useCajaCfg();
@@ -6589,23 +6700,25 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
   const agregarItem = (ins) => {
     setItems(prev => {
       const existe = prev.find(it => it.insumoId === ins.fireId);
-      if (existe) return prev.map(it => it.insumoId===ins.fireId ? {...it, cantidad:it.cantidad+1} : it);
-      const precio = tipoPrecios==="gremio" ? (parseFloat(ins.precioGremio)||parseFloat(ins.precioVenta)||0) : (parseFloat(ins.precioVenta)||0);
-      return [...prev, { insumoId:ins.fireId, codigo:ins.codigo||"", nombre:ins.nombre, precio, cantidad:1, stockDisp:parseFloat(ins.stock)||0 }];
+      if (existe) return prev.map(it => it.insumoId===ins.fireId ? itemConCantidad(it, it.cantidad+1, insumos, tipoPrecios) : it);
+      const { precio } = precioPorCantidad(ins, 1, tipoPrecios);
+      return [...prev, { insumoId:ins.fireId, codigo:ins.codigo||"", nombre:ins.nombre, precio, cantidad:1, tipoPrecio:tipoPrecios, stockDisp:parseFloat(ins.stock)||0 }];
     });
   };
 
   const updateCantidad = (insumoId, val) => {
     const n = Math.max(1, parseInt(val)||1);
-    setItems(prev => prev.map(it => it.insumoId===insumoId ? {...it, cantidad:n} : it));
+    setItems(prev => prev.map(it => it.insumoId===insumoId ? itemConCantidad(it, n, insumos, tipoPrecios) : it));
   };
 
   const removeItem = (insumoId) => setItems(prev => prev.filter(it => it.insumoId!==insumoId));
 
   const updatePrecio = (insumoId, val) => {
     const n = Math.max(0, parseFloat(val)||0);
-    setItems(prev => prev.map(it => it.insumoId===insumoId ? {...it, precio:n} : it));
+    setItems(prev => prev.map(it => it.insumoId===insumoId ? {...it, precio:n, precioManual:true} : it));
   };
+  const restablecerPrecio = (insumoId) =>
+    setItems(prev => prev.map(it => it.insumoId===insumoId ? itemConCantidad({ ...it, precioManual:false }, it.cantidad, insumos, tipoPrecios) : it));
 
   const total = items.reduce((s,it)=>s+it.cantidad*it.precio, 0);
 
@@ -6808,6 +6921,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
                     <div>
                       <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{ins.nombre}</div>
                       <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>{ins.codigo||""} {ins.categoria?`· ${ins.categoria}`:""} · Stock: {parseFloat(ins.stock)||0}</div>
+                      {textoEscalas(ins, tipoPrecios) && <div style={{ fontSize:11, color:"#2e7d32", fontWeight:600, marginTop:2 }}>🔻 {textoEscalas(ins, tipoPrecios)}</div>}
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                       <span style={{ fontWeight:700, color:"var(--c-pri)", fontSize:14 }}>${precio.toLocaleString("es-AR")}</span>
@@ -6852,7 +6966,9 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
                 <button onClick={() => { setClienteSelId(null); setClienteNombre(""); setClienteSearch(""); }}
                   style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:16, fontWeight:700 }}>✕</button>
               </div>
-            ) : (
+            ) : null}
+            {clienteSelId && <AvisoDeuda cl={clientes.find(c => c.fireId === clienteSelId)}/>}
+            {clienteSelId ? null : (
               <div style={{ position:"relative" }}>
                 <input value={clienteSearch} onChange={e=>{ setClienteSearch(e.target.value); setClienteDropdown(true); }} onFocus={()=>setClienteDropdown(true)}
                   placeholder="Consumidor Final (dejar vacío)"
@@ -6865,7 +6981,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
                         onMouseOver={e=>e.currentTarget.style.background="var(--c-soft)"}
                         onMouseOut={e=>e.currentTarget.style.background="#fff"}>
                         {cl.nombre} {cl.apellido} {cl.empresa&&`— ${cl.empresa}`}
-                        {cl.saldoCuenta>0 && <span style={{ marginLeft:8, fontSize:11, color:"#c62828", fontWeight:700 }}>Debe ${parseFloat(cl.saldoCuenta).toLocaleString("es-AR")}</span>}
+                        <BadgeDeuda cl={cl}/>
                       </div>
                     ))}
                   </div>
@@ -6932,6 +7048,7 @@ function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }
                       {/* Total item */}
                       <div style={{ fontSize:13, fontWeight:800, color:"var(--c-pri)", minWidth:65, textAlign:"right" }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</div>
                     </div>
+                    <EscalasItemCarrito it={it} insumos={insumos} tipo={tipoPrecios} onRestablecer={()=>restablecerPrecio(it.insumoId)}/>
                   </div>
                 ))}
               </div>
@@ -7178,15 +7295,22 @@ function PresupuestoEditor({ presupuesto, clientes, empresa, showToast, onSaved,
 
   const agregarItem = (ins) => setItems(prev => {
     const existe = prev.find(it => it.insumoId===ins.fireId);
-    if (existe) return prev.map(it => it.insumoId===ins.fireId ? { ...it, cantidad:it.cantidad+1 } : it);
-    return [...prev, { insumoId:ins.fireId, codigo:ins.codigo||"", nombre:ins.nombre, precio:precioDe(ins), cantidad:1 }];
+    if (existe) return prev.map(it => it.insumoId===ins.fireId ? itemConCantidad(it, it.cantidad+1, insumos, tipoPrecios) : it);
+    return [...prev, { insumoId:ins.fireId, codigo:ins.codigo||"", nombre:ins.nombre, precio:precioDe(ins), cantidad:1, tipoPrecio:tipoPrecios }];
   });
   const agregarItemLibre = () => {
     if (!itemLibreNombre.trim()) { showToast("Ingresá un nombre para el ítem","error"); return; }
     setItems(prev => [...prev, { insumoId:`libre_${Date.now()}`, codigo:"CUSTOM", nombre:itemLibreNombre.trim(), precio:parseFloat(itemLibrePrecio)||0, cantidad:1, esLibre:true }]);
     setItemLibreNombre(""); setItemLibrePrecio("");
   };
-  const upd = (id, campo, val) => setItems(prev => prev.map(it => it.insumoId===id ? { ...it, [campo]:val } : it));
+  const upd = (id, campo, val) => setItems(prev => prev.map(it => {
+    if (it.insumoId!==id) return it;
+    if (campo==="cantidad") return itemConCantidad(it, val, insumos, tipoPrecios);
+    if (campo==="precio")   return { ...it, precio:val, precioManual:true };
+    return { ...it, [campo]:val };
+  }));
+  const restablecerPrecio = (id) =>
+    setItems(prev => prev.map(it => it.insumoId===id ? itemConCantidad({ ...it, precioManual:false }, it.cantidad, insumos, tipoPrecios) : it));
   const total = items.reduce((s,it) => s + it.cantidad*it.precio, 0);
 
   const guardar = async (imprimir) => {
@@ -7253,6 +7377,7 @@ function PresupuestoEditor({ presupuesto, clientes, empresa, showToast, onSaved,
                     <div>
                       <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{ins.nombre}</div>
                       <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>{ins.codigo||""} {ins.categoria?`· ${ins.categoria}`:""}</div>
+                      {textoEscalas(ins, tipoPrecios) && <div style={{ fontSize:11, color:"#2e7d32", fontWeight:600, marginTop:2 }}>🔻 {textoEscalas(ins, tipoPrecios)}</div>}
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                       <span style={{ fontWeight:700, color:"var(--c-pri)", fontSize:14 }}>${precioDe(ins).toLocaleString("es-AR")}</span>
@@ -7294,7 +7419,9 @@ function PresupuestoEditor({ presupuesto, clientes, empresa, showToast, onSaved,
               <button onClick={()=>{ setClienteSelId(null); setClienteNombre(""); setClienteSearch(""); }}
                 style={{ background:"transparent", border:"none", color:"#c62828", cursor:"pointer", fontSize:16, fontWeight:700 }}>✕</button>
             </div>
-          ) : (
+          ) : null}
+          {clienteSelId && <AvisoDeuda cl={clientes.find(c => c.fireId === clienteSelId)}/>}
+          {clienteSelId ? null : (
             <div style={{ position:"relative" }}>
               <input value={clienteSearch || clienteNombre}
                 onChange={e=>{ setClienteSearch(e.target.value); setClienteNombre(e.target.value); setClienteDropdown(true); }}
@@ -7307,6 +7434,7 @@ function PresupuestoEditor({ presupuesto, clientes, empresa, showToast, onSaved,
                       onMouseOver={e=>e.currentTarget.style.background="var(--c-soft)"} onMouseOut={e=>e.currentTarget.style.background="#fff"}>
                       {cl.nombre} {cl.apellido} {cl.empresa && `— ${cl.empresa}`}
                       {cl.telefono && <span style={{ marginLeft:6, fontSize:11, color:"#a09080", fontWeight:400 }}>{cl.telefono}</span>}
+                      <BadgeDeuda cl={cl}/>
                     </div>
                   ))}
                 </div>
@@ -7374,6 +7502,7 @@ function PresupuestoEditor({ presupuesto, clientes, empresa, showToast, onSaved,
                     </div>
                     <div style={{ fontSize:13, fontWeight:800, color:"var(--c-pri)", minWidth:65, textAlign:"right" }}>${(it.cantidad*it.precio).toLocaleString("es-AR")}</div>
                   </div>
+                  <EscalasItemCarrito it={it} insumos={insumos} tipo={tipoPrecios} onRestablecer={()=>restablecerPrecio(it.insumoId)}/>
                 </div>
               ))}
             </div>
@@ -7792,6 +7921,7 @@ function InsumosView({ setView, showToast }) {
       precioVenta:  parseFloat(editModal.precioVenta)||0,
       precioGremio: parseFloat(editModal.precioGremio)||0,
       stockMinimo:  parseFloat(editModal.stockMinimo)||0,
+      escalas:      limpiarEscalas(editModal.escalas),
     });
     showToast("Insumo actualizado ✅");
     setEditModal(null);
@@ -7911,7 +8041,10 @@ function InsumosView({ setView, showToast }) {
                       <span style={{ background:"#fff3e0", color:"#bf360c", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{ins.categoria||"—"}</span>
                     </td>
                     <td style={{ padding:"11px 14px", color:"#4a5568" }}>{ins.precioCompra?`$${parseFloat(ins.precioCompra).toLocaleString("es-AR")}`:"—"}</td>
-                    <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>{ins.precioVenta?`$${parseFloat(ins.precioVenta).toLocaleString("es-AR")}`:"—"}</td>
+                    <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>
+                      {ins.precioVenta?`$${parseFloat(ins.precioVenta).toLocaleString("es-AR")}`:"—"}
+                      {escalasDe(ins).length>0 && <div title={textoEscalas(ins)} style={{ fontSize:10, color:"#2e7d32", fontWeight:700, marginTop:2 }}>🔻 {escalasDe(ins).length} escala{escalasDe(ins).length>1?"s":""}</div>}
+                    </td>
                     <td style={{ padding:"11px 14px", fontWeight:600, color:"var(--c-pri)" }}>{ins.precioGremio?`$${parseFloat(ins.precioGremio).toLocaleString("es-AR")}`:"—"}</td>
                     <td style={{ padding:"11px 14px" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -8004,7 +8137,7 @@ function InsumosView({ setView, showToast }) {
       {/* Modal editar inline */}
       {editModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={() => setEditModal(null)}>
-          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:"100%", maxWidth:500, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:"100%", maxWidth:540, maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
             <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>✏️ Editar Insumo</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
               {[["Nombre","nombre","1 / -1"],["Código","codigo"],["Categoría","categoria"],["Precio Compra","precioCompra"],["Precio Venta","precioVenta"],["Precio Gremio","precioGremio"],["Stock Mínimo","stockMinimo"]].map(([label,key,col]) => (
@@ -8014,6 +8147,9 @@ function InsumosView({ setView, showToast }) {
                     style={{ width:"100%", padding:"9px 12px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
                 </div>
               ))}
+              <div style={{ gridColumn:"1 / -1" }}>
+                <EditorEscalas compacto escalas={editModal.escalas} onChange={l=>setEditModal(m=>({...m, escalas:l}))}/>
+              </div>
             </div>
             <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:20 }}>
               <button onClick={() => setEditModal(null)} style={{ padding:"9px 18px", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
@@ -8405,7 +8541,7 @@ function ModalMateriaPrima({ materia, proveedores, unidades, onClose, showToast 
 
 // ── Componente: Formulario Insumo (nuevo) ────────────────────────────────
 function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
-  const [form, setForm]   = useState({ codigo:"", nombre:"", categoria:"", precioCompra:"", precioVenta:"", precioGremio:"", stock:0, stockMinimo:0 });
+  const [form, setForm]   = useState({ codigo:"", nombre:"", categoria:"", precioCompra:"", precioVenta:"", precioGremio:"", stock:0, stockMinimo:0, escalas:[] });
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -8427,6 +8563,7 @@ function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
         precioGremio:  parseFloat(form.precioGremio)||0,
         stock:         parseFloat(form.stock)||0,
         stockMinimo:   parseFloat(form.stockMinimo)||0,
+        escalas:       limpiarEscalas(form.escalas),
       });
       showToast("Insumo creado ✅");
       setView("insumos");
@@ -8478,6 +8615,9 @@ function FormularioInsumo({ view, editingInsumoId, setView, showToast }) {
           <div>
             <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Stock Mínimo (alerta)</label>
             <input type="number" value={form.stockMinimo} onChange={e=>setForm(f=>({...f,stockMinimo:e.target.value}))} placeholder="0" style={inp3()}/>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <EditorEscalas escalas={form.escalas} onChange={l=>setForm(f=>({...f, escalas:l}))}/>
           </div>
         </div>
         <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:28 }}>
@@ -8602,6 +8742,7 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
   const [selected, setSelected]   = useState(clienteDestacado || null);
   const [pagoModal, setPagoModal] = useState(null);
   const [montoPago, setMontoPago] = useState("");
+  const [tabCli, setTabCli]       = useState("todos"); // todos | cc
 
   // Limpiar el destacado una vez usado
   useEffect(() => {
@@ -8610,8 +8751,13 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
 
   const filtrados = clientes.filter(c => {
     const q = busq.toLowerCase();
+    if (tabCli === "cc" && !((parseFloat(c.saldoCuenta)||0) > 0)) return false;
     return !busq || `${c.nombre} ${c.apellido} ${c.empresa||""} ${c.telefono||""} ${c.mail||""} ${c.notasArchivos||""} ${c.notasNroCorte||""} ${c.notasDescuento||""} ${c.notasGenerales||""}`.toLowerCase().includes(q);
-  }).sort((a,b) => `${a.nombre}${a.apellido}`.localeCompare(`${b.nombre}${b.apellido}`));
+  }).sort((a,b) => tabCli === "cc"
+    ? (parseFloat(b.saldoCuenta)||0) - (parseFloat(a.saldoCuenta)||0)
+    : `${a.nombre}${a.apellido}`.localeCompare(`${b.nombre}${b.apellido}`));
+  const deudores    = clientes.filter(c => (parseFloat(c.saldoCuenta)||0) > 0);
+  const totalDeuda  = deudores.reduce((t,c) => t + (parseFloat(c.saldoCuenta)||0), 0);
 
   const pedidosCliente = (cl) => pedidos.filter(p =>
     p.clienteId === cl.fireId || p.cliente === `${cl.nombre} ${cl.apellido}`.trim()
@@ -8776,6 +8922,33 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
         </button>
       </div>
 
+      {/* Pestañas: todos / cuentas corrientes */}
+      <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
+        {[["todos","👥 Todos",clientes.length],["cc","📒 Cuentas corrientes",deudores.length]].map(([v,l,n]) => (
+          <button key={v} onClick={()=>setTabCli(v)}
+            style={{ padding:"9px 18px", borderRadius:10, border:"none", cursor:"pointer", fontSize:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif",
+              background:tabCli===v?"var(--c-pri)":"#fff", color:tabCli===v?"#fff":"#4a5568",
+              boxShadow:tabCli===v?"0 3px 10px rgba(var(--c-pri-rgb),.2)":"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>
+            {l}
+            <span style={{ marginLeft:6, background:tabCli===v?"rgba(255,255,255,.25)":(v==="cc"&&n>0?"#ffebee":"#f0f3f9"), color:tabCli===v?"#fff":(v==="cc"&&n>0?"#c62828":"#a09080"), borderRadius:20, padding:"1px 8px", fontSize:12, fontWeight:700 }}>{n}</span>
+          </button>
+        ))}
+      </div>
+
+      {tabCli === "cc" && (
+        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 20px", marginBottom:14, display:"flex", gap:28, flexWrap:"wrap", alignItems:"center", borderLeft:"4px solid #c62828" }}>
+          <div>
+            <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px" }}>Total adeudado</div>
+            <div style={{ fontSize:24, fontWeight:800, color:"#c62828" }}>${totalDeuda.toLocaleString("es-AR")}</div>
+          </div>
+          <div>
+            <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px" }}>Clientes que deben</div>
+            <div style={{ fontSize:24, fontWeight:800, color:"#1a2340" }}>{deudores.length}</div>
+          </div>
+          <div style={{ fontSize:12, color:"#a09080", flex:1, minWidth:200 }}>Ordenados de mayor a menor deuda. Tocá 💵 para registrar un pago (entra a la caja).</div>
+        </div>
+      )}
+
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px", marginBottom:18 }}>
         <div style={{ position:"relative" }}>
           <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔍</span>
@@ -8786,9 +8959,9 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
 
       {filtrados.length === 0 ? (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"52px 24px", textAlign:"center" }}>
-          <div style={{ fontSize:40, marginBottom:14 }}>👥</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq?"Sin resultados":"No hay clientes aún"}</div>
-          <div style={{ color:"#a09080", fontSize:14 }}>Agregá tu primer cliente con el botón de arriba</div>
+          <div style={{ fontSize:40, marginBottom:14 }}>{tabCli==="cc"&&!busq?"✅":"👥"}</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq?"Sin resultados":tabCli==="cc"?"Nadie debe plata":"No hay clientes aún"}</div>
+          <div style={{ color:"#a09080", fontSize:14 }}>{tabCli==="cc"?"Todas las cuentas corrientes están al día":"Agregá tu primer cliente con el botón de arriba"}</div>
         </div>
       ) : (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
@@ -8830,6 +9003,10 @@ function ClientesView({ clientes, pedidos, setView, setFormData, setEditingClien
                     </td>
                     <td style={{ padding:"13px 16px" }} onClick={e=>e.stopPropagation()}>
                       <div style={{ display:"flex", gap:6 }}>
+                        {saldo > 0 && (
+                          <button onClick={() => { setSelected(cl.fireId); setPagoModal({ cliente: cl }); }} title="Registrar pago"
+                            style={{ background:"#e8f5e9", border:"1.5px solid #2e7d32", color:"#2e7d32", padding:"5px 10px", borderRadius:6, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>💵{tabCli==="cc"?" Cobrar":""}</button>
+                        )}
                         <button onClick={() => { setEditingClienteId(cl.fireId); setView("editarCliente"); }}
                           style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"5px 10px", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer" }}>✏️</button>
                         <button onClick={() => handleDelete(cl)}
@@ -9365,7 +9542,7 @@ function CajaDiariaView({ showToast }) {
         <CajaCierres cierres={cierres} movs={movs} cfg={cfg} onCerrar={setCierreFecha}/>
       )}
       {cargado && vista === "resumen" && (
-        <CajaResumen movs={movs} cfg={cfg} monedaDe={monedaDe} iconoCat={iconoCat}/>
+        <CajaResumen movs={movs} cfg={cfg} monedaDe={monedaDe} iconoCat={iconoCat} saldos={saldos}/>
       )}
       {cargado && vista === "ajustes" && (
         <CajaAjustes key={JSON.stringify(cfg)} cfg={cfg} guardarCfg={guardarCfg} saldos={saldos} movs={movs} showToast={showToast} onImportar={() => setImportando(true)}/>
@@ -10248,10 +10425,100 @@ function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar
 }
 
 // ── Resumen mensual ──────────────────────────────────────────────────────
-function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
+// ── Reserva mínima recomendada (cuánta plata en pesos necesita el negocio) ──
+// Se calcula con los últimos 3 meses completos:
+//   peor mes de gastos de la gráfica + promedio de gastos personales (+ medio sueldo en meses de aguinaldo).
+// No cuenta compra de maquinaria, ahorro/dólares ni vacaciones (son decisiones, no gastos fijos).
+const RE_NO_FIJO   = /maquin|equipo|inversion|ahorro|compra dolar|dolar/;
+const RE_VACACION  = /vacacion|viaje/;
+function calcularReserva(movs, cfg, monedaDe) {
+  const actual = hoyISO().slice(0,7);
+  const meses = [...new Set(movs.map(m => (m.fecha||"").slice(0,7)).filter(ym => ym && ym < actual))].sort().slice(-3);
+  if (!meses.length) return null;
+  const personales = new Set((cfg.catsEgreso||[]).filter(x => x.personal).map(x => x.nombre));
+  const porMes = meses.map(ym => {
+    const r = { ym, negocio:0, personal:0, sueldos:0 };
+    movs.filter(m => m.tipo === "egreso" && (m.fecha||"").startsWith(ym) && monedaDe(m.cuenta) === "ARS").forEach(m => {
+      const cat = m.categoria || "", n = normTxt(cat), v = parseFloat(m.monto)||0;
+      if (RE_NO_FIJO.test(n) || RE_VACACION.test(n)) return;
+      if (personales.has(cat)) r.personal += v; else r.negocio += v;
+      if (/sueldo|salario/.test(n)) r.sueldos += v;
+    });
+    return r;
+  });
+  const prom = (k) => porMes.reduce((t,x) => t + x[k], 0) / porMes.length;
+  const peor = porMes.reduce((a,x) => x.negocio > a.negocio ? x : a, porMes[0]);
+  const mesHoy = +actual.slice(5);
+  const aguinaldo = [5,6,11,12].includes(mesHoy) ? prom("sueldos") / 2 : 0;
+  const personal = prom("personal");
+  const total = Math.ceil((peor.negocio + personal + aguinaldo) / 100000) * 100000;
+  return { meses, porMes, peor, negocioProm: prom("negocio"), personal, aguinaldo, total, separa: personales.size > 0 };
+}
+function ReservaRecomendada({ movs, cfg, monedaDe, saldos }) {
+  const r = calcularReserva(movs, cfg, monedaDe);
+  if (!r) return null;
+  const cajasPesos = cfg.cuentas.filter(c => c.moneda !== "USD");
+  const disponible = cajasPesos.reduce((t,c) => t + (saldos?.[c.id]||0), 0);
+  const sobra = disponible - r.total;
+  const mesesTxt = r.meses.map(ym => MESES_ES[+ym.slice(5)-1].toLowerCase()).join(", ");
+  const fila = (txt, v, sub) => (
+    <div style={{ display:"flex", justifyContent:"space-between", gap:10, fontSize:13, padding:"6px 0", borderBottom:"1px solid #c8e6c9" }}>
+      <span style={{ color:"#1a2340" }}>{txt}{sub && <span style={{ display:"block", fontSize:11, color:"#6b8f6e" }}>{sub}</span>}</span>
+      <b style={{ whiteSpace:"nowrap" }}>{fmtMoneda(v)}</b>
+    </div>
+  );
+  return (
+    <div style={{ ...cajaCard, borderLeft:"5px solid #2e7d32" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, flexWrap:"wrap" }}>
+        <div style={{ flex:"1 1 280px" }}>
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a2340" }}>🛟 Reserva mínima recomendada en pesos</div>
+          <div style={{ fontSize:12, color:"#a09080", marginTop:2 }}>Calculada con {mesesTxt}. Se actualiza sola cada mes.</div>
+          <div style={{ marginTop:10 }}>
+            {fila("🏪 Un mes de la gráfica (el peor de esos meses)", r.peor.negocio, `${nombreMes(r.peor.ym)} · promedio ${fmtMoneda(r.negocioProm)}`)}
+            {r.separa
+              ? fila("🏠 Un mes de tus gastos personales", r.personal, "promedio, sin vacaciones")
+              : <div style={{ fontSize:12, color:"#a09080", padding:"6px 0" }}>💡 Marcá tus categorías 🏠 personales en <b>Cajas y categorías</b> para separarlas.</div>}
+            {r.aguinaldo > 0 && fila("👷 Aguinaldo que se viene", r.aguinaldo, "medio sueldo promedio")}
+          </div>
+          <div style={{ fontSize:11, color:"#a09080", marginTop:8 }}>No cuenta compra de maquinaria, ahorro en dólares ni vacaciones.</div>
+        </div>
+        <div style={{ flex:"0 1 260px", display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ background:"#e8f5e9", borderRadius:10, padding:"12px 14px" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#2e7d32", textTransform:"uppercase" }}>Dejá en pesos</div>
+            <div style={{ fontSize:26, fontWeight:800, color:"#1b5e20" }}>{fmtMoneda(r.total)}</div>
+          </div>
+          <div style={{ background:"var(--c-softer)", borderRadius:10, padding:"10px 14px", fontSize:13, color:"#4a5568" }}>
+            Tenés en pesos: <b>{fmtMoneda(disponible)}</b>
+            <div style={{ fontSize:11, color:"#a09080" }}>{cajasPesos.map(c => c.nombre).join(" + ")}</div>
+          </div>
+          <div style={{ background: sobra > 0 ? "#e3f2fd" : "#fff3e0", borderRadius:10, padding:"10px 14px" }}>
+            <div style={{ fontSize:11, fontWeight:700, color: sobra > 0 ? "#1565c0" : "#e65100", textTransform:"uppercase" }}>{sobra > 0 ? "💲 Podés pasar a dólares" : "⚠️ Te faltan para la reserva"}</div>
+            <div style={{ fontSize:20, fontWeight:800, color: sobra > 0 ? "#0d47a1" : "#e65100" }}>{fmtMoneda(Math.abs(sobra))}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CajaResumen({ movs, cfg, monedaDe, iconoCat, saldos }) {
   const meses = [...new Set(movs.map(m => (m.fecha||"").slice(0,7)).filter(Boolean))].sort().reverse();
   const [mes, setMes] = useState(meses[0] || hoyISO().slice(0,7));
-  const delMes = movs.filter(m => (m.fecha||"").startsWith(mes));
+  const anios = [...new Set(meses.map(m => m.slice(0,4)))];
+  const [periodo, setPeriodo] = useState("mes"); // mes | anio
+  const [anio, setAnio] = useState(anios[0] || hoyISO().slice(0,4));
+  const prefijo = periodo === "anio" ? anio : mes;
+  // Para el promedio mensual del año se usan solo los meses completos (el mes en curso queda afuera)
+  const mesesCompletos = periodo === "anio" ? meses.filter(m => m.startsWith(anio) && m < hoyISO().slice(0,7)) : [];
+  const promAnual = (() => {
+    if (mesesCompletos.length < 2) return null;
+    const pers = new Set((cfg.catsEgreso||[]).filter(x => x.personal).map(x => x.nombre));
+    const ms = movs.filter(m => mesesCompletos.includes((m.fecha||"").slice(0,7)) && monedaDe(m.cuenta) === "ARS");
+    const sum = (f) => ms.filter(f).reduce((t,m) => t + (parseFloat(m.monto)||0), 0) / mesesCompletos.length;
+    const ing = sum(m => m.tipo === "ingreso"), neg = sum(m => m.tipo === "egreso" && !pers.has(m.categoria||"Sin categoría")), per = sum(m => m.tipo === "egreso" && pers.has(m.categoria||"Sin categoría"));
+    return { n: mesesCompletos.length, ing, neg, per, gan: ing - neg };
+  })();
+  const delMes = movs.filter(m => (m.fecha||"").startsWith(prefijo));
   const sumaPor = (tipo, moneda) => {
     const r = {};
     delMes.filter(m => m.tipo === tipo && monedaDe(m.cuenta) === moneda).forEach(m => { r[m.categoria||"Sin categoría"] = (r[m.categoria||"Sin categoría"]||0) + (parseFloat(m.monto)||0); });
@@ -10325,10 +10592,24 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <ReservaRecomendada movs={movs} cfg={cfg} monedaDe={monedaDe} saldos={saldos}/>
       <div style={{ ...cajaCard, display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-        <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...cajaInp, width:"auto", minWidth:180, fontWeight:700 }}>
-          {(meses.length ? meses : [mes]).map(m => <option key={m} value={m}>{nombreMes(m)}</option>)}
-        </select>
+        <div style={{ display:"flex", background:"var(--c-soft)", borderRadius:9, padding:3 }}>
+          {[["mes","Mes"],["anio","Año"]].map(([v,l]) => (
+            <button key={v} onClick={() => setPeriodo(v)}
+              style={{ border:"none", borderRadius:7, padding:"7px 14px", fontSize:13, fontWeight:700, cursor:"pointer",
+                background: periodo===v ? "var(--c-pri)" : "transparent", color: periodo===v ? "#fff" : "#4a5568" }}>{l}</button>
+          ))}
+        </div>
+        {periodo === "mes" ? (
+          <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...cajaInp, width:"auto", minWidth:180, fontWeight:700 }}>
+            {(meses.length ? meses : [mes]).map(m => <option key={m} value={m}>{nombreMes(m)}</option>)}
+          </select>
+        ) : (
+          <select value={anio} onChange={e => setAnio(e.target.value)} style={{ ...cajaInp, width:"auto", minWidth:120, fontWeight:700 }}>
+            {(anios.length ? anios : [anio]).map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        )}
         <div style={{ display:"flex", gap:22, flexWrap:"wrap", marginLeft:"auto" }}>
           {(separa
             ? [["Ingresos", ingT, "#2e7d32"], ["Gastos gráfica", negT, "#c62828"], ["Ganancia gráfica", ganancia, ganancia < 0 ? "#c62828" : "#1a2340"], ["Retiros personales", perT, "#6a1b9a"], ["Te quedó", ganancia-perT, ganancia-perT < 0 ? "#c62828" : "#2e7d32"]]
@@ -10341,9 +10622,14 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
       {separa ? (
         <div style={{ ...cajaCard, background:"#f3e5f5", padding:"14px 18px" }}>
           <div style={{ fontSize:14, color:"#4a148c", lineHeight:1.6 }}>
-            🏪 La gráfica <b>{ganancia >= 0 ? "ganó" : "perdió"} {fmtMoneda(Math.abs(ganancia))}</b> este mes (ingresos − gastos del negocio){ingT && ganancia > 0 ? <> · margen <b>{Math.round(ganancia/ingT*100)}%</b></> : null}.
+            🏪 La gráfica <b>{ganancia >= 0 ? "ganó" : "perdió"} {fmtMoneda(Math.abs(ganancia))}</b> {periodo === "anio" ? `en ${anio}` : "este mes"} (ingresos − gastos del negocio){ingT && ganancia > 0 ? <> · margen <b>{Math.round(ganancia/ingT*100)}%</b></> : null}.
             {perT > 0 && <>{" "}🏠 Retiraste <b>{fmtMoneda(perT)}</b> para gastos personales{ganancia > 0 ? <> (<b>{Math.round(perT/ganancia*100)}%</b> de la ganancia)</> : null}.
             {" "}{ganancia - perT >= 0 ? <>Quedaron <b>{fmtMoneda(ganancia-perT)}</b> en el negocio.</> : <>Retiraste <b>{fmtMoneda(perT-ganancia)}</b> más de lo que ganó la gráfica.</>}</>}
+            {promAnual && (
+              <div style={{ marginTop:6, fontSize:13, color:"#6a1b9a" }}>
+                📆 Promedio por mes ({promAnual.n} meses completos): ingresos <b>{fmtMoneda(Math.round(promAnual.ing))}</b> · gastos gráfica <b>{fmtMoneda(Math.round(promAnual.neg))}</b> · ganancia <b>{fmtMoneda(Math.round(promAnual.gan))}</b> · retiros <b>{fmtMoneda(Math.round(promAnual.per))}</b>.
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -10372,13 +10658,13 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat }) {
           </div>
           <div style={{ display:"flex", alignItems:"flex-end", gap:10, height:180, overflowX:"auto", paddingBottom:4 }}>
             {ult12.map(x => (
-              <div key={x.ym} onClick={() => setMes(x.ym)} title={`${nombreMes(x.ym)}\nIngresos: ${fmtMoneda(x.ing)}\nEgresos: ${fmtMoneda(x.egr)}\nResultado: ${fmtMoneda(x.ing-x.egr)}`}
+              <div key={x.ym} onClick={() => { setMes(x.ym); setPeriodo("mes"); }} title={`${nombreMes(x.ym)}\nIngresos: ${fmtMoneda(x.ing)}\nEgresos: ${fmtMoneda(x.egr)}\nResultado: ${fmtMoneda(x.ing-x.egr)}`}
                 style={{ flex:"1 0 48px", maxWidth:90, display:"flex", flexDirection:"column", alignItems:"center", cursor:"pointer", height:"100%", justifyContent:"flex-end" }}>
                 <div style={{ display:"flex", gap:3, alignItems:"flex-end", height:"100%", width:"100%", justifyContent:"center" }}>
                   <div style={{ width:"40%", height:`${x.ing/maxM*100}%`, minHeight:2, background:"#2e7d32", borderRadius:"3px 3px 0 0" }}/>
                   <div style={{ width:"40%", height:`${x.egr/maxM*100}%`, minHeight:2, background:"#e57373", borderRadius:"3px 3px 0 0" }}/>
                 </div>
-                <div style={{ fontSize:11, marginTop:5, fontWeight: x.ym===mes ? 800 : 500, color: x.ym===mes ? "var(--c-pri)" : "#4a5568", whiteSpace:"nowrap" }}>{MESES_ES[+x.ym.slice(5)-1].slice(0,3)} {x.ym.slice(2,4)}</div>
+                <div style={{ fontSize:11, marginTop:5, fontWeight: (periodo==="mes" ? x.ym===mes : x.ym.startsWith(anio)) ? 800 : 500, color: (periodo==="mes" ? x.ym===mes : x.ym.startsWith(anio)) ? "var(--c-pri)" : "#4a5568", whiteSpace:"nowrap" }}>{MESES_ES[+x.ym.slice(5)-1].slice(0,3)} {x.ym.slice(2,4)}</div>
               </div>
             ))}
           </div>
@@ -12250,7 +12536,7 @@ export default function App() {
         @media(max-width:700px){
           .sidebar,.sidebar-overlay{display:none!important}
           .mobile-menu-btn{display:flex;padding:4px 10px;font-size:20px}
-          .topbar{height:54px;padding:0 12px;gap:8px;position:sticky;top:0;z-index:150}
+          .topbar{height:calc(54px + env(safe-area-inset-top));padding:env(safe-area-inset-top) 12px 0;gap:8px;position:sticky;top:0;z-index:150}
           .topbar-title{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
           .topbar .ctx-btn{padding:6px 10px;font-size:12px;white-space:nowrap}
           .topbar .ctx-nuevo-pedido{display:none}
@@ -12265,7 +12551,8 @@ export default function App() {
           .main-content table:not([data-no-orden]){display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
           .card[style*="padding: 32px"],.card[style*="padding: 28px"],.card[style*="padding: 36px"]{padding:18px 14px!important}
           .modal-ov>div,div[style*="position: fixed"][style*="inset: 0"]>div{max-width:calc(100vw - 20px)!important;max-height:calc(100vh - 40px)!important;overflow-y:auto;padding-left:18px!important;padding-right:18px!important}
-          .busq-global-box{top:12px}
+          .busq-global-box{top:calc(12px + env(safe-area-inset-top))}
+          .modal-ov,div[style*="position: fixed"][style*="inset: 0"]{padding-top:env(safe-area-inset-top)!important}
           .nav-cel{display:grid;grid-template-columns:repeat(5,1fr);align-items:end;position:fixed;left:0;right:0;bottom:0;z-index:300;background:#fff;
             border-top:1px solid var(--c-border);box-shadow:0 -4px 18px rgba(0,0,0,.06);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
           .nav-cel button{background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:"DM Sans",sans-serif;
@@ -12733,7 +13020,9 @@ export default function App() {
                       </div>
                     ) : null;
                   })()
-                ) : (
+                ) : null}
+                {selectedClienteId && <AvisoDeuda cl={clientes.find(c => c.fireId === selectedClienteId)}/>}
+                {selectedClienteId ? null : (
                   <div style={{ position:"relative" }}>
                     <input
                       value={clienteSearch}
@@ -12761,7 +13050,7 @@ export default function App() {
                             onMouseOver={e=>e.currentTarget.style.background="var(--c-soft)"}
                             onMouseOut={e=>e.currentTarget.style.background="#fff"}>
                             <div>
-                              <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{cl.nombre} {cl.apellido} {cl.empresa&&<span style={{color:"#a09080",fontWeight:400}}>— {cl.empresa}</span>}</div>
+                              <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{cl.nombre} {cl.apellido} {cl.empresa&&<span style={{color:"#a09080",fontWeight:400}}>— {cl.empresa}</span>}<BadgeDeuda cl={cl}/></div>
                               {cl.telefono && <div style={{ fontSize:11, color:"var(--c-pri)", fontWeight:600 }}>📞 {cl.telefono}</div>}
                             </div>
                             <span style={{ fontSize:11, color:"#a09080" }}>Seleccionar →</span>
