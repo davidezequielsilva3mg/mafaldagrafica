@@ -2933,10 +2933,155 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
 const SQ_FT_TO_M2 = 0.092903;
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
-function ProduccionView({ showToast }) {
-  const [tabProd, setTabProd] = useState("plotter");
+// ── Producción → Pedidos por categoría (cantidad por mes y cómo viene creciendo) ──
+const MESES_CORTO = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+const mesDePedido = (p) => (p.fechaPedido || p.creadoEn || p.fechaEntrega || "").slice(0,7);
+function PedidosPorCategoria({ pedidos }) {
+  const actual = new Date().toLocaleDateString("sv-SE").slice(0,7);
+  const conMes = pedidos.filter(p => /^\d{4}-\d{2}$/.test(mesDePedido(p)));
+  const anios = [...new Set(conMes.map(p => mesDePedido(p).slice(0,4)))].sort().reverse();
+  const [rango, setRango] = useState("12");   // "12" = últimos 12 meses | "2026" = ese año
+  const [verCat, setVerCat] = useState("");   // categoría resaltada en el gráfico
+
+  // Lista de meses a mostrar
+  const meses = (() => {
+    if (rango === "12") {
+      const [y,m] = actual.split("-").map(Number); const r = [];
+      for (let i = 11; i >= 0; i--) { const d = new Date(y, m-1-i, 1); r.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); }
+      return r;
+    }
+    return Array.from({ length:12 }, (_,i) => `${rango}-${String(i+1).padStart(2,"0")}`).filter(ym => ym <= actual);
+  })();
+
+  // Conteo: cat → ym → cantidad
+  const tabla = {}; const totMes = {};
+  conMes.forEach(p => {
+    const ym = mesDePedido(p); if (!meses.includes(ym)) return;
+    const cat = p.categoria || "Sin categoría";
+    (tabla[cat] = tabla[cat] || {})[ym] = (tabla[cat][ym] || 0) + 1;
+    totMes[ym] = (totMes[ym] || 0) + 1;
+  });
+  const totCat = (cat) => meses.reduce((t,ym) => t + (tabla[cat][ym]||0), 0);
+  const cats = Object.keys(tabla).sort((a,b) => totCat(b) - totCat(a));
+  const totalGeneral = meses.reduce((t,ym) => t + (totMes[ym]||0), 0);
+  const maxMes = Math.max(1, ...meses.map(ym => totMes[ym]||0));
+  const maxCelda = Math.max(1, ...cats.flatMap(c => meses.map(ym => tabla[c][ym]||0)));
+
+  // Tendencia: último mes completo vs. promedio de los 3 anteriores
+  const completos = meses.filter(ym => ym < actual);
+  const ult = completos[completos.length-1], previos = completos.slice(-4, -1);
+  const tendencia = (fila) => {
+    if (!ult || previos.length < 2) return null;
+    const prom = previos.reduce((t,ym) => t + (fila[ym]||0), 0) / previos.length;
+    if (!prom) return (fila[ult]||0) > 0 ? { txt:"nuevo", col:"#2e7d32" } : null;
+    const pct = Math.round(((fila[ult]||0) - prom) / prom * 100);
+    if (Math.abs(pct) < 5) return { txt:"= estable", col:"#a09080" };
+    return pct > 0 ? { txt:`▲ ${pct}%`, col:"#2e7d32" } : { txt:`▼ ${Math.abs(pct)}%`, col:"#c62828" };
+  };
+  const tendTotal = tendencia(totMes);
+  const colorCat = (c) => CATEGORIA_COLOR[c]?.accent || "#9e9e9e";
+  const nomMes = (ym) => `${MESES_CORTO[+ym.slice(5)-1]}${rango === "12" ? " " + ym.slice(2,4) : ""}`;
+  const card = { background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"18px 20px" };
+  const th = { padding:"9px 4px", fontSize:10.5, fontWeight:700, color:"#a09080", textTransform:"uppercase", textAlign:"center", whiteSpace:"nowrap", borderBottom:"2px solid var(--c-border)" };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {/* Encabezado */}
+      <div style={{ ...card, display:"flex", gap:20, alignItems:"center", flexWrap:"wrap" }}>
+        <select value={rango} onChange={e => setRango(e.target.value)}
+          style={{ padding:"9px 12px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif", background:"#fff" }}>
+          <option value="12">Últimos 12 meses</option>
+          {anios.map(a => <option key={a} value={a}>Año {a}</option>)}
+        </select>
+        <div style={{ display:"flex", gap:26, flexWrap:"wrap", marginLeft:"auto" }}>
+          <div><div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>Pedidos</div><div style={{ fontSize:22, fontWeight:800, color:"#1a2340" }}>{totalGeneral}</div></div>
+          <div><div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>Promedio por mes</div><div style={{ fontSize:22, fontWeight:800, color:"#1a2340" }}>{completos.length ? Math.round(completos.reduce((t,ym) => t + (totMes[ym]||0), 0) / completos.length) : (totMes[actual]||0)}</div></div>
+          {ult && <div><div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{MESES_CORTO[+ult.slice(5)-1]} vs. 3 meses antes</div>
+            <div style={{ fontSize:22, fontWeight:800, color: tendTotal?.col || "#a09080" }}>{tendTotal?.txt || "—"}</div></div>}
+        </div>
+      </div>
+
+      {/* Gráfico apilado por mes */}
+      <div style={card}>
+        <div style={{ fontSize:15, fontWeight:700, color:"#1a2340", marginBottom:4 }}>📊 Pedidos por mes</div>
+        <div style={{ fontSize:12, color:"#a09080", marginBottom:12 }}>Tocá una categoría para ver solo esa.</div>
+        <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:200, overflowX:"auto", paddingBottom:4 }}>
+          {meses.map(ym => {
+            const tot = verCat ? (tabla[verCat]?.[ym]||0) : (totMes[ym]||0);
+            const maxRef = verCat ? Math.max(1, ...meses.map(x => tabla[verCat]?.[x]||0)) : maxMes;
+            return (
+              <div key={ym} title={`${nombreMes(ym)}: ${tot} pedidos`} style={{ flex:"1 0 34px", display:"flex", flexDirection:"column", alignItems:"center", height:"100%", justifyContent:"flex-end" }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"#1a2340", marginBottom:3 }}>{tot || ""}</div>
+                <div style={{ width:"70%", maxWidth:44, height:`${tot/maxRef*82}%`, minHeight: tot ? 3 : 0, display:"flex", flexDirection:"column-reverse", borderRadius:"4px 4px 0 0", overflow:"hidden", opacity: ym === actual ? .55 : 1 }}>
+                  {(verCat ? [verCat] : [...cats].reverse()).map(c => {
+                    const n = tabla[c]?.[ym]||0; if (!n) return null;
+                    return <div key={c} style={{ height:`${n/tot*100}%`, background:colorCat(c) }}/>;
+                  })}
+                </div>
+                <div style={{ fontSize:11, marginTop:5, color: ym===actual ? "var(--c-pri)" : "#4a5568", fontWeight: ym===actual ? 800 : 500, whiteSpace:"nowrap" }}>{nomMes(ym)}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:12 }}>
+          {cats.map(c => (
+            <button key={c} onClick={() => setVerCat(v => v === c ? "" : c)}
+              style={{ display:"flex", alignItems:"center", gap:5, border:`1.5px solid ${verCat===c ? colorCat(c) : "var(--c-border)"}`, background: verCat===c ? CATEGORIA_COLOR[c]?.bg || "#f5f5f5" : "#fff",
+                borderRadius:20, padding:"4px 10px", fontSize:12, fontWeight:600, color:"#1a2340", cursor:"pointer", opacity: verCat && verCat!==c ? .5 : 1 }}>
+              <span style={{ width:10, height:10, borderRadius:3, background:colorCat(c) }}/>{CATEGORIA_ICON[c]} {c}
+            </button>
+          ))}
+        </div>
+        {meses.includes(actual) && <div style={{ fontSize:11, color:"#a09080", marginTop:8 }}>La barra más clara es el mes en curso (todavía no terminó).</div>}
+      </div>
+
+      {/* Tabla categoría × mes */}
+      <div style={card}>
+        <div style={{ fontSize:15, fontWeight:700, color:"#1a2340", marginBottom:12 }}>📋 Cantidad por categoría</div>
+        {cats.length === 0 ? <div style={{ color:"#a09080", fontSize:13 }}>No hay pedidos en este período.</div> : (
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12.5, fontFamily:"'DM Sans',sans-serif" }}>
+            <thead><tr>
+              <th style={{ ...th, textAlign:"left", position:"sticky", left:0, background:"#fff" }}>Categoría</th>
+              {meses.map(ym => <th key={ym} style={{ ...th, color: ym===actual ? "var(--c-pri)" : th.color }}>{nomMes(ym)}</th>)}
+              <th style={th}>Total</th>
+              <th style={th} title="Último mes completo comparado con el promedio de los 3 anteriores">Tendencia</th>
+            </tr></thead>
+            <tbody>
+              {cats.map(c => { const t = tendencia(tabla[c]); return (
+                <tr key={c} style={{ borderBottom:"1px solid var(--c-soft)" }}>
+                  <td style={{ padding:"8px 10px", fontWeight:600, color:"#1a2340", whiteSpace:"nowrap", position:"sticky", left:0, background:"#fff" }}>{CATEGORIA_ICON[c]} {c}</td>
+                  {meses.map(ym => { const n = tabla[c][ym]||0; return (
+                    <td key={ym} style={{ padding:"8px 6px", textAlign:"center", fontWeight: n ? 700 : 400, color: n ? "#1a2340" : "#d0c4ba",
+                      background: n ? `color-mix(in srgb, ${colorCat(c)} ${Math.round(8 + n/maxCelda*40)}%, white)` : "transparent" }}>{n || "·"}</td>
+                  ); })}
+                  <td style={{ padding:"8px 10px", textAlign:"center", fontWeight:800, color:"var(--c-pri)" }}>{totCat(c)}</td>
+                  <td style={{ padding:"8px 10px", textAlign:"center", fontWeight:700, color:t?.col || "#d0c4ba", whiteSpace:"nowrap" }}>{t?.txt || "—"}</td>
+                </tr>
+              ); })}
+              <tr style={{ background:"var(--c-softer)" }}>
+                <td style={{ padding:"9px 10px", fontWeight:800, color:"#1a2340", position:"sticky", left:0, background:"var(--c-softer)" }}>Total</td>
+                {meses.map(ym => <td key={ym} style={{ padding:"9px 6px", textAlign:"center", fontWeight:800, color:"#1a2340" }}>{totMes[ym]||0}</td>)}
+                <td style={{ padding:"9px 10px", textAlign:"center", fontWeight:800, color:"var(--c-pri)" }}>{totalGeneral}</td>
+                <td style={{ padding:"9px 10px", textAlign:"center", fontWeight:800, color:tendTotal?.col || "#d0c4ba", whiteSpace:"nowrap" }}>{tendTotal?.txt || "—"}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        )}
+        <div style={{ fontSize:11, color:"#a09080", marginTop:10 }}>
+          Se cuenta cada pedido en el mes en que se tomó (fecha del pedido), en cualquier estado. Tendencia = {ult ? nombreMes(ult) : "último mes completo"} comparado con el promedio de los 3 meses anteriores.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProduccionView({ showToast, pedidos = [] }) {
+  const [tabProd, setTabProd] = useState("pedidos");
 
   const TABS = [
+    { id:"pedidos", label:"📊 Pedidos por categoría" },
     { id:"plotter", label:"🖨️ Hancolor i3200" },
     { id:"konica",  label:"🖥️ Konica Minolta C558" },
     { id:"tinta",   label:"💧 Impresoras de tinta" },
@@ -2957,6 +3102,7 @@ function ProduccionView({ showToast }) {
           </button>
         ))}
       </div>
+      {tabProd==="pedidos" && <PedidosPorCategoria pedidos={pedidos}/>}
       {tabProd==="plotter" && <PlotterView showToast={showToast}/>}
       {tabProd==="konica"  && <KonicaView  showToast={showToast}/>}
       {tabProd==="tinta"   && <TintaView   showToast={showToast}/>}
@@ -13425,7 +13571,7 @@ export default function App() {
 
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
-        {view==="produccion"   && <ProduccionView showToast={showToast}/>}
+        {view==="produccion"   && <ProduccionView showToast={showToast} pedidos={pedidos}/>}
         {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido} clientes={clientes}/>}
 
         {view==="finanzas" && (
