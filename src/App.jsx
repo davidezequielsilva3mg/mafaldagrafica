@@ -3083,8 +3083,8 @@ function ProduccionView({ showToast, pedidos = [] }) {
   const TABS = [
     { id:"pedidos", label:"📊 Pedidos por categoría" },
     { id:"plotter", label:"🖨️ Hancolor i3200" },
-    { id:"konica",  label:"🖥️ Konica Minolta C558" },
-    { id:"tinta",   label:"💧 Impresoras de tinta" },
+    { id:"impresoras", label:"🖨️ Impresoras" },
+    { id:"insumos", label:"📦 Insumos" },
   ];
 
   return (
@@ -3104,13 +3104,13 @@ function ProduccionView({ showToast, pedidos = [] }) {
       </div>
       {tabProd==="pedidos" && <PedidosPorCategoria pedidos={pedidos}/>}
       {tabProd==="plotter" && <PlotterView showToast={showToast}/>}
-      {tabProd==="konica"  && <KonicaView  showToast={showToast}/>}
-      {tabProd==="tinta"   && <TintaView   showToast={showToast}/>}
+      {tabProd==="impresoras" && <ImpresorasView showToast={showToast}/>}
+      {tabProd==="insumos"    && <ComprasInsumosView showToast={showToast}/>}
     </div>
   );
 }
 
-// ── Impresoras de Tinta ───────────────────────────────────────────────────
+// ── Colores de tinta y papeles (usados por Impresoras e Insumos) ─────────
 const COLORES_TINTA = [
   { id:"negro",     label:"Negro",      color:"#212121", bg:"#f5f5f5" },
   { id:"cian",      label:"Cian",       color:"#0097a7", bg:"#e0f7fa" },
@@ -3123,316 +3123,602 @@ const COLORES_TINTA = [
 const TIPOS_PAPEL = ["Brillante", "Mate", "Satinado", "Seda", "Canvas", "Adhesivo brillante", "Adhesivo mate", "Otro"];
 const TAMAÑOS_PAPEL = ["10×15", "13×18", "15×20", "A4", "A3", "A3+", "Rollo", "Otro"];
 
-function TintaView({ showToast }) {
-  const [tintas,   setTintas]   = useState([]);
-  const [papeles,  setPapeles]  = useState([]);
-  const [loadingT, setLoadingT] = useState(true);
-  const [loadingP, setLoadingP] = useState(true);
-  const [modalTinta,  setModalTinta]  = useState(false);
-  const [modalPapel,  setModalPapel]  = useState(false);
-  const [tabInk, setTabInk]          = useState("tintas");
+// ── Producción → Impresoras e Insumos ────────────────────────────────────
+// Colecciones:
+//   impresoras         { nombre, marca, modelo, notas, creadoEn }
+//   tintasInkjet       { impresoraId, impresoraNombre, colores[], color, marca, cantidad, precio, fecha, nota }  (las viejas no tienen impresoraId)
+//   impresoraServices  { impresoraId, impresoraNombre, tipo, descripcion, tecnico, precio, fecha, nota }
+//   comprasInsumos     { insumo, proveedorId, proveedorNombre, fecha, cantidad, unidad, precio (total), nota }
+//   papelesInkjet      (viejo: se muestra dentro de Insumos)
+function useColeccion(nombre) {
+  const [datos, setDatos] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  useEffect(() => onSnapshot(collection(db, nombre),
+    snap => { setDatos(snap.docs.map(d => ({ ...d.data(), fireId:d.id }))); setCargando(false); },
+    () => setCargando(false)), [nombre]);
+  return [datos, cargando];
+}
+const nomProveedor = (p) => p?.empresa || p?.titular || p?.nombre || "Sin nombre";
+const KONICA_ID = "__konica";
+const TIPOS_SERVICE = [
+  { id:"service",  label:"🔧 Service / reparación" },
+  { id:"limpieza", label:"🧽 Limpieza de cabezal" },
+  { id:"repuesto", label:"⚙️ Repuesto" },
+  { id:"otro",     label:"📝 Otro" },
+];
+const UNIDADES_INSUMO = ["unidades","hojas","resmas","rollos","metros","m²","cajas","litros","kg"];
+const hoyLocal = () => new Date().toLocaleDateString("sv-SE");
+const $ar = (n) => `$${Math.round(parseFloat(n)||0).toLocaleString("es-AR")}`;
+const coloresDe = (t) => (t.colores && t.colores.length ? t.colores : [t.color || "otro"]);
 
-  // Form tinta
-  const [tColor,    setTColor]   = useState("negro");
-  const [tMarca,    setTMarca]   = useState("");
-  const [tCantidad, setTCantidad]= useState("");
-  const [tPrecio,   setTPrecio]  = useState("");
-  const [tFecha,    setTFecha]   = useState(new Date().toISOString().split("T")[0]);
-  const [tNota,     setTNota]    = useState("");
-  const [savingT,   setSavingT]  = useState(false);
+const prodCard = { background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)" };
+const prodInp  = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", background:"#fff" };
+const prodLbl  = { display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 };
+const prodTh   = { padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid var(--c-border)", background:"#f8f9fa", whiteSpace:"nowrap" };
+const prodTd   = { padding:"10px 12px", borderBottom:"1px solid var(--c-row)", fontSize:13, color:"#4a5568" };
+const btnPri   = (bg="var(--c-pri)") => ({ background:bg, color:"#fff", border:"none", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" });
+const btnDel   = { background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" };
 
-  // Form papel
-  const [pTipo,     setPTipo]    = useState("Brillante");
-  const [pTamaño,   setPTamaño]  = useState("A4");
-  const [pCantidad, setPCantidad]= useState("");
-  const [pPrecio,   setPPrecio]  = useState("");
-  const [pFecha,    setPFecha]   = useState(new Date().toISOString().split("T")[0]);
-  const [pNota,     setPNota]    = useState("");
-  const [savingP,   setSavingP]  = useState(false);
+function ProdModal({ titulo, onClose, children, onGuardar, guardando, textoGuardar = "💾 Guardar", ancho = 480 }) {
+  return (
+    <div className="modal-ov" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:10 }} onClick={guardando ? undefined : onClose}>
+      <div style={{ background:"#fff", borderRadius:16, padding:"24px 26px", width:ancho, maxWidth:"100%", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:18 }}>{titulo}</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>{children}</div>
+        <div style={{ display:"flex", gap:10, marginTop:22 }}>
+          <button onClick={onClose} style={{ flex:1, padding:11, background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+          <button onClick={onGuardar} disabled={guardando} style={{ ...btnPri(), flex:2, padding:11, fontSize:14 }}>{guardando ? "Guardando..." : textoGuardar}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    const u1 = onSnapshot(collection(db,"tintasInkjet"), snap => {
-      setTintas(snap.docs.map(d=>({...d.data(),fireId:d.id}))
-        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")));
-      setLoadingT(false);
-    });
-    const u2 = onSnapshot(collection(db,"papelesInkjet"), snap => {
-      setPapeles(snap.docs.map(d=>({...d.data(),fireId:d.id}))
-        .sort((a,b)=>b.fecha?.localeCompare(a.fecha||"")));
-      setLoadingP(false);
-    });
-    return ()=>{ u1(); u2(); };
-  }, []);
-
-  const handleGuardarTinta = async () => {
-    if (!tMarca.trim()) { showToast("Ingresá la marca/modelo","error"); return; }
-    setSavingT(true);
-    await addDoc(collection(db,"tintasInkjet"), {
-      color:tColor, marca:tMarca, cantidad:parseFloat(tCantidad)||1,
-      precio:parseFloat(tPrecio)||0, fecha:tFecha, nota:tNota,
-      cargadoEn:new Date().toISOString()
-    });
-    showToast("Tinta registrada ✅");
-    setSavingT(false); setModalTinta(false);
-    setTMarca(""); setTCantidad(""); setTPrecio(""); setTNota("");
-  };
-
-  const handleGuardarPapel = async () => {
-    if (!pCantidad) { showToast("Ingresá la cantidad","error"); return; }
-    setSavingP(true);
-    await addDoc(collection(db,"papelesInkjet"), {
-      tipo:pTipo, tamaño:pTamaño, cantidad:parseInt(pCantidad)||0,
-      precio:parseFloat(pPrecio)||0, fecha:pFecha, nota:pNota,
-      cargadoEn:new Date().toISOString()
-    });
-    showToast("Papel registrado ✅");
-    setSavingP(false); setModalPapel(false);
-    setPCantidad(""); setPPrecio(""); setPNota("");
-  };
-
-  const delTinta = async (r) => {
-    if (!window.confirm("¿Eliminar?")) return;
-    await deleteDoc(doc(db,"tintasInkjet",r.fireId));
-    showToast("Eliminado","error");
-  };
-  const delPapel = async (r) => {
-    if (!window.confirm("¿Eliminar?")) return;
-    await deleteDoc(doc(db,"papelesInkjet",r.fireId));
-    showToast("Eliminado","error");
-  };
-
-  const totalTintas = tintas.reduce((s,r)=>s+parseFloat(r.precio||0),0);
-  const totalPapeles = papeles.reduce((s,r)=>s+parseFloat(r.precio||0),0);
-
-  const inp = { width:"100%", padding:"10px 12px", borderRadius:8, border:"1.5px solid var(--c-border)",
-    fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" };
-
+// Selector de impresora en forma de botones (para que siempre pregunte a cuál se cargó)
+function ElegirImpresora({ impresoras, valor, onChange }) {
+  if (!impresoras.length) return <div style={{ background:"#fff3e0", color:"#e65100", borderRadius:8, padding:"10px 12px", fontSize:13 }}>Primero agregá una impresora con <b>➕ Agregar impresora</b>.</div>;
   return (
     <div>
-      {/* Sub-tabs + botones */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:10 }}>
-        <div style={{ display:"flex", gap:8 }}>
-          {[["tintas","💧 Tintas"],["papeles","📄 Papeles fotográficos"]].map(([id,lbl])=>(
-            <button key={id} onClick={()=>setTabInk(id)}
-              style={{ padding:"9px 20px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
-                background:tabInk===id?"#1a2340":"#fff", color:tabInk===id?"#fff":"#4a5568",
-                boxShadow:tabInk===id?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(0,0,0,.06)" }}>
-              {lbl}
-            </button>
-          ))}
-        </div>
-        <div style={{ display:"flex", gap:10 }}>
-          <button onClick={()=>setModalPapel(true)}
-            style={{ background:"#1a2340", color:"#fff", border:"none", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            ➕ Registrar papel
+      <label style={prodLbl}>¿A qué impresora? *</label>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+        {impresoras.map(i => (
+          <button key={i.fireId} type="button" onClick={() => onChange(i.fireId)}
+            style={{ padding:"8px 14px", borderRadius:10, cursor:"pointer", fontSize:13, fontWeight:700, fontFamily:"'DM Sans',sans-serif",
+              border:`2px solid ${valor===i.fireId ? "var(--c-pri)" : "var(--c-border)"}`, background: valor===i.fireId ? "var(--c-tint)" : "#fff", color:"#1a2340" }}>
+            🖨️ {i.nombre}{i.modelo && <span style={{ fontWeight:400, color:"#a09080" }}> · {i.modelo}</span>}
           </button>
-          <button onClick={()=>setModalTinta(true)}
-            style={{ background:"var(--c-pri)", color:"#fff", border:"none", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            ➕ Registrar tinta
-          </button>
-        </div>
-      </div>
-
-      {/* KPIs */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
-        {[
-          { label:"Reposiciones de tinta", valor:tintas.length, color:"var(--c-pri)" },
-          { label:"Invertido en tinta", valor:`$${totalTintas.toLocaleString("es-AR")}`, color:"var(--c-pri)" },
-          { label:"Compras de papel", valor:papeles.length, color:"#1a2340" },
-          { label:"Invertido en papel", valor:`$${totalPapeles.toLocaleString("es-AR")}`, color:"#1a2340" },
-        ].map((k,i)=>(
-          <div key={i} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px" }}>
-            <div style={{ fontSize:10, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>{k.label}</div>
-            <div style={{ fontSize:20, fontWeight:800, color:k.color }}>{k.valor}</div>
-          </div>
         ))}
       </div>
+    </div>
+  );
+}
 
-      {/* ── TAB TINTAS ── */}
-      {tabInk==="tintas" && (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
-          <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--c-border)", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
-            <div style={{ fontWeight:700, fontSize:15, color:"#1a2340" }}>💧 Historial de tintas</div>
-            {/* Resumen por color */}
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-              {COLORES_TINTA.map(c=>{
-                const cant = tintas.filter(t=>t.color===c.id).length;
-                if (!cant) return null;
-                return <span key={c.id} style={{ background:c.bg, color:c.color, border:`1.5px solid ${c.color}40`, padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>{c.label}: {cant}</span>;
-              })}
+function ModalImpresora({ inicial, onClose, showToast }) {
+  const [f, setF] = useState({ nombre:"", marca:"", modelo:"", notas:"", ...(inicial||{}) });
+  const [guardando, setGuardando] = useState(false);
+  const set = (k, v) => setF(x => ({ ...x, [k]:v }));
+  const guardar = async () => {
+    if (!f.nombre.trim()) { showToast("Poné un nombre para la impresora","error"); return; }
+    setGuardando(true);
+    try {
+      const data = { nombre:f.nombre.trim(), marca:f.marca.trim(), modelo:f.modelo.trim(), notas:f.notas.trim() };
+      if (inicial?.fireId) await updateDoc(doc(db,"impresoras",inicial.fireId), data);
+      else await addDoc(collection(db,"impresoras"), { ...data, creadoEn:new Date().toISOString() });
+      showToast(inicial?.fireId ? "Impresora actualizada ✅" : "Impresora agregada ✅");
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al guardar","error"); setGuardando(false); }
+  };
+  return (
+    <ProdModal titulo={inicial?.fireId ? "✏️ Editar impresora" : "🖨️ Agregar impresora"} onClose={onClose} onGuardar={guardar} guardando={guardando}>
+      <div><label style={prodLbl}>Nombre *</label><input value={f.nombre} onChange={e=>set("nombre",e.target.value)} placeholder="Ej: Epson del mostrador" style={prodInp} autoFocus/></div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        <div><label style={prodLbl}>Marca</label><input value={f.marca} onChange={e=>set("marca",e.target.value)} placeholder="Epson" style={prodInp}/></div>
+        <div><label style={prodLbl}>Modelo</label><input value={f.modelo} onChange={e=>set("modelo",e.target.value)} placeholder="L8050" style={prodInp}/></div>
+      </div>
+      <div><label style={prodLbl}>Notas (opcional)</label><input value={f.notas} onChange={e=>set("notas",e.target.value)} placeholder="Ej: comprada en 2024, usa tinta 664" style={prodInp}/></div>
+    </ProdModal>
+  );
+}
+
+function ModalTintaImpresora({ impresoras, impresoraId, marcasPrevias, onClose, showToast }) {
+  const [imp, setImp] = useState(impresoraId || (impresoras.length === 1 ? impresoras[0].fireId : ""));
+  const [colores, setColores] = useState([]);
+  const [marca, setMarca] = useState("");
+  const [fecha, setFecha] = useState(hoyLocal());
+  const [cantidad, setCantidad] = useState("");
+  const [precio, setPrecio] = useState("");
+  const [nota, setNota] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const toggle = (id) => setColores(c => c.includes(id) ? c.filter(x => x !== id) : [...c, id]);
+  const guardar = async () => {
+    const i = impresoras.find(x => x.fireId === imp);
+    if (!i) { showToast("Elegí a qué impresora le cargaste la tinta","error"); return; }
+    if (!colores.length) { showToast("Elegí al menos un color","error"); return; }
+    setGuardando(true);
+    try {
+      await addDoc(collection(db,"tintasInkjet"), {
+        impresoraId:i.fireId, impresoraNombre:i.nombre, colores, color:colores[0], marca:marca.trim(),
+        cantidad:parseFloat(cantidad)||1, precio:parseFloat(precio)||0, fecha, nota:nota.trim(), cargadoEn:new Date().toISOString(),
+      });
+      showToast(`Tinta cargada a ${i.nombre} ✅`);
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al guardar","error"); setGuardando(false); }
+  };
+  return (
+    <ProdModal titulo="💧 Cargar tinta" onClose={onClose} onGuardar={guardar} guardando={guardando} textoGuardar="💧 Registrar">
+      <ElegirImpresora impresoras={impresoras} valor={imp} onChange={setImp}/>
+      <div>
+        <label style={prodLbl}>Colores que cargaste *</label>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+          {COLORES_TINTA.map(c => (
+            <div key={c.id} onClick={() => toggle(c.id)}
+              style={{ padding:9, borderRadius:10, cursor:"pointer", textAlign:"center", border:`2px solid ${colores.includes(c.id) ? c.color : "var(--c-border)"}`, background: colores.includes(c.id) ? c.bg : "#fff" }}>
+              <div style={{ fontWeight:700, fontSize:12, color:c.color }}>{colores.includes(c.id) ? "✓ " : ""}{c.label}</div>
             </div>
+          ))}
+        </div>
+      </div>
+      <div>
+        <label style={prodLbl}>Marca / producto</label>
+        <input list="marcas-tinta" value={marca} onChange={e=>setMarca(e.target.value)} placeholder="Ej: Epson T664 original" style={prodInp}/>
+        <datalist id="marcas-tinta">{marcasPrevias.map(m => <option key={m} value={m}/>)}</datalist>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1.3fr 1fr 1fr", gap:12 }}>
+        <div><label style={prodLbl}>Fecha</label><input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} style={prodInp}/></div>
+        <div><label style={prodLbl}>Cantidad</label><input type="number" value={cantidad} onChange={e=>setCantidad(e.target.value)} placeholder="1" style={prodInp}/></div>
+        <div><label style={prodLbl}>Precio ($)</label><input type="number" value={precio} onChange={e=>setPrecio(e.target.value)} placeholder="0" style={prodInp}/></div>
+      </div>
+      <div><label style={prodLbl}>Nota (opcional)</label><input value={nota} onChange={e=>setNota(e.target.value)} placeholder="Ej: comprada en Mercado Libre" style={prodInp}/></div>
+    </ProdModal>
+  );
+}
+
+function ModalServiceImpresora({ impresoras, impresoraId, onClose, showToast }) {
+  const [imp, setImp] = useState(impresoraId || (impresoras.length === 1 ? impresoras[0].fireId : ""));
+  const [f, setF] = useState({ tipo:"service", descripcion:"", tecnico:"", fecha:hoyLocal(), precio:"", nota:"" });
+  const [guardando, setGuardando] = useState(false);
+  const set = (k, v) => setF(x => ({ ...x, [k]:v }));
+  const guardar = async () => {
+    const i = impresoras.find(x => x.fireId === imp);
+    if (!i) { showToast("Elegí la impresora","error"); return; }
+    if (!f.descripcion.trim()) { showToast("Contá qué se le hizo","error"); return; }
+    setGuardando(true);
+    try {
+      await addDoc(collection(db,"impresoraServices"), {
+        impresoraId:i.fireId, impresoraNombre:i.nombre, tipo:f.tipo, descripcion:f.descripcion.trim(), tecnico:f.tecnico.trim(),
+        precio:parseFloat(f.precio)||0, fecha:f.fecha, nota:f.nota.trim(), cargadoEn:new Date().toISOString(),
+      });
+      showToast(`Registrado en ${i.nombre} ✅`);
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al guardar","error"); setGuardando(false); }
+  };
+  return (
+    <ProdModal titulo="🔧 Registrar service / mantenimiento" onClose={onClose} onGuardar={guardar} guardando={guardando} textoGuardar="🔧 Registrar">
+      <ElegirImpresora impresoras={impresoras} valor={imp} onChange={setImp}/>
+      <div>
+        <label style={prodLbl}>Tipo</label>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          {TIPOS_SERVICE.map(t => (
+            <button key={t.id} type="button" onClick={() => set("tipo", t.id)}
+              style={{ padding:"7px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${f.tipo===t.id ? "#4a5568" : "var(--c-border)"}`, background: f.tipo===t.id ? "#4a5568" : "#fff", color: f.tipo===t.id ? "#fff" : "#4a5568" }}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+      <div><label style={prodLbl}>¿Qué se le hizo? *</label><input value={f.descripcion} onChange={e=>set("descripcion",e.target.value)} placeholder="Ej: cambio de almohadillas, limpieza general" style={prodInp} autoFocus/></div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        <div><label style={prodLbl}>Técnico / lugar</label><input value={f.tecnico} onChange={e=>set("tecnico",e.target.value)} placeholder="Opcional" style={prodInp}/></div>
+        <div><label style={prodLbl}>Fecha</label><input type="date" value={f.fecha} onChange={e=>set("fecha",e.target.value)} style={prodInp}/></div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:12 }}>
+        <div><label style={prodLbl}>Costo ($)</label><input type="number" value={f.precio} onChange={e=>set("precio",e.target.value)} placeholder="0" style={prodInp}/></div>
+        <div><label style={prodLbl}>Nota (opcional)</label><input value={f.nota} onChange={e=>set("nota",e.target.value)} style={prodInp}/></div>
+      </div>
+    </ProdModal>
+  );
+}
+
+function ChipsColores({ t }) {
+  return (
+    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+      {coloresDe(t).map(id => { const c = COLORES_TINTA.find(x => x.id === id) || COLORES_TINTA[COLORES_TINTA.length-1];
+        return <span key={id} style={{ background:c.bg, color:c.color, border:`1.5px solid ${c.color}50`, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>{c.label}</span>; })}
+    </div>
+  );
+}
+
+function ImpresorasView({ showToast }) {
+  const [impresoras, cargI] = useColeccion("impresoras");
+  const [tintas] = useColeccion("tintasInkjet");
+  const [services] = useColeccion("impresoraServices");
+  const [abierta, setAbierta] = useState(null);
+  const [modalImp, setModalImp] = useState(null);       // {} nueva | impresora a editar
+  const [modalTinta, setModalTinta] = useState(null);   // { impresoraId }
+  const [modalServ, setModalServ] = useState(null);     // { impresoraId }
+
+  const lista = [...impresoras].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""));
+  const ids = new Set(lista.map(i => i.fireId));
+  const marcasPrevias = [...new Set(tintas.map(t => (t.marca||"").trim()).filter(Boolean))].sort();
+  const sinImpresora = tintas.filter(t => !t.impresoraId || !ids.has(t.impresoraId)).sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""));
+  const datosDe = (id) => {
+    const ti = tintas.filter(t => t.impresoraId === id).sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""));
+    const se = services.filter(s => s.impresoraId === id).sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""));
+    return { ti, se, gastoT: ti.reduce((s,r) => s + (parseFloat(r.precio)||0), 0), gastoS: se.reduce((s,r) => s + (parseFloat(r.precio)||0), 0) };
+  };
+  const asignar = async (t, impId) => {
+    const i = lista.find(x => x.fireId === impId); if (!i) return;
+    await updateDoc(doc(db,"tintasInkjet",t.fireId), { impresoraId:i.fireId, impresoraNombre:i.nombre });
+    showToast(`Asignada a ${i.nombre} ✅`);
+  };
+  const asignarTodas = async (impId) => {
+    const i = lista.find(x => x.fireId === impId); if (!i) return;
+    if (!window.confirm(`¿Asignar las ${sinImpresora.length} cargas de tinta a "${i.nombre}"?`)) return;
+    for (const t of sinImpresora) await updateDoc(doc(db,"tintasInkjet",t.fireId), { impresoraId:i.fireId, impresoraNombre:i.nombre });
+    showToast(`${sinImpresora.length} cargas asignadas a ${i.nombre} ✅`);
+  };
+  const borrarImpresora = async (i) => {
+    const { ti, se } = datosDe(i.fireId);
+    const n = ti.length + se.length;
+    if (!window.confirm(n ? `"${i.nombre}" tiene ${n} registros. Si la borrás, sus cargas de tinta quedan "sin impresora" para reasignarlas.\n\n¿Borrar igual?` : `¿Borrar "${i.nombre}"?`)) return;
+    await deleteDoc(doc(db,"impresoras",i.fireId));
+    setAbierta(null); showToast("Impresora borrada","error");
+  };
+  const delTinta = async (r) => { if (!window.confirm("¿Eliminar esta carga de tinta?")) return; await deleteDoc(doc(db,"tintasInkjet",r.fireId)); showToast("Eliminado","error"); };
+  const delServ  = async (r) => { if (!window.confirm("¿Eliminar este registro?")) return; await deleteDoc(doc(db,"impresoraServices",r.fireId)); showToast("Eliminado","error"); };
+
+  const modales = (
+    <>
+      {modalImp && <ModalImpresora inicial={modalImp} onClose={() => setModalImp(null)} showToast={showToast}/>}
+      {modalTinta && <ModalTintaImpresora impresoras={lista} impresoraId={modalTinta.impresoraId} marcasPrevias={marcasPrevias} onClose={() => setModalTinta(null)} showToast={showToast}/>}
+      {modalServ && <ModalServiceImpresora impresoras={lista} impresoraId={modalServ.impresoraId} onClose={() => setModalServ(null)} showToast={showToast}/>}
+    </>
+  );
+  const volver = <button onClick={() => setAbierta(null)} style={{ background:"#fff", border:"1.5px solid var(--c-border)", color:"#4a5568", borderRadius:8, padding:"8px 14px", fontSize:13, fontWeight:700, cursor:"pointer" }}>← Impresoras</button>;
+
+  // ── Konica (tiene su propia pantalla de contadores y tóner)
+  if (abierta === KONICA_ID) return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+        {volver}<div style={{ fontSize:18, fontWeight:800, color:"#1a2340" }}>🖥️ Konica Minolta C558</div>
+      </div>
+      <KonicaView showToast={showToast}/>
+    </div>
+  );
+
+  // ── Detalle de una impresora
+  const imp = lista.find(i => i.fireId === abierta);
+  if (imp) {
+    const { ti, se, gastoT, gastoS } = datosDe(imp.fireId);
+    const historial = [...ti.map(r => ({ ...r, _k:"tinta" })), ...se.map(r => ({ ...r, _k:"serv" }))]
+      .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.cargadoEn||"").localeCompare(a.cargadoEn||""));
+    const porColor = COLORES_TINTA.map(c => ({ c, n: ti.filter(t => coloresDe(t).includes(c.id)).length })).filter(x => x.n);
+    return (
+      <div>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+          {volver}
+          <div style={{ flex:"1 1 200px" }}>
+            <div style={{ fontSize:19, fontWeight:800, color:"#1a2340" }}>🖨️ {imp.nombre}</div>
+            <div style={{ fontSize:13, color:"#a09080" }}>{[imp.marca, imp.modelo].filter(Boolean).join(" · ") || "Sin marca/modelo"}{imp.notas ? ` — ${imp.notas}` : ""}</div>
           </div>
-          {loadingT ? <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Cargando...</div>
-          : tintas.length===0 ? <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Sin registros — registrá tu primera reposición</div>
-          : (
-            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-              <thead><tr style={{ background:"#f8f9fa" }}>
-                {["Fecha","Color","Marca / Modelo","Cantidad","Precio","Notas",""].map(h=>(
-                  <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid var(--c-border)" }}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {tintas.map(r=>{
-                  const c = COLORES_TINTA.find(x=>x.id===r.color)||COLORES_TINTA[0];
-                  return (
-                    <tr key={r.fireId} style={{ borderBottom:"1px solid var(--c-row)" }}>
-                      <td style={{ padding:"11px 14px", color:"#4a5568" }}>{fmtFecha(r.fecha)}</td>
-                      <td style={{ padding:"11px 14px" }}>
-                        <span style={{ background:c.bg, color:c.color, border:`1.5px solid ${c.color}50`, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700 }}>{c.label}</span>
-                      </td>
-                      <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>{r.marca}</td>
-                      <td style={{ padding:"11px 14px", color:"#4a5568" }}>{r.cantidad} u.</td>
-                      <td style={{ padding:"11px 14px", fontWeight:700, color:"var(--c-pri)" }}>{r.precio?`$${parseFloat(r.precio).toLocaleString("es-AR")}`:"—"}</td>
-                      <td style={{ padding:"11px 14px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
-                      <td style={{ padding:"11px 10px" }}>
-                        <button onClick={()=>delTinta(r)} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
-                      </td>
+          <button onClick={() => setModalImp(imp)} style={{ background:"#fff", border:"1.5px solid var(--c-border)", borderRadius:8, padding:"8px 12px", cursor:"pointer", fontSize:13 }}>✏️ Editar</button>
+          <button onClick={() => borrarImpresora(imp)} style={{ ...btnDel, padding:"9px 12px", fontSize:13 }}>🗑</button>
+        </div>
+        <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+          <button onClick={() => setModalTinta({ impresoraId:imp.fireId })} style={btnPri()}>💧 Cargar tinta</button>
+          <button onClick={() => setModalServ({ impresoraId:imp.fireId })} style={btnPri("#4a5568")}>🔧 Registrar service</button>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:16 }}>
+          {[
+            { l:"Cargas de tinta", v:ti.length, s: ti[0] ? `última: ${fmtFecha(ti[0].fecha)}` : "" },
+            { l:"Gastado en tinta", v:$ar(gastoT) },
+            { l:"Services / mantenimiento", v:se.length, s: se[0] ? `último: ${fmtFecha(se[0].fecha)}` : "" },
+            { l:"Gastado en services", v:$ar(gastoS) },
+          ].map(k => (
+            <div key={k.l} style={{ ...prodCard, padding:"14px 16px" }}>
+              <div style={{ fontSize:10, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:5 }}>{k.l}</div>
+              <div style={{ fontSize:21, fontWeight:800, color:"#1a2340" }}>{k.v}</div>
+              {k.s && <div style={{ fontSize:11, color:"#a09080", marginTop:2 }}>{k.s}</div>}
+            </div>
+          ))}
+        </div>
+        {porColor.length > 0 && (
+          <div style={{ ...prodCard, padding:"12px 16px", marginBottom:16, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+            <span style={{ fontSize:12, fontWeight:700, color:"#4a5568" }}>Veces que se cargó cada color:</span>
+            {porColor.map(({ c, n }) => <span key={c.id} style={{ background:c.bg, color:c.color, border:`1.5px solid ${c.color}40`, padding:"3px 11px", borderRadius:20, fontSize:12, fontWeight:700 }}>{c.label}: {n}</span>)}
+          </div>
+        )}
+        <div style={{ ...prodCard, overflow:"hidden" }}>
+          <div style={{ padding:"14px 18px", borderBottom:"1px solid var(--c-border)", fontWeight:700, fontSize:15, color:"#1a2340" }}>📜 Historial</div>
+          {historial.length === 0 ? <div style={{ padding:28, textAlign:"center", color:"#a09080" }}>Todavía no hay registros para esta impresora.</div> : (
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr>{["Fecha","Qué","Detalle","Cant.","Precio","Nota",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {historial.map(r => (
+                    <tr key={r._k + r.fireId}>
+                      <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(r.fecha)}</td>
+                      <td style={prodTd}>{r._k === "tinta" ? <ChipsColores t={r}/> : <span style={{ background:"#eceff1", color:"#37474f", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700, whiteSpace:"nowrap" }}>{(TIPOS_SERVICE.find(x => x.id === r.tipo) || TIPOS_SERVICE[0]).label}</span>}</td>
+                      <td style={{ ...prodTd, fontWeight:600, color:"#1a2340" }}>{r._k === "tinta" ? (r.marca || "💧 Tinta") : r.descripcion}{r._k === "serv" && r.tecnico && <div style={{ fontSize:11, color:"#a09080", fontWeight:400 }}>{r.tecnico}</div>}</td>
+                      <td style={prodTd}>{r._k === "tinta" ? `${r.cantidad||1} u.` : "—"}</td>
+                      <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)" }}>{r.precio ? $ar(r.precio) : "—"}</td>
+                      <td style={{ ...prodTd, color:"#a09080", fontStyle:"italic" }}>{r.nota || "—"}</td>
+                      <td style={prodTd}><button onClick={() => r._k === "tinta" ? delTinta(r) : delServ(r)} style={btnDel}>🗑</button></td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
-      )}
+        {modales}
+      </div>
+    );
+  }
 
-      {/* ── TAB PAPELES ── */}
-      {tabInk==="papeles" && (
-        <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
-          <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--c-border)", fontWeight:700, fontSize:15, color:"#1a2340" }}>📄 Historial de papeles fotográficos</div>
-          {loadingP ? <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Cargando...</div>
-          : papeles.length===0 ? <div style={{ padding:32, textAlign:"center", color:"#a09080" }}>Sin registros — registrá tu primera compra de papel</div>
-          : (
-            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-              <thead><tr style={{ background:"#f8f9fa" }}>
-                {["Fecha","Tipo","Tamaño","Cantidad","Precio","Notas",""].map(h=>(
-                  <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".5px", borderBottom:"1px solid var(--c-border)" }}>{h}</th>
-                ))}
-              </tr></thead>
+  // ── Lista de impresoras
+  const tarjeta = (key, onClick, titulo, sub, lineas) => (
+    <div key={key} onClick={onClick} style={{ ...prodCard, padding:"16px 18px", cursor:"pointer", border:"1.5px solid transparent", transition:"border-color .15s" }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = "var(--c-border)"} onMouseLeave={e => e.currentTarget.style.borderColor = "transparent"}>
+      <div style={{ fontSize:16, fontWeight:800, color:"#1a2340" }}>{titulo}</div>
+      <div style={{ fontSize:12, color:"#a09080", marginBottom:10 }}>{sub}</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:4, fontSize:13, color:"#4a5568" }}>{lineas}</div>
+      <div style={{ fontSize:12, color:"var(--c-pri)", fontWeight:700, marginTop:10 }}>Ver registro →</div>
+    </div>
+  );
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+        <button onClick={() => setModalImp({})} style={btnPri("#1a2340")}>➕ Agregar impresora</button>
+        <button onClick={() => setModalServ({})} style={btnPri("#4a5568")}>🔧 Registrar service</button>
+        <button onClick={() => setModalTinta({})} style={btnPri()}>💧 Cargar tinta</button>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))", gap:14 }}>
+        {tarjeta(KONICA_ID, () => setAbierta(KONICA_ID), "🖥️ Konica Minolta C558", "Konica Minolta · bizhub C558",
+          <><span>📊 Contadores mensuales</span><span>🖊️ Reposición de tóner</span><span>🔧 Consumibles y services</span></>)}
+        {lista.map(i => { const { ti, se, gastoT, gastoS } = datosDe(i.fireId);
+          return tarjeta(i.fireId, () => setAbierta(i.fireId), `🖨️ ${i.nombre}`, [i.marca, i.modelo].filter(Boolean).join(" · ") || "Sin marca/modelo",
+            <>
+              <span>💧 <b>{ti.length}</b> carga{ti.length !== 1 ? "s" : ""} de tinta{ti[0] && <span style={{ color:"#a09080" }}> · última {fmtFecha(ti[0].fecha)}</span>}</span>
+              <span>🔧 <b>{se.length}</b> service{se.length !== 1 ? "s" : ""}{se[0] && <span style={{ color:"#a09080" }}> · último {fmtFecha(se[0].fecha)}</span>}</span>
+              <span>💲 Gastado: <b>{$ar(gastoT + gastoS)}</b></span>
+            </>); })}
+        {!cargI && lista.length === 0 && (
+          <div onClick={() => setModalImp({})} style={{ ...prodCard, padding:"18px", cursor:"pointer", border:"2px dashed var(--c-border)", boxShadow:"none", display:"flex", alignItems:"center", justifyContent:"center", color:"#a09080", fontSize:14, fontWeight:600, minHeight:120, textAlign:"center" }}>
+            ➕ Agregá tus impresoras de tinta<br/>(nombre, marca y modelo)
+          </div>
+        )}
+      </div>
+
+      {sinImpresora.length > 0 && (
+        <div style={{ ...prodCard, overflow:"hidden", marginTop:22, border:"1.5px solid #ffe0b2" }}>
+          <div style={{ padding:"14px 18px", borderBottom:"1px solid var(--c-border)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, color:"#e65100" }}>💧 Cargas de tinta sin impresora ({sinImpresora.length})</div>
+              <div style={{ fontSize:12, color:"#a09080" }}>Son las que cargaste antes. Asignalas a una impresora para que se sumen a su registro.</div>
+            </div>
+            {lista.length > 0 && (
+              <select value="" onChange={e => e.target.value && asignarTodas(e.target.value)} style={{ ...prodInp, width:"auto", fontSize:13, padding:"8px 10px" }}>
+                <option value="">Asignar todas a…</option>
+                {lista.map(i => <option key={i.fireId} value={i.fireId}>{i.nombre}</option>)}
+              </select>
+            )}
+          </div>
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead><tr>{["Fecha","Colores","Marca / producto","Precio","Asignar a",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
               <tbody>
-                {papeles.map(r=>(
-                  <tr key={r.fireId} style={{ borderBottom:"1px solid var(--c-row)" }}>
-                    <td style={{ padding:"11px 14px", color:"#4a5568" }}>{fmtFecha(r.fecha)}</td>
-                    <td style={{ padding:"11px 14px" }}>
-                      <span style={{ background:"#e3f2fd", color:"#1565c0", padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{r.tipo}</span>
+                {sinImpresora.map(t => (
+                  <tr key={t.fireId}>
+                    <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(t.fecha)}</td>
+                    <td style={prodTd}><ChipsColores t={t}/></td>
+                    <td style={{ ...prodTd, fontWeight:600, color:"#1a2340" }}>{t.marca || "—"}</td>
+                    <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)" }}>{t.precio ? $ar(t.precio) : "—"}</td>
+                    <td style={prodTd}>
+                      {lista.length ? (
+                        <select value="" onChange={e => e.target.value && asignar(t, e.target.value)} style={{ ...prodInp, padding:"6px 8px", fontSize:13, minWidth:150 }}>
+                          <option value="">Elegir…</option>
+                          {lista.map(i => <option key={i.fireId} value={i.fireId}>{i.nombre}</option>)}
+                        </select>
+                      ) : <span style={{ fontSize:12, color:"#a09080" }}>Agregá una impresora</span>}
                     </td>
-                    <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>{r.tamaño}</td>
-                    <td style={{ padding:"11px 14px", color:"#4a5568" }}>{parseInt(r.cantidad).toLocaleString("es-AR")} hojas</td>
-                    <td style={{ padding:"11px 14px", fontWeight:700, color:"var(--c-pri)" }}>{r.precio?`$${parseFloat(r.precio).toLocaleString("es-AR")}`:"—"}</td>
-                    <td style={{ padding:"11px 14px", color:"#a09080", fontStyle:"italic" }}>{r.nota||"—"}</td>
-                    <td style={{ padding:"11px 10px" }}>
-                      <button onClick={()=>delPapel(r)} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
-                    </td>
+                    <td style={prodTd}><button onClick={() => delTinta(t)} style={btnDel}>🗑</button></td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
-        </div>
-      )}
-
-      {/* Modal tinta */}
-      {modalTinta && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setModalTinta(false)}>
-          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>💧 Registrar tinta</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-              <div>
-                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:8 }}>Color</label>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
-                  {COLORES_TINTA.map(c=>(
-                    <div key={c.id} onClick={()=>setTColor(c.id)}
-                      style={{ padding:"9px", borderRadius:10, cursor:"pointer", textAlign:"center",
-                        border:`2px solid ${tColor===c.id?c.color:"var(--c-border)"}`,
-                        background:tColor===c.id?c.bg:"#fff" }}>
-                      <div style={{ fontWeight:700, fontSize:12, color:c.color }}>{c.label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Marca / Modelo *</label>
-                <input value={tMarca} onChange={e=>setTMarca(e.target.value)} placeholder="Ej: Epson T664 original, compatible genérico..." style={inp} autoFocus/>
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
-                <div>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha</label>
-                  <input type="date" value={tFecha} onChange={e=>setTFecha(e.target.value)} style={inp}/>
-                </div>
-                <div>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Cantidad</label>
-                  <input type="number" value={tCantidad} onChange={e=>setTCantidad(e.target.value)} placeholder="1" style={inp}/>
-                </div>
-                <div>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio ($)</label>
-                  <input type="number" value={tPrecio} onChange={e=>setTPrecio(e.target.value)} placeholder="0" style={inp}/>
-                </div>
-              </div>
-              <div>
-                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nota (opcional)</label>
-                <input value={tNota} onChange={e=>setTNota(e.target.value)} placeholder="Ej: comprado en Mercado Libre" style={inp}/>
-              </div>
-            </div>
-            <div style={{ display:"flex", gap:10, marginTop:22 }}>
-              <button onClick={()=>setModalTinta(false)} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
-              <button onClick={handleGuardarTinta} disabled={savingT}
-                style={{ flex:2, padding:"11px", background:"var(--c-pri)", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
-                {savingT?"Guardando...":"💧 Registrar"}
-              </button>
-            </div>
           </div>
         </div>
       )}
+      {modales}
+    </div>
+  );
+}
 
-      {/* Modal papel */}
-      {modalPapel && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300 }} onClick={()=>setModalPapel(false)}>
-          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:460, boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:20 }}>📄 Registrar papel fotográfico</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                <div>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Tipo de papel</label>
-                  <select value={pTipo} onChange={e=>setPTipo(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
-                    {TIPOS_PAPEL.map(t=><option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Tamaño</label>
-                  <select value={pTamaño} onChange={e=>setPTamaño(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
-                    {TAMAÑOS_PAPEL.map(t=><option key={t}>{t}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
-                <div>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha</label>
-                  <input type="date" value={pFecha} onChange={e=>setPFecha(e.target.value)} style={inp}/>
-                </div>
-                <div>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Cantidad (hojas)</label>
-                  <input type="number" value={pCantidad} onChange={e=>setPCantidad(e.target.value)} placeholder="100" style={inp} autoFocus/>
-                </div>
-                <div>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio ($)</label>
-                  <input type="number" value={pPrecio} onChange={e=>setPPrecio(e.target.value)} placeholder="0" style={inp}/>
-                </div>
-              </div>
-              <div>
-                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Nota (opcional)</label>
-                <input value={pNota} onChange={e=>setPNota(e.target.value)} placeholder="Ej: papel Epson premium, comprado en proveedor X" style={inp}/>
-              </div>
-            </div>
-            <div style={{ display:"flex", gap:10, marginTop:22 }}>
-              <button onClick={()=>setModalPapel(false)} style={{ flex:1, padding:"11px", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
-              <button onClick={handleGuardarPapel} disabled={savingP}
-                style={{ flex:2, padding:"11px", background:"#1a2340", color:"#fff", border:"none", borderRadius:8, fontSize:14, fontWeight:700, cursor:"pointer" }}>
-                {savingP?"Guardando...":"📄 Registrar"}
-              </button>
-            </div>
+// ── Insumos: compras de papeles, rollos de vinilo, etc. ──────────────────
+function ModalCompraInsumo({ inicial, compras, proveedores, onClose, showToast }) {
+  const [f, setF] = useState({ insumo:"", proveedor:"", fecha:hoyLocal(), cantidad:"", unidad:"unidades", precio:"", nota:"", ...(inicial||{}) });
+  const [crearProv, setCrearProv] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const set = (k, v) => setF(x => ({ ...x, [k]:v }));
+  const nombresInsumo = [...new Set(compras.map(c => (c.insumo||"").trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+  const nombresProv = [...new Set([...proveedores.map(nomProveedor), ...compras.map(c => c.proveedorNombre).filter(Boolean)])].sort((a,b) => a.localeCompare(b));
+  // Memoria: la última compra de ese mismo insumo
+  const anterior = compras.filter(c => normTxt(c.insumo||"") === normTxt(f.insumo) && f.insumo.trim())
+    .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""))[0];
+  const elegirInsumo = (v) => {
+    setF(x => {
+      const prev = compras.filter(c => normTxt(c.insumo||"") === normTxt(v)).sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""))[0];
+      return prev ? { ...x, insumo:v, unidad: prev.unidad || x.unidad, proveedor: x.proveedor || prev.proveedorNombre || "" } : { ...x, insumo:v };
+    });
+  };
+  const provExistente = proveedores.find(p => normTxt(nomProveedor(p)) === normTxt(f.proveedor));
+  const unit = (parseFloat(f.precio)||0) / (parseFloat(f.cantidad)||1);
+  const guardar = async () => {
+    if (!f.insumo.trim()) { showToast("Escribí qué insumo compraste","error"); return; }
+    if (!(parseFloat(f.cantidad) > 0)) { showToast("Poné la cantidad","error"); return; }
+    setGuardando(true);
+    try {
+      let provId = provExistente?.fireId || "", provNom = provExistente ? nomProveedor(provExistente) : f.proveedor.trim();
+      if (!provExistente && provNom && crearProv) {
+        const ref = await addDoc(collection(db,"proveedores"), { empresa:provNom, titular:"", telefono:"", creadoEn:new Date().toISOString() });
+        provId = ref.id;
+      }
+      await addDoc(collection(db,"comprasInsumos"), {
+        insumo:f.insumo.trim(), proveedorId:provId, proveedorNombre:provNom, fecha:f.fecha,
+        cantidad:parseFloat(f.cantidad)||0, unidad:f.unidad, precio:parseFloat(f.precio)||0, nota:f.nota.trim(), cargadoEn:new Date().toISOString(),
+      });
+      showToast("Compra registrada ✅");
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al guardar","error"); setGuardando(false); }
+  };
+  return (
+    <ProdModal titulo="📦 Registrar compra de insumo" onClose={onClose} onGuardar={guardar} guardando={guardando} textoGuardar="📦 Registrar" ancho={520}>
+      <div>
+        <label style={prodLbl}>Insumo *</label>
+        <input list="lista-insumos-compra" value={f.insumo} onChange={e => elegirInsumo(e.target.value)} placeholder="Ej: Ilustración 300g A3, Vinilo blanco brillo 1,52m" style={prodInp} autoFocus={!inicial?.insumo}/>
+        <datalist id="lista-insumos-compra">{nombresInsumo.map(n => <option key={n} value={n}/>)}</datalist>
+        {anterior && (
+          <div style={{ marginTop:6, fontSize:12, color:"#1565c0", background:"#e3f2fd", borderRadius:8, padding:"6px 10px" }}>
+            🕘 Última compra: {fmtFecha(anterior.fecha)} · {anterior.cantidad} {anterior.unidad} a {$ar(anterior.precio)}
+            {anterior.cantidad > 0 && anterior.precio > 0 && <> (<b>{$ar(anterior.precio / anterior.cantidad)}</b> c/u)</>}
+            {anterior.proveedorNombre && <> · {anterior.proveedorNombre}</>}
           </div>
+        )}
+      </div>
+      <div>
+        <label style={prodLbl}>Proveedor</label>
+        <input list="lista-prov-compra" value={f.proveedor} onChange={e => set("proveedor", e.target.value)} placeholder="Elegí o escribí uno nuevo" style={prodInp}/>
+        <datalist id="lista-prov-compra">{nombresProv.map(n => <option key={n} value={n}/>)}</datalist>
+        {f.proveedor.trim() && !provExistente && (
+          <label style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, fontSize:12, color:"#4a5568", cursor:"pointer" }}>
+            <input type="checkbox" checked={crearProv} onChange={e => setCrearProv(e.target.checked)} style={{ accentColor:"var(--c-pri)" }}/>
+            Agregar "{f.proveedor.trim()}" a Proveedores
+          </label>
+        )}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1.2fr 1fr 1.1fr", gap:12 }}>
+        <div><label style={prodLbl}>Fecha de compra</label><input type="date" value={f.fecha} onChange={e => set("fecha", e.target.value)} style={prodInp}/></div>
+        <div><label style={prodLbl}>Cantidad *</label><input type="number" value={f.cantidad} onChange={e => set("cantidad", e.target.value)} placeholder="1" style={prodInp}/></div>
+        <div><label style={prodLbl}>Unidad</label>
+          <select value={f.unidad} onChange={e => set("unidad", e.target.value)} style={{ ...prodInp, cursor:"pointer" }}>
+            {UNIDADES_INSUMO.map(u => <option key={u}>{u}</option>)}
+          </select>
         </div>
-      )}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"end" }}>
+        <div><label style={prodLbl}>Precio total ($)</label><input type="number" value={f.precio} onChange={e => set("precio", e.target.value)} placeholder="0" style={prodInp}/></div>
+        <div style={{ fontSize:13, color:"#4a5568", paddingBottom:10 }}>
+          {parseFloat(f.precio) > 0 && parseFloat(f.cantidad) > 0 && <>= <b>{$ar(unit)}</b> por {f.unidad === "unidades" ? "unidad" : f.unidad.replace(/s$/, "")}
+            {anterior && anterior.cantidad > 0 && anterior.precio > 0 && (() => { const pu = anterior.precio / anterior.cantidad; const d = Math.round((unit - pu) / pu * 100);
+              return d ? <span style={{ marginLeft:6, fontWeight:700, color: d > 0 ? "#c62828" : "#2e7d32" }}>{d > 0 ? "▲" : "▼"} {Math.abs(d)}%</span> : null; })()}
+          </>}
+        </div>
+      </div>
+      <div><label style={prodLbl}>Nota (opcional)</label><input value={f.nota} onChange={e => set("nota", e.target.value)} style={prodInp}/></div>
+    </ProdModal>
+  );
+}
+
+function ComprasInsumosView({ showToast }) {
+  const [compras] = useColeccion("comprasInsumos");
+  const [papeles] = useColeccion("papelesInkjet");
+  const [proveedores] = useColeccion("proveedores");
+  const [modal, setModal] = useState(null);
+  const [busq, setBusq] = useState("");
+  const [vista, setVista] = useState("resumen"); // resumen | historial
+
+  // Los papeles fotográficos que se cargaban antes se muestran como compras de insumo
+  const todas = [
+    ...compras.map(c => ({ ...c, _col:"comprasInsumos" })),
+    ...papeles.map(p => ({ fireId:p.fireId, _col:"papelesInkjet", insumo:`Papel fotográfico ${p.tipo||""} ${p.tamaño||""}`.trim(), cantidad:parseFloat(p.cantidad)||0, unidad:"hojas", precio:parseFloat(p.precio)||0, fecha:p.fecha, nota:p.nota, proveedorNombre:"" })),
+  ].sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.cargadoEn||"").localeCompare(a.cargadoEn||""));
+  const q = normTxt(busq);
+  const filtradas = todas.filter(c => !q || normTxt(`${c.insumo} ${c.proveedorNombre||""} ${c.nota||""}`).includes(q));
+  const anio = hoyLocal().slice(0,4), mes = hoyLocal().slice(0,7);
+  const gastoMes  = todas.filter(c => (c.fecha||"").startsWith(mes)).reduce((s,c) => s + (c.precio||0), 0);
+  const gastoAnio = todas.filter(c => (c.fecha||"").startsWith(anio)).reduce((s,c) => s + (c.precio||0), 0);
+
+  // Resumen por insumo: última compra, precio por unidad y cuánto cambió desde la compra anterior
+  const grupos = {};
+  filtradas.forEach(c => { const k = normTxt(c.insumo||""); (grupos[k] = grupos[k] || []).push(c); });
+  const resumen = Object.values(grupos).map(lista => {
+    const [ult, prev] = lista;   // ya vienen ordenadas de más nueva a más vieja
+    const pu = (c) => c && c.cantidad > 0 && c.precio > 0 ? c.precio / c.cantidad : null;
+    const var_ = pu(ult) && pu(prev) ? Math.round((pu(ult) - pu(prev)) / pu(prev) * 100) : null;
+    return { ult, compras:lista.length, pu:pu(ult), var:var_, anio: lista.filter(c => (c.fecha||"").startsWith(anio)).reduce((s,c) => s + (c.precio||0), 0) };
+  }).sort((a,b) => (b.ult.fecha||"").localeCompare(a.ult.fecha||""));
+
+  const borrar = async (c) => { if (!window.confirm(`¿Eliminar la compra de "${c.insumo}"?`)) return; await deleteDoc(doc(db, c._col, c.fireId)); showToast("Eliminado","error"); };
+  const repetir = (c) => setModal({ insumo:c.insumo, proveedor:c.proveedorNombre||"", unidad:c.unidad||"unidades" });
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:8 }}>
+          {[["resumen","📋 Por insumo"],["historial","🧾 Todas las compras"]].map(([id,l]) => (
+            <button key={id} onClick={() => setVista(id)} style={{ padding:"9px 18px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
+              background:vista===id ? "#1a2340" : "#fff", color:vista===id ? "#fff" : "#4a5568", boxShadow:"0 1px 6px rgba(0,0,0,.06)" }}>{l}</button>
+          ))}
+        </div>
+        <button onClick={() => setModal({})} style={btnPri()}>➕ Registrar compra</button>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:16 }}>
+        {[["Gastado este mes", $ar(gastoMes)], [`Gastado en ${anio}`, $ar(gastoAnio)], ["Insumos distintos", Object.keys(grupos).length], ["Compras registradas", todas.length]].map(([l,v]) => (
+          <div key={l} style={{ ...prodCard, padding:"14px 16px" }}>
+            <div style={{ fontSize:10, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:5 }}>{l}</div>
+            <div style={{ fontSize:21, fontWeight:800, color:"#1a2340" }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...prodCard, padding:"12px 16px", marginBottom:16 }}>
+        <input value={busq} onChange={e => setBusq(e.target.value)} placeholder="🔍 Buscar insumo o proveedor…" style={prodInp}/>
+      </div>
+      <div style={{ ...prodCard, overflow:"hidden" }}>
+        {filtradas.length === 0 ? <div style={{ padding:30, textAlign:"center", color:"#a09080" }}>{busq ? "Sin resultados" : "Todavía no registraste compras de insumos."}</div>
+        : vista === "resumen" ? (
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead><tr>{["Insumo","Última compra","Proveedor","Precio c/u","Cambio","Compras",`Gastado ${anio}`,""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+              <tbody>
+                {resumen.map(r => (
+                  <tr key={r.ult.fireId}>
+                    <td style={{ ...prodTd, fontWeight:700, color:"#1a2340" }}>{r.ult.insumo}</td>
+                    <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(r.ult.fecha)}<div style={{ fontSize:11, color:"#a09080" }}>{r.ult.cantidad} {r.ult.unidad} · {$ar(r.ult.precio)}</div></td>
+                    <td style={prodTd}>{r.ult.proveedorNombre || "—"}</td>
+                    <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{r.pu ? $ar(r.pu) : "—"}</td>
+                    <td style={{ ...prodTd, fontWeight:700, whiteSpace:"nowrap", color: r.var === null ? "#c0b0a0" : r.var > 0 ? "#c62828" : r.var < 0 ? "#2e7d32" : "#a09080" }} title="Precio por unidad comparado con la compra anterior">
+                      {r.var === null ? "—" : r.var === 0 ? "= igual" : `${r.var > 0 ? "▲" : "▼"} ${Math.abs(r.var)}%`}
+                    </td>
+                    <td style={prodTd}>{r.compras}</td>
+                    <td style={{ ...prodTd, fontWeight:600 }}>{$ar(r.anio)}</td>
+                    <td style={prodTd}><button onClick={() => repetir(r.ult)} style={{ background:"var(--c-tint)", border:"1px solid var(--c-border)", color:"var(--c-pri)", borderRadius:6, padding:"4px 9px", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>🛒 Comprar de nuevo</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead><tr>{["Fecha","Insumo","Proveedor","Cantidad","Precio","c/u","Nota",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+              <tbody>
+                {filtradas.map(c => (
+                  <tr key={c._col + c.fireId}>
+                    <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(c.fecha)}</td>
+                    <td style={{ ...prodTd, fontWeight:600, color:"#1a2340" }}>{c.insumo}</td>
+                    <td style={prodTd}>{c.proveedorNombre || "—"}</td>
+                    <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{(c.cantidad||0).toLocaleString("es-AR")} {c.unidad}</td>
+                    <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)" }}>{c.precio ? $ar(c.precio) : "—"}</td>
+                    <td style={prodTd}>{c.precio && c.cantidad ? $ar(c.precio / c.cantidad) : "—"}</td>
+                    <td style={{ ...prodTd, color:"#a09080", fontStyle:"italic" }}>{c.nota || "—"}</td>
+                    <td style={prodTd}><button onClick={() => borrar(c)} style={btnDel}>🗑</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {modal && <ModalCompraInsumo inicial={modal} compras={todas} proveedores={proveedores} onClose={() => setModal(null)} showToast={showToast}/>}
     </div>
   );
 }
