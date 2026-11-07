@@ -3533,9 +3533,67 @@ function ImpresorasView({ showToast }) {
   );
 }
 
+// ── Vínculo Insumos ↔ Cotizador (cotizadorConfig/data) ─────────────────
+// Cada compra puede estar vinculada a un material del Cotizador; al guardarla se actualiza su COSTO
+// (nunca el precio de venta).
+function materialesCotizador(cz) {
+  if (!cz) return [];
+  const r = [];
+  (cz.products||[]).forEach(p => r.push({ ref:`product:${p.id}`, grupo:"Impresos / cartelería (rollos)", nombre:p.name }));
+  (cz.rotulados?.vinilos||[]).forEach(v => r.push({ ref:`vinilo:${v.id}`, grupo:"Rotulados (vinilos)", nombre:v.name }));
+  (cz.bases||[]).forEach(b => r.push({ ref:`base:${b.id}`, grupo:"Bases / planchas", nombre:b.name }));
+  if (cz.ink) r.push({ ref:"ink", grupo:"Otros", nombre:"Tinta (precio por botella)" });
+  if (cz.polyfan) r.push({ ref:"polyfan", grupo:"Otros", nombre:"Polyfan (costo)" });
+  return r;
+}
+// Devuelve qué cambiaría en el Cotizador con esta compra, o un error si faltan datos
+function cambioCotizador(cz, ref, c) {
+  if (!cz || !ref) return null;
+  const cant = parseFloat(c.cantidad)||0, total = parseFloat(c.precio)||0;
+  if (!(cant > 0) || !(total > 0)) return { error:"Completá cantidad y precio para actualizar el costo." };
+  const unit = total / cant;
+  const anchoM = parseFloat(c.anchoM)||0, largoM = parseFloat(c.largoM)||0;
+  const pct = (a, b) => a > 0 ? Math.round((b - a) / a * 100) : null;
+  const [tipo, id] = ref.split(":");
+  if (tipo === "product") {
+    const lista = cz.products||[]; const it = lista.find(x => x.id === id); if (!it) return { error:"Ese material ya no existe en el Cotizador." };
+    const w = anchoM || parseFloat(it.rollWidthM)||0, l = largoM || parseFloat(it.rollLengthM)||0;
+    if (c.unidad !== "rollos") return { error:"Para este material elegí la unidad \"rollos\"." };
+    if (!(w > 0 && l > 0)) return { error:"Poné el ancho y el largo del rollo." };
+    const m2 = Math.round(unit / (w * l));
+    return { nombre:it.name, campo:"Precio del rollo", antes:parseFloat(it.rollPrice)||0, despues:Math.round(unit), extra:`costo ${$ar(m2)}/m² (rollo ${w}×${l} m)`, pct:pct(parseFloat(it.rollPrice)||0, unit),
+      aplicar: (info) => ({ products: lista.map(x => x.id !== id ? x : { ...x, rollPrice:Math.round(unit), rollWidthM:w, rollLengthM:l, rollWidth:w*100, materialCost:m2, ultimaCompra:{ ...info, antes:parseFloat(it.rollPrice)||0 } }) }) };
+  }
+  if (tipo === "vinilo") {
+    const rot = cz.rotulados||{}; const lista = rot.vinilos||[]; const it = lista.find(x => x.id === id); if (!it) return { error:"Ese vinilo ya no existe en el Cotizador." };
+    let porMetro;
+    if (c.unidad === "metros") porMetro = unit;
+    else if (c.unidad === "rollos") { if (!(largoM > 0)) return { error:"Poné el largo del rollo." }; porMetro = unit / largoM; }
+    else return { error:"Para vinilos elegí la unidad \"rollos\" o \"metros\"." };
+    porMetro = Math.round(porMetro);
+    return { nombre:it.name, campo:"Precio por metro", antes:parseFloat(it.precioMetro)||0, despues:porMetro, extra: c.unidad === "rollos" ? `rollo de ${largoM} m` : "", pct:pct(parseFloat(it.precioMetro)||0, porMetro),
+      aplicar: (info) => ({ rotulados:{ ...rot, vinilos: lista.map(x => x.id !== id ? x : { ...x, precioMetro:porMetro, ultimaCompra:{ ...info, antes:parseFloat(it.precioMetro)||0 } }) } }) };
+  }
+  if (tipo === "base") {
+    const lista = cz.bases||[]; const it = lista.find(x => x.id === id); if (!it) return { error:"Esa base ya no existe en el Cotizador." };
+    return { nombre:it.name, campo:"Costo de la plancha", antes:parseFloat(it.costoPlancha)||0, despues:Math.round(unit), pct:pct(parseFloat(it.costoPlancha)||0, unit),
+      aplicar: (info) => ({ bases: lista.map(x => x.id !== id ? x : { ...x, costoPlancha:Math.round(unit), ultimaCompra:{ ...info, antes:parseFloat(it.costoPlancha)||0 } }) }) };
+  }
+  if (tipo === "ink") {
+    const antes = parseFloat(cz.ink?.pricePerBottle)||0;
+    return { nombre:"Tinta", campo:"Precio por botella", antes, despues:Math.round(unit), pct:pct(antes, unit), aplicar: () => ({ ink:{ ...cz.ink, pricePerBottle:Math.round(unit) } }) };
+  }
+  if (tipo === "polyfan") {
+    const antes = parseFloat(cz.polyfan?.costo)||0;
+    return { nombre:"Polyfan", campo:"Costo", antes, despues:Math.round(unit), pct:pct(antes, unit), aplicar: () => ({ polyfan:{ ...cz.polyfan, costo:Math.round(unit) } }) };
+  }
+  return null;
+}
+
 // ── Insumos: compras de papeles, rollos de vinilo, etc. ──────────────────
-function ModalCompraInsumo({ inicial, compras, proveedores, onClose, showToast }) {
-  const [f, setF] = useState({ insumo:"", proveedor:"", fecha:hoyLocal(), cantidad:"", unidad:"unidades", precio:"", nota:"", ...(inicial||{}) });
+function ModalCompraInsumo({ inicial, compras, proveedores, cotizador, onClose, showToast }) {
+  const [f, setF] = useState({ insumo:"", proveedor:"", fecha:hoyLocal(), cantidad:"", unidad:"unidades", precio:"", nota:"", anchoM:"", largoM:"", cotizadorRef:"", ...(inicial||{}) });
+  const [actualizarCz, setActualizarCz] = useState(true);
   const [crearProv, setCrearProv] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const set = (k, v) => setF(x => ({ ...x, [k]:v }));
@@ -3547,11 +3605,17 @@ function ModalCompraInsumo({ inicial, compras, proveedores, onClose, showToast }
   const elegirInsumo = (v) => {
     setF(x => {
       const prev = compras.filter(c => normTxt(c.insumo||"") === normTxt(v)).sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""))[0];
-      return prev ? { ...x, insumo:v, unidad: prev.unidad || x.unidad, proveedor: x.proveedor || prev.proveedorNombre || "" } : { ...x, insumo:v };
+      return prev ? { ...x, insumo:v, unidad: prev.unidad || x.unidad, proveedor: x.proveedor || prev.proveedorNombre || "",
+        anchoM: x.anchoM || prev.anchoM || "", largoM: x.largoM || prev.largoM || "", cotizadorRef: x.cotizadorRef || prev.cotizadorRef || "" } : { ...x, insumo:v };
     });
   };
   const provExistente = proveedores.find(p => normTxt(nomProveedor(p)) === normTxt(f.proveedor));
   const unit = (parseFloat(f.precio)||0) / (parseFloat(f.cantidad)||1);
+  const esRollo = f.unidad === "rollos";
+  const areaRollo = (parseFloat(f.anchoM)||0) * (parseFloat(f.largoM)||0);
+  const materiales = materialesCotizador(cotizador);
+  const grupos = [...new Set(materiales.map(m => m.grupo))];
+  const cambio = f.cotizadorRef ? cambioCotizador(cotizador, f.cotizadorRef, f) : null;
   const guardar = async () => {
     if (!f.insumo.trim()) { showToast("Escribí qué insumo compraste","error"); return; }
     if (!(parseFloat(f.cantidad) > 0)) { showToast("Poné la cantidad","error"); return; }
@@ -3562,11 +3626,17 @@ function ModalCompraInsumo({ inicial, compras, proveedores, onClose, showToast }
         const ref = await addDoc(collection(db,"proveedores"), { empresa:provNom, titular:"", telefono:"", creadoEn:new Date().toISOString() });
         provId = ref.id;
       }
+      const matNombre = materiales.find(m => m.ref === f.cotizadorRef)?.nombre || "";
       await addDoc(collection(db,"comprasInsumos"), {
         insumo:f.insumo.trim(), proveedorId:provId, proveedorNombre:provNom, fecha:f.fecha,
-        cantidad:parseFloat(f.cantidad)||0, unidad:f.unidad, precio:parseFloat(f.precio)||0, nota:f.nota.trim(), cargadoEn:new Date().toISOString(),
+        cantidad:parseFloat(f.cantidad)||0, unidad:f.unidad, precio:parseFloat(f.precio)||0, nota:f.nota.trim(),
+        ...(esRollo ? { anchoM:parseFloat(f.anchoM)||0, largoM:parseFloat(f.largoM)||0 } : {}),
+        cotizadorRef:f.cotizadorRef||"", cotizadorNombre:matNombre, cargadoEn:new Date().toISOString(),
       });
-      showToast("Compra registrada ✅");
+      if (cambio && !cambio.error && actualizarCz) {
+        await updateDoc(doc(db,"cotizadorConfig","data"), cambio.aplicar({ fecha:f.fecha, proveedor:provNom, insumo:f.insumo.trim() }));
+        showToast(`Compra registrada y costo actualizado en el Cotizador ✅`);
+      } else showToast("Compra registrada ✅");
       onClose();
     } catch(e) { console.error(e); showToast("Error al guardar","error"); setGuardando(false); }
   };
@@ -3604,15 +3674,43 @@ function ModalCompraInsumo({ inicial, compras, proveedores, onClose, showToast }
           </select>
         </div>
       </div>
+      {(esRollo || f.unidad === "metros") && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, background:"var(--c-softer)", border:"1px dashed var(--c-border)", borderRadius:10, padding:"10px 12px" }}>
+          <div><label style={prodLbl}>Ancho del rollo (m)</label><input type="number" step="0.01" value={f.anchoM} onChange={e => set("anchoM", e.target.value)} placeholder="1.27" style={prodInp}/></div>
+          {esRollo
+            ? <div><label style={prodLbl}>Largo del rollo (m)</label><input type="number" step="0.1" value={f.largoM} onChange={e => set("largoM", e.target.value)} placeholder="50" style={prodInp}/></div>
+            : <div style={{ fontSize:12, color:"#a09080", alignSelf:"end", paddingBottom:10 }}>Comprado por metro lineal</div>}
+        </div>
+      )}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"end" }}>
         <div><label style={prodLbl}>Precio total ($)</label><input type="number" value={f.precio} onChange={e => set("precio", e.target.value)} placeholder="0" style={prodInp}/></div>
         <div style={{ fontSize:13, color:"#4a5568", paddingBottom:10 }}>
           {parseFloat(f.precio) > 0 && parseFloat(f.cantidad) > 0 && <>= <b>{$ar(unit)}</b> por {f.unidad === "unidades" ? "unidad" : f.unidad.replace(/s$/, "")}
             {anterior && anterior.cantidad > 0 && anterior.precio > 0 && (() => { const pu = anterior.precio / anterior.cantidad; const d = Math.round((unit - pu) / pu * 100);
               return d ? <span style={{ marginLeft:6, fontWeight:700, color: d > 0 ? "#c62828" : "#2e7d32" }}>{d > 0 ? "▲" : "▼"} {Math.abs(d)}%</span> : null; })()}
+            {esRollo && areaRollo > 0 && <div style={{ fontSize:12, color:"#1565c0", marginTop:2 }}>{(Math.round(areaRollo*100)/100).toLocaleString("es-AR")} m² por rollo → <b>{$ar(unit / areaRollo)}/m²</b> · {$ar(unit / (parseFloat(f.largoM)||1))} el metro lineal</div>}
           </>}
         </div>
       </div>
+      {materiales.length > 0 && (
+        <div style={{ background:"#f3f8ff", border:"1px solid #bbdefb", borderRadius:10, padding:"10px 12px" }}>
+          <label style={{ ...prodLbl, color:"#1565c0" }}>🔗 Material del Cotizador (opcional)</label>
+          <select value={f.cotizadorRef} onChange={e => set("cotizadorRef", e.target.value)} style={{ ...prodInp, cursor:"pointer" }}>
+            <option value="">— No vincular —</option>
+            {grupos.map(g => <optgroup key={g} label={g}>{materiales.filter(m => m.grupo === g).map(m => <option key={m.ref} value={m.ref}>{m.nombre}</option>)}</optgroup>)}
+          </select>
+          {cambio?.error && <div style={{ fontSize:12, color:"#e65100", marginTop:6 }}>⚠️ {cambio.error}</div>}
+          {cambio && !cambio.error && (
+            <label style={{ display:"flex", gap:8, alignItems:"flex-start", marginTop:8, fontSize:13, color:"#1a2340", cursor:"pointer" }}>
+              <input type="checkbox" checked={actualizarCz} onChange={e => setActualizarCz(e.target.checked)} style={{ accentColor:"#1565c0", marginTop:3 }}/>
+              <span>Actualizar en el Cotizador · <b>{cambio.nombre}</b> → {cambio.campo}: {$ar(cambio.antes)} → <b>{$ar(cambio.despues)}</b>
+                {cambio.pct ? <b style={{ marginLeft:6, color: cambio.pct > 0 ? "#c62828" : "#2e7d32" }}>{cambio.pct > 0 ? "▲" : "▼"} {Math.abs(cambio.pct)}%</b> : null}
+                {cambio.extra && <span style={{ display:"block", fontSize:11, color:"#5c7a99" }}>{cambio.extra}. El precio de venta no se toca.</span>}
+              </span>
+            </label>
+          )}
+        </div>
+      )}
       <div><label style={prodLbl}>Nota (opcional)</label><input value={f.nota} onChange={e => set("nota", e.target.value)} style={prodInp}/></div>
     </ProdModal>
   );
@@ -3622,6 +3720,8 @@ function ComprasInsumosView({ showToast }) {
   const [compras] = useColeccion("comprasInsumos");
   const [papeles] = useColeccion("papelesInkjet");
   const [proveedores] = useColeccion("proveedores");
+  const [cotizador, setCotizador] = useState(null);
+  useEffect(() => onSnapshot(doc(db,"cotizadorConfig","data"), snap => setCotizador(snap.exists() ? snap.data() : null), () => {}), []);
   const [modal, setModal] = useState(null);
   const [busq, setBusq] = useState("");
   const [vista, setVista] = useState("resumen"); // resumen | historial
@@ -3648,7 +3748,7 @@ function ComprasInsumosView({ showToast }) {
   }).sort((a,b) => (b.ult.fecha||"").localeCompare(a.ult.fecha||""));
 
   const borrar = async (c) => { if (!window.confirm(`¿Eliminar la compra de "${c.insumo}"?`)) return; await deleteDoc(doc(db, c._col, c.fireId)); showToast("Eliminado","error"); };
-  const repetir = (c) => setModal({ insumo:c.insumo, proveedor:c.proveedorNombre||"", unidad:c.unidad||"unidades" });
+  const repetir = (c) => setModal({ insumo:c.insumo, proveedor:c.proveedorNombre||"", unidad:c.unidad||"unidades", anchoM:c.anchoM||"", largoM:c.largoM||"", cotizadorRef:c.cotizadorRef||"" });
 
   return (
     <div>
@@ -3681,7 +3781,10 @@ function ComprasInsumosView({ showToast }) {
               <tbody>
                 {resumen.map(r => (
                   <tr key={r.ult.fireId}>
-                    <td style={{ ...prodTd, fontWeight:700, color:"#1a2340" }}>{r.ult.insumo}</td>
+                    <td style={{ ...prodTd, fontWeight:700, color:"#1a2340" }}>{r.ult.insumo}
+                      {r.ult.anchoM > 0 && r.ult.largoM > 0 && <div style={{ fontSize:11, color:"#a09080", fontWeight:400 }}>rollo {r.ult.anchoM}×{r.ult.largoM} m · {$ar(r.ult.precio / r.ult.cantidad / (r.ult.anchoM * r.ult.largoM))}/m²</div>}
+                      {r.ult.cotizadorNombre && <div style={{ fontSize:11, color:"#1565c0", fontWeight:600 }}>🔗 Cotizador: {r.ult.cotizadorNombre}</div>}
+                    </td>
                     <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(r.ult.fecha)}<div style={{ fontSize:11, color:"#a09080" }}>{r.ult.cantidad} {r.ult.unidad} · {$ar(r.ult.precio)}</div></td>
                     <td style={prodTd}>{r.ult.proveedorNombre || "—"}</td>
                     <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{r.pu ? $ar(r.pu) : "—"}</td>
@@ -3718,7 +3821,7 @@ function ComprasInsumosView({ showToast }) {
           </div>
         )}
       </div>
-      {modal && <ModalCompraInsumo inicial={modal} compras={todas} proveedores={proveedores} onClose={() => setModal(null)} showToast={showToast}/>}
+      {modal && <ModalCompraInsumo inicial={modal} compras={todas} proveedores={proveedores} cotizador={cotizador} onClose={() => setModal(null)} showToast={showToast}/>}
     </div>
   );
 }
@@ -9714,8 +9817,19 @@ async function leerCajaCfg() {
 }
 const esCajaEfectivo = (c) => /efectivo/.test(normTxt(`${c?.id} ${c?.nombre}`));
 // Caja sugerida según cómo pagó (la última elegida para ese método, o la de efectivo si es "Efectivo")
+// Caja fija según cómo se cobró: efectivo → Caja efectivo · transferencia → Mercado Pago
+function cajaPorMetodo(cfg, texto) {
+  const pesos = (cfg.cuentas||[]).filter(c => c.moneda !== "USD");
+  const t = normTxt(texto||"");
+  if (/efectivo/.test(t)) return pesos.find(esCajaEfectivo)?.id || null;
+  if (/transfer|mercado ?pago|\bmp\b/.test(t))
+    return (pesos.find(c => /mercado ?pago|\bmp\b/.test(normTxt(`${c.id} ${c.nombre}`))) || pesos.find(c => !esCajaEfectivo(c)))?.id || null;
+  return null;
+}
 function cajaSugerida(cfg, metodo = "Efectivo") {
   const pesos = cfg.cuentas.filter(c => c.moneda !== "USD");
+  const fija = cajaPorMetodo(cfg, metodo);
+  if (fija) return fija;
   let guardada = ""; try { guardada = localStorage.getItem("caja_cobro_" + metodo) || ""; } catch(e) {}
   if (pesos.some(c => c.id === guardada)) return guardada;
   if (metodo === "Efectivo" || metodo === "seña" || metodo === "pago") return (pesos.find(esCajaEfectivo) || pesos[0])?.id || "";
@@ -10216,7 +10330,7 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
     subcategoria: inicial.subcategoria || "",
     proveedorId: inicial.proveedorId || "",
     empleadoId: inicial.empleadoId || "",
-    cuenta: inicial.cuenta || (cfg.cuentas.some(c => c.id === ultimaCaja) ? ultimaCaja : cfg.cuentas[0]?.id),
+    cuenta: inicial.cuenta || (tipo === "ingreso" && cajaPorMetodo(cfg, inicial.categoria || cats[0]?.nombre)) || (cfg.cuentas.some(c => c.id === ultimaCaja) ? ultimaCaja : cfg.cuentas[0]?.id),
     cuentaDestino: inicial.cuentaDestino || cfg.cuentas[1]?.id || cfg.cuentas[0]?.id,
     monto: inicial.monto !== undefined ? String(inicial.monto).replace(".", ",") : "",
     montoDestino: inicial.montoDestino !== undefined && inicial.montoDestino !== null ? String(inicial.montoDestino).replace(".", ",") : "",
@@ -10344,7 +10458,9 @@ function ModalMovCaja({ inicial, cfg, guardarCfg, movs = [], monedaDe, showToast
             <select value={nuevaCat ? "__nueva" : f.categoria}
               onChange={e => { const v = e.target.value;
                 if (v === "__nueva") setNuevaCat({ nombre:"", icono: tipo === "ingreso" ? "⬆️" : "📦" });
-                else { setNuevaCat(null); setNuevaSub(null); setF(x => ({ ...x, categoria:v, subcategoria: x.categoria === v ? x.subcategoria : "" })); } }}
+                else { setNuevaCat(null); setNuevaSub(null); setF(x => ({ ...x, categoria:v, subcategoria: x.categoria === v ? x.subcategoria : "",
+                  // Ingreso en efectivo → Caja efectivo · transferencia → Mercado Pago (se puede cambiar abajo)
+                  ...(tipo === "ingreso" && !editando && cajaPorMetodo(cfg, v) ? { cuenta: cajaPorMetodo(cfg, v) } : {}) })); } }}
               style={{ ...cajaInp, fontWeight:600, borderColor: t.color + "66", background: t.bg, color:"#1a2340" }}>
               {cats.map(c => <option key={c.nombre} value={c.nombre}>{c.icono} {c.nombre}{c.personal ? "  · personal" : ""}</option>)}
               {f.categoria && !cats.some(c => c.nombre === f.categoria) && <option value={f.categoria}>{f.categoria}</option>}
@@ -10857,6 +10973,92 @@ function CajaMovimientos({ movs, cfg, nombreCuenta, monedaDe, iconoCat, onEditar
 }
 
 // ── Resumen mensual ──────────────────────────────────────────────────────
+// ── Costo fijo mensual ────────────────────────────────────────────────────
+// Promedio de los últimos 3 meses completos de los egresos en categorías marcadas como 📌 Fijo.
+// Se guarda en config/costoFijo para poder usarlo más adelante (por ejemplo, en el Cotizador).
+const RE_FIJO_SUGERIDO = /sueldo|salario|alquiler|admin|luz|electric|agua|internet|telefon|celular|monotribut|impuest|ingresos brutos|abono|sistema|seguro|contador|expensa|municipal|alarma|limpieza/;
+const esCatFija = (c) => !c.personal && (c.fijo !== undefined ? !!c.fijo : RE_FIJO_SUGERIDO.test(normTxt(c.nombre||"")));
+function calcularCostoFijo(movs, cfg, monedaDe) {
+  const actual = hoyISO().slice(0,7);
+  const fijas = new Set((cfg.catsEgreso||[]).filter(esCatFija).map(c => c.nombre));
+  const todos = [...new Set(movs.map(m => (m.fecha||"").slice(0,7)).filter(ym => ym && ym < actual))].sort();
+  const porMes = (ym) => {
+    const cats = {};
+    movs.filter(m => m.tipo === "egreso" && (m.fecha||"").startsWith(ym) && fijas.has(m.categoria) && monedaDe(m.cuenta) === "ARS")
+      .forEach(m => { cats[m.categoria] = (cats[m.categoria]||0) + (parseFloat(m.monto)||0); });
+    return { ym, cats, total: Object.values(cats).reduce((a,b) => a+b, 0) };
+  };
+  const ult3 = todos.slice(-3).map(porMes);
+  if (!ult3.length) return { fijas:[...fijas], mensual:0, meses:[], porCat:[], evolucion:[] };
+  const mensual = Math.round(ult3.reduce((t,x) => t + x.total, 0) / ult3.length);
+  const porCat = [...fijas].map(c => [c, Math.round(ult3.reduce((t,x) => t + (x.cats[c]||0), 0) / ult3.length)]).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
+  return { fijas:[...fijas], mensual, meses: ult3.map(x => x.ym), porCat, evolucion: todos.slice(-6).map(porMes) };
+}
+function CostoFijoMensual({ movs, cfg, monedaDe }) {
+  const r = calcularCostoFijo(movs, cfg, monedaDe);
+  const guardado = useRef("");
+  // Guardar la variable para usarla en otras partes (solo si cambió)
+  useEffect(() => {
+    if (!r.meses.length) return;
+    const clave = `${r.mensual}|${r.meses.join(",")}|${r.fijas.join(",")}`;
+    if (guardado.current === clave) return;
+    guardado.current = clave;
+    setDoc(doc(db, "config", "costoFijo"), {
+      mensual: r.mensual, porDiaHabil: Math.round(r.mensual / 22), meses: r.meses,
+      categorias: Object.fromEntries(r.porCat), actualizado: new Date().toISOString(),
+    }).catch(() => {});
+  }, [r.mensual, r.meses.join(","), r.fijas.join(",")]);
+  const mesesTxt = r.meses.map(ym => MESES_ES[+ym.slice(5)-1].toLowerCase()).join(", ");
+  const maxEv = Math.max(1, ...r.evolucion.map(x => x.total));
+  return (
+    <div style={{ ...cajaCard, borderLeft:"5px solid #1565c0" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", gap:16, flexWrap:"wrap" }}>
+        <div style={{ flex:"1 1 280px" }}>
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a2340" }}>📌 Costo fijo mensual</div>
+          <div style={{ fontSize:12, color:"#a09080", marginTop:2 }}>
+            {r.meses.length ? <>Promedio de {mesesTxt}. Lo que la gráfica gasta por mes aunque no imprima nada.</> : "Todavía no hay un mes completo cargado."}
+          </div>
+          <div style={{ marginTop:10 }}>
+            {r.porCat.map(([c, v]) => (
+              <div key={c} style={{ marginBottom:6 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", fontSize:13 }}>
+                  <span style={{ color:"#1a2340" }}>{c}</span>
+                  <span><b>{fmtMoneda(v)}</b> <span style={{ color:"#a09080", fontSize:11 }}>{r.mensual ? Math.round(v/r.mensual*100) : 0}%</span></span>
+                </div>
+                <div style={{ height:5, background:"#e3f2fd", borderRadius:3 }}><div style={{ height:"100%", width:`${r.mensual ? v/r.mensual*100 : 0}%`, background:"#1565c0", borderRadius:3 }}/></div>
+              </div>
+            ))}
+            {!r.fijas.length && <div style={{ fontSize:12, color:"#a09080" }}>No hay categorías marcadas como 📌 Fijo.</div>}
+          </div>
+          <div style={{ fontSize:11, color:"#a09080", marginTop:8 }}>
+            Cuentan las categorías marcadas <b>📌 Fijo</b> en <b>Cajas y categorías</b>{r.fijas.length ? `: ${r.fijas.join(", ")}` : ""}.
+          </div>
+        </div>
+        <div style={{ flex:"0 1 260px", display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ background:"#e3f2fd", borderRadius:10, padding:"12px 14px" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#1565c0", textTransform:"uppercase" }}>Costo fijo mensual</div>
+            <div style={{ fontSize:26, fontWeight:800, color:"#0d47a1" }}>{fmtMoneda(r.mensual)}</div>
+            <div style={{ fontSize:12, color:"#1565c0" }}>≈ {fmtMoneda(Math.round(r.mensual/22))} por día hábil</div>
+          </div>
+          {r.evolucion.length > 1 && (
+            <div style={{ background:"var(--c-softer)", borderRadius:10, padding:"10px 12px" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", marginBottom:6 }}>Cómo viene</div>
+              <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:70 }}>
+                {r.evolucion.map(x => (
+                  <div key={x.ym} title={`${nombreMes(x.ym)}: ${fmtMoneda(x.total)}`} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end", height:"100%" }}>
+                    <div style={{ width:"100%", maxWidth:26, height:`${x.total/maxEv*100}%`, minHeight:2, background: r.meses.includes(x.ym) ? "#1565c0" : "#90caf9", borderRadius:"3px 3px 0 0" }}/>
+                    <div style={{ fontSize:10, color:"#a09080", marginTop:3 }}>{MESES_ES[+x.ym.slice(5)-1].slice(0,3)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Reserva mínima recomendada (cuánta plata en pesos necesita el negocio) ──
 // Se calcula con los últimos 3 meses completos:
 //   peor mes de gastos de la gráfica + promedio de gastos personales (+ medio sueldo en meses de aguinaldo).
@@ -11025,6 +11227,7 @@ function CajaResumen({ movs, cfg, monedaDe, iconoCat, saldos }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
       <ReservaRecomendada movs={movs} cfg={cfg} monedaDe={monedaDe} saldos={saldos}/>
+      <CostoFijoMensual movs={movs} cfg={cfg} monedaDe={monedaDe}/>
       <div style={{ ...cajaCard, display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
         <div style={{ display:"flex", background:"var(--c-soft)", borderRadius:9, padding:3 }}>
           {[["mes","Mes"],["anio","Año"]].map(([v,l]) => (
@@ -11512,6 +11715,14 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast, onImportar }) {
             {c.personal ? "🏠 Personal" : "🏪 Negocio"}
           </button>
         )}
+        {tipo === "e" && !c.personal && (
+          <button onClick={() => { setLista(l => l.map((x,j) => j===i ? { ...x, fijo: !esCatFija(x) } : x)); setDirty(true); }}
+            title={esCatFija(c) ? "Gasto fijo: cuenta para el Costo fijo mensual" : "Gasto variable (no cuenta para el Costo fijo)"}
+            style={{ border:"none", borderRadius:7, padding:"6px 8px", cursor:"pointer", fontSize:11, fontWeight:700, whiteSpace:"nowrap",
+              background: esCatFija(c) ? "#e3f2fd" : "#f5f5f5", color: esCatFija(c) ? "#1565c0" : "#9e9e9e" }}>
+            {esCatFija(c) ? "📌 Fijo" : "〰️ Variable"}
+          </button>
+        )}
         <button onClick={() => setSubsAbiertas(s => ({ ...s, [clave]: !s[clave] }))} title="Subcategorías"
           style={{ background: abierta ? "var(--c-soft)" : "#fff", border:"1.5px solid var(--c-border)", borderRadius:7, padding:"6px 8px", cursor:"pointer", fontSize:11, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>
           {(c.subs||[]).length ? `${c.subs.length} sub` : "+ sub"} {abierta ? "▲" : "▼"}
@@ -11571,7 +11782,7 @@ function CajaAjustes({ cfg, guardarCfg, saldos, movs, showToast, onImportar }) {
         {[["⬆️ Categorías de ingreso", catsI, setCatsI, nuevaI, setNuevaI, "i"], ["⬇️ Categorías de egreso", catsE, setCatsE, nuevaE, setNuevaE, "e"]].map(([tit, lista, setLista, nueva, setNueva, tipo]) => (
           <div key={tit} style={cajaCard}>
             <div style={{ fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{tit}</div>
-            <div style={{ fontSize:12, color:"#a09080", marginBottom:12 }}>Tocá "+ sub" para agregarle subcategorías. Con ▲▼ cambiás el orden en que aparecen al cargar.{tipo === "e" ? <> Tocá <b>🏪 Negocio / 🏠 Personal</b> para separar los gastos de la gráfica de los tuyos en el Resumen.</> : null}</div>
+            <div style={{ fontSize:12, color:"#a09080", marginBottom:12 }}>Tocá "+ sub" para agregarle subcategorías. Con ▲▼ cambiás el orden en que aparecen al cargar.{tipo === "e" ? <> Tocá <b>🏪 Negocio / 🏠 Personal</b> para separar los gastos de la gráfica de los tuyos en el Resumen, y <b>📌 Fijo / 〰️ Variable</b> para el Costo fijo mensual.</> : null}</div>
             {filaCat(lista, setLista, tipo)}
             <div style={{ display:"flex", gap:8, alignItems:"center", padding:8, border:"1.5px dashed var(--c-border)", borderRadius:10, marginTop:8 }}>
               <EmojiPicker value={nueva.icono} onChange={em => setNueva(x => ({ ...x, icono:em }))}/>
