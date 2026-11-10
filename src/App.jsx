@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { db } from "./firebase";
 import {
   collection, onSnapshot, addDoc, updateDoc,
@@ -3161,7 +3161,7 @@ const btnDel   = { background:"#ffebee", border:"none", color:"#c62828", padding
 
 function ProdModal({ titulo, onClose, children, onGuardar, guardando, textoGuardar = "💾 Guardar", ancho = 480 }) {
   return (
-    <div className="modal-ov" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:10 }} onClick={guardando ? undefined : onClose}>
+    <div className="modal-ov" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:10 }} onClick={guardando ? undefined : onClose}>
       <div style={{ background:"#fff", borderRadius:16, padding:"24px 26px", width:ancho, maxWidth:"100%", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e => e.stopPropagation()}>
         <div style={{ fontWeight:700, fontSize:20, color:"#1a2340", marginBottom:18 }}>{titulo}</div>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>{children}</div>
@@ -3719,6 +3719,7 @@ function ModalCompraInsumo({ inicial, compras, proveedores, cotizador, onClose, 
 function ComprasInsumosView({ showToast }) {
   const [compras] = useColeccion("comprasInsumos");
   const [papeles] = useColeccion("papelesInkjet");
+  const [comprasVentas] = useColeccion("compras");   // lo cargado en Ventas → Compras
   const [proveedores] = useColeccion("proveedores");
   const [cotizador, setCotizador] = useState(null);
   useEffect(() => onSnapshot(doc(db,"cotizadorConfig","data"), snap => setCotizador(snap.exists() ? snap.data() : null), () => {}), []);
@@ -3729,6 +3730,8 @@ function ComprasInsumosView({ showToast }) {
   // Los papeles fotográficos que se cargaban antes se muestran como compras de insumo
   const todas = [
     ...compras.map(c => ({ ...c, _col:"comprasInsumos" })),
+    ...comprasVentas.flatMap(c => (c.items||[]).map((it, i) => ({ fireId:`${c.fireId}_${i}`, _col:"compras", insumo:it.nombre, cantidad:it.cantidad, unidad:it.unidad,
+      precio:it.total, fecha:c.fecha, proveedorNombre:c.proveedorNombre, nota:`Ventas → Compras${c.nroFactura ? " · Fact. " + c.nroFactura : ""}`, cargadoEn:c.creadoEn }))),
     ...papeles.map(p => ({ fireId:p.fireId, _col:"papelesInkjet", insumo:`Papel fotográfico ${p.tipo||""} ${p.tamaño||""}`.trim(), cantidad:parseFloat(p.cantidad)||0, unidad:"hojas", precio:parseFloat(p.precio)||0, fecha:p.fecha, nota:p.nota, proveedorNombre:"" })),
   ].sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.cargadoEn||"").localeCompare(a.cargadoEn||""));
   const q = normTxt(busq);
@@ -3813,7 +3816,7 @@ function ComprasInsumosView({ showToast }) {
                     <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)" }}>{c.precio ? $ar(c.precio) : "—"}</td>
                     <td style={prodTd}>{c.precio && c.cantidad ? $ar(c.precio / c.cantidad) : "—"}</td>
                     <td style={{ ...prodTd, color:"#a09080", fontStyle:"italic" }}>{c.nota || "—"}</td>
-                    <td style={prodTd}><button onClick={() => borrar(c)} style={btnDel}>🗑</button></td>
+                    <td style={prodTd}>{c._col === "compras" ? <span title="Se edita en Ventas → Compras" style={{ fontSize:12 }}>🛒</span> : <button onClick={() => borrar(c)} style={btnDel}>🗑</button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -3822,6 +3825,427 @@ function ComprasInsumosView({ showToast }) {
         )}
       </div>
       {modal && <ModalCompraInsumo inicial={modal} compras={todas} proveedores={proveedores} cotizador={cotizador} onClose={() => setModal(null)} showToast={showToast}/>}
+    </div>
+  );
+}
+
+// ── Ventas → Compras ──────────────────────────────────────────────────────
+// compras:          { proveedorId, proveedorNombre, fecha, nroFactura, items[], total, nota, cajaMovId, cajaCuenta, creadoEn }
+//   items[]:        { nombre, unidad, cantidad, precioUnit, total, uso, insumoVentaId }
+// productosCompra:  { nombre, unidad, uso ("materia"|"reventa"|"ambos"), insumoVentaId, ultimoPrecio, ultimaFecha, ultimoProveedor, creadoEn }
+// Los ítems de reventa vinculados a un producto de venta le suman stock y actualizan su precio de compra.
+const USOS_COMPRA = [
+  { id:"materia", label:"🧱 Materia prima", corto:"🧱 Materia prima", bg:"#efebe9", color:"#5d4037" },
+  { id:"reventa", label:"🏷️ Reventa",       corto:"🏷️ Reventa",       bg:"#e8f5e9", color:"#2e7d32" },
+  { id:"ambos",   label:"🔀 Las dos",        corto:"🔀 Las dos",        bg:"#e3f2fd", color:"#1565c0" },
+];
+const usoDe = (id) => USOS_COMPRA.find(u => u.id === id) || USOS_COMPRA[0];
+const itemCompraVacio = () => ({ k: Math.random().toString(36).slice(2), nombre:"", unidad:"unidades", cantidad:"", precioUnit:"", total:"", uso:"materia", insumoVentaId:"" });
+const esReventa = (uso) => uso === "reventa" || uso === "ambos";
+
+// Suma (o resta) stock a los productos de venta vinculados y actualiza su precio de compra
+async function moverStockCompra(items, signo, actualizarPrecio) {
+  const porProd = {};
+  (items||[]).forEach(it => {
+    if (!it.insumoVentaId || !esReventa(it.uso)) return;
+    const x = porProd[it.insumoVentaId] = porProd[it.insumoVentaId] || { cant:0, precio:0 };
+    x.cant += parseFloat(it.cantidad)||0;
+    x.precio = parseFloat(it.precioUnit)||0;
+  });
+  for (const [id, x] of Object.entries(porProd)) {
+    try {
+      const snap = await getDoc(doc(db, "insumos", id));
+      if (!snap.exists()) continue;
+      const stock = (parseFloat(snap.data().stock)||0) + signo * x.cant;
+      await updateDoc(doc(db, "insumos", id), { stock, ...(actualizarPrecio && x.precio > 0 ? { precioCompra: x.precio } : {}) });
+    } catch(e) { console.error(e); }
+  }
+}
+
+function ModalCompra({ inicial, productos, proveedores, insumosVenta, cajaCfg, onClose, showToast }) {
+  const editando = !!inicial?.fireId;
+  const [prov, setProv]       = useState(inicial?.proveedorNombre || "");
+  const [crearProv, setCrearProv] = useState(true);
+  const [fecha, setFecha]     = useState(inicial?.fecha || hoyISO());
+  const [nroFactura, setNro]  = useState(inicial?.nroFactura || "");
+  const [nota, setNota]       = useState(inicial?.nota || "");
+  const [items, setItems]     = useState(inicial?.items?.length ? inicial.items.map(it => ({ ...itemCompraVacio(), ...it, cantidad:String(it.cantidad??""), precioUnit:String(it.precioUnit??""), total:String(it.total??"") })) : [itemCompraVacio()]);
+  const [pagarCaja, setPagarCaja] = useState(!!inicial?.cajaMovId);
+  const [cuentaPago, setCuentaPago] = useState(inicial?.cajaCuenta || cajaPorMetodo(cajaCfg, "Efectivo") || "");
+  const [guardando, setGuardando] = useState(false);
+
+  const provExistente = proveedores.find(p => normTxt(nomProveedor(p)) === normTxt(prov));
+  const nombresProv = [...new Set(proveedores.map(nomProveedor))].sort((a,b) => a.localeCompare(b));
+  const prodPorNombre = (n) => productos.find(p => normTxt(p.nombre) === normTxt(n));
+  const totalCompra = items.reduce((s,it) => s + (parseFloat(it.total)||0), 0);
+  const cuentasPesos = cajaCfg.cuentas.filter(c => c.moneda !== "USD");
+
+  const setItem = (k, campo, val) => setItems(lista => lista.map(it => {
+    if (it.k !== k) return it;
+    const n = { ...it, [campo]: val };
+    const cant = parseFloat(campo === "cantidad" ? val : it.cantidad) || 0;
+    if (campo === "cantidad" || campo === "precioUnit") {
+      const pu = parseFloat(campo === "precioUnit" ? val : it.precioUnit) || 0;
+      n.total = cant && pu ? String(Math.round(cant * pu * 100) / 100) : n.total;
+    }
+    if (campo === "total" && cant > 0) n.precioUnit = String(Math.round((parseFloat(val)||0) / cant * 100) / 100);
+    if (campo === "nombre") {
+      const p = prodPorNombre(val);
+      if (p) { n.unidad = p.unidad || n.unidad; n.uso = p.uso || n.uso; n.insumoVentaId = p.insumoVentaId || n.insumoVentaId; }
+    }
+    if ((campo === "uso" || campo === "nombre") && esReventa(n.uso) && !n.insumoVentaId) {
+      const iv = insumosVenta.find(x => normTxt(x.nombre) === normTxt(n.nombre));
+      if (iv) n.insumoVentaId = iv.fireId;
+    }
+    return n;
+  }));
+
+  const guardar = async () => {
+    const validos = items.filter(it => it.nombre.trim() && (parseFloat(it.cantidad)||0) > 0);
+    if (!validos.length) { showToast("Cargá al menos un producto con su cantidad","error"); return; }
+    if (items.some(it => it.nombre.trim() && !((parseFloat(it.cantidad)||0) > 0))) { showToast("Hay un producto sin cantidad","error"); return; }
+    if (pagarCaja && !cuentaPago) { showToast("Elegí de qué caja sale el pago","error"); return; }
+    setGuardando(true);
+    try {
+      // Proveedor
+      let provId = provExistente?.fireId || "", provNom = provExistente ? nomProveedor(provExistente) : prov.trim();
+      if (!provExistente && provNom && crearProv) {
+        const ref = await addDoc(collection(db, "proveedores"), { empresa:provNom, titular:"", telefono:"", creadoEn:new Date().toISOString() });
+        provId = ref.id;
+      }
+      const itemsOk = validos.map(it => ({
+        nombre: it.nombre.trim(), unidad: it.unidad, cantidad: parseFloat(it.cantidad)||0,
+        precioUnit: parseFloat(it.precioUnit)||0, total: parseFloat(it.total)||0, uso: it.uso,
+        insumoVentaId: esReventa(it.uso) ? (it.insumoVentaId || "") : "",
+      }));
+      const total = Math.round(itemsOk.reduce((s,it) => s + it.total, 0) * 100) / 100;
+
+      // Catálogo de productos comprados (memoria para la próxima compra)
+      for (const it of itemsOk) {
+        const p = prodPorNombre(it.nombre);
+        const datos = { nombre: it.nombre, unidad: it.unidad, uso: it.uso, insumoVentaId: it.insumoVentaId };
+        const masNueva = !p || !p.ultimaFecha || fecha >= p.ultimaFecha;
+        const ultimos = masNueva ? { ultimoPrecio: it.precioUnit, ultimaFecha: fecha, ultimoProveedor: provNom || p?.ultimoProveedor || "" } : {};
+        if (p) await updateDoc(doc(db, "productosCompra", p.fireId), { ...datos, ...ultimos });
+        else await addDoc(collection(db, "productosCompra"), { ...datos, ...ultimos, creadoEn: new Date().toISOString() });
+      }
+
+      // Stock de los productos de reventa (al editar se deshace lo anterior)
+      if (editando) await moverStockCompra(inicial.items, -1, false);
+      await moverStockCompra(itemsOk, +1, true);
+
+      // Pago en la caja (egreso)
+      let cajaMovId = inicial?.cajaMovId || "";
+      const cat = (cajaCfg.catsEgreso||[]).find(c => /insumo/.test(normTxt(c.nombre)))?.nombre
+               || (cajaCfg.catsEgreso||[]).find(c => !c.personal)?.nombre || "Compras";
+      const movData = { fecha, tipo:"egreso", monto: total, cuenta: cuentaPago, categoria: cat, subcategoria:"",
+        nota: `Compra${provNom ? " · " + provNom : ""}${nroFactura.trim() ? " · Fact. " + nroFactura.trim() : ""}`,
+        proveedorId: provId || null, proveedorNombre: provNom || null, origen:"compra" };
+      if (pagarCaja) {
+        if (cajaMovId) await updateDoc(doc(db, "cajaMovs", cajaMovId), movData);
+        else cajaMovId = (await addDoc(collection(db, "cajaMovs"), { ...movData, creadoEn: new Date().toISOString() })).id;
+      } else if (cajaMovId) { await deleteDoc(doc(db, "cajaMovs", cajaMovId)); cajaMovId = ""; }
+
+      const data = { proveedorId: provId, proveedorNombre: provNom, fecha, nroFactura: nroFactura.trim(), items: itemsOk, total,
+        nota: nota.trim(), cajaMovId, cajaCuenta: pagarCaja ? cuentaPago : "" };
+      if (editando) await updateDoc(doc(db, "compras", inicial.fireId), data);
+      else {
+        const ref = await addDoc(collection(db, "compras"), { ...data, creadoEn: new Date().toISOString() });
+        if (cajaMovId) await updateDoc(doc(db, "cajaMovs", cajaMovId), { compraId: ref.id });
+      }
+      const nStock = itemsOk.filter(it => it.insumoVentaId).length;
+      showToast(`Compra ${editando ? "actualizada" : "registrada"} ✅${nStock ? ` · stock actualizado en ${nStock} producto${nStock>1?"s":""}` : ""}`);
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al guardar la compra","error"); setGuardando(false); }
+  };
+
+  const inpC = { ...prodInp, padding:"9px 10px", fontSize:13 };
+  return (
+    <ProdModal titulo={editando ? "✏️ Editar compra" : "🛒 Nueva compra"} onClose={onClose} onGuardar={guardar} guardando={guardando}
+      textoGuardar={editando ? "💾 Guardar cambios" : "🛒 Registrar compra"} ancho={860}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:12 }}>
+        <div style={{ gridColumn:"span 2" }}>
+          <label style={prodLbl}>Proveedor</label>
+          <input list="compra-provs" value={prov} onChange={e => setProv(e.target.value)} placeholder="Elegí o escribí uno nuevo" style={prodInp} autoFocus={!editando}/>
+          <datalist id="compra-provs">{nombresProv.map(n => <option key={n} value={n}/>)}</datalist>
+          {prov.trim() && !provExistente && (
+            <label style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, fontSize:12, color:"#4a5568", cursor:"pointer" }}>
+              <input type="checkbox" checked={crearProv} onChange={e => setCrearProv(e.target.checked)} style={{ accentColor:"var(--c-pri)" }}/>
+              Agregar "{prov.trim()}" a Proveedores
+            </label>
+          )}
+        </div>
+        <div><label style={prodLbl}>Fecha de compra</label><input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={prodInp}/></div>
+        <div><label style={prodLbl}>N° de factura</label><input value={nroFactura} onChange={e => setNro(e.target.value)} placeholder="Ej: 0003-00012345" style={prodInp}/></div>
+      </div>
+
+      {/* Lista de productos */}
+      <div>
+        <label style={{ ...prodLbl, marginBottom:8 }}>Productos comprados</label>
+        <datalist id="compra-prods">{productos.map(p => <option key={p.fireId} value={p.nombre}/>)}</datalist>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {items.map((it, idx) => {
+            const p = prodPorNombre(it.nombre);
+            const pu = parseFloat(it.precioUnit)||0, prev = parseFloat(p?.ultimoPrecio)||0;
+            const dif = pu > 0 && prev > 0 ? Math.round((pu - prev) / prev * 100) : 0;
+            const iv = insumosVenta.find(x => x.fireId === it.insumoVentaId);
+            return (
+              <div key={it.k} style={{ background:"var(--c-softer)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"minmax(180px,2.4fr) minmax(70px,.8fr) minmax(95px,1fr) minmax(95px,1fr) minmax(105px,1.1fr) 30px", gap:8, alignItems:"end" }} className="compra-fila">
+                  <div>
+                    {idx === 0 && <label style={prodLbl}>Producto</label>}
+                    <input list="compra-prods" value={it.nombre} onChange={e => setItem(it.k, "nombre", e.target.value)} placeholder="Ej: Vinilo blanco brillo 1,52" style={inpC}/>
+                  </div>
+                  <div>
+                    {idx === 0 && <label style={prodLbl}>Cantidad</label>}
+                    <input type="number" value={it.cantidad} onChange={e => setItem(it.k, "cantidad", e.target.value)} placeholder="1" style={inpC}/>
+                  </div>
+                  <div>
+                    {idx === 0 && <label style={prodLbl}>Unidad</label>}
+                    <select value={it.unidad} onChange={e => setItem(it.k, "unidad", e.target.value)} style={{ ...inpC, cursor:"pointer" }}>
+                      {UNIDADES_INSUMO.map(u => <option key={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    {idx === 0 && <label style={prodLbl}>Precio c/u</label>}
+                    <input type="number" value={it.precioUnit} onChange={e => setItem(it.k, "precioUnit", e.target.value)} placeholder={prev ? `últ. ${Math.round(prev)}` : "$"} style={inpC}/>
+                  </div>
+                  <div>
+                    {idx === 0 && <label style={prodLbl}>Total</label>}
+                    <input type="number" value={it.total} onChange={e => setItem(it.k, "total", e.target.value)} placeholder="$" style={{ ...inpC, fontWeight:700 }}/>
+                  </div>
+                  <button onClick={() => setItems(l => l.length > 1 ? l.filter(x => x.k !== it.k) : [itemCompraVacio()])} title="Quitar"
+                    style={{ ...btnDel, height:36, padding:0 }}>✕</button>
+                </div>
+                <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginTop:8 }}>
+                  {USOS_COMPRA.map(u => (
+                    <button key={u.id} type="button" onClick={() => setItem(it.k, "uso", u.id)}
+                      style={{ padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:700, cursor:"pointer",
+                        border:`1.5px solid ${it.uso===u.id ? u.color : "var(--c-border)"}`, background: it.uso===u.id ? u.bg : "#fff", color: it.uso===u.id ? u.color : "#a09080" }}>{u.label}</button>
+                  ))}
+                  {esReventa(it.uso) && (
+                    <select value={it.insumoVentaId} onChange={e => setItem(it.k, "insumoVentaId", e.target.value)}
+                      style={{ ...inpC, width:"auto", maxWidth:260, padding:"5px 8px", fontSize:12 }} title="Producto de Servicios y Productos al que se le suma el stock">
+                      <option value="">— Sin vincular a un producto de venta —</option>
+                      {[...insumosVenta].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"")).map(x => <option key={x.fireId} value={x.fireId}>{x.nombre}</option>)}
+                    </select>
+                  )}
+                  {esReventa(it.uso) && iv && parseFloat(it.cantidad) > 0 && <span style={{ fontSize:11, color:"#2e7d32", fontWeight:600 }}>+{it.cantidad} al stock ({parseFloat(iv.stock)||0} → {(parseFloat(iv.stock)||0) + (parseFloat(it.cantidad)||0)})</span>}
+                  {p && <span style={{ fontSize:11, color:"#1565c0" }}>🕘 Última: {$ar(p.ultimoPrecio)} c/u{p.ultimaFecha ? ` · ${fmtFecha(p.ultimaFecha)}` : ""}{p.ultimoProveedor ? ` · ${p.ultimoProveedor}` : ""}</span>}
+                  {dif !== 0 && <span style={{ fontSize:11, fontWeight:700, color: dif > 0 ? "#c62828" : "#2e7d32" }}>{dif > 0 ? "▲" : "▼"} {Math.abs(dif)}%</span>}
+                  {it.nombre.trim() && !p && <span style={{ fontSize:11, color:"#a09080" }}>✨ Producto nuevo: queda guardado para la próxima</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10, flexWrap:"wrap", gap:10 }}>
+          <button onClick={() => setItems(l => [...l, itemCompraVacio()])}
+            style={{ background:"#fff", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:8, padding:"7px 14px", fontSize:13, fontWeight:700, cursor:"pointer" }}>➕ Agregar producto</button>
+          <div style={{ fontSize:15, color:"#4a5568" }}>Total de la compra: <b style={{ fontSize:20, color:"#1a2340" }}>{$ar(totalCompra)}</b></div>
+        </div>
+      </div>
+
+      <div style={{ background: pagarCaja ? "#fff3e0" : "#fafafa", border:`1px solid ${pagarCaja ? "#ffcc80" : "var(--c-border)"}`, borderRadius:10, padding:"10px 12px" }}>
+        <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, fontWeight:600, color:"#1a2340", cursor:"pointer" }}>
+          <input type="checkbox" checked={pagarCaja} onChange={e => setPagarCaja(e.target.checked)} style={{ accentColor:"#e65100" }}/>
+          💸 Registrar el pago en la Caja (sale como egreso)
+        </label>
+        {pagarCaja && (
+          <select value={cuentaPago} onChange={e => setCuentaPago(e.target.value)} style={{ ...prodInp, marginTop:8 }}>
+            {cuentasPesos.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
+          </select>
+        )}
+        {!pagarCaja && <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>Dejalo sin tildar si el pago ya lo cargaste en Finanzas.</div>}
+      </div>
+      <div><label style={prodLbl}>Nota (opcional)</label><input value={nota} onChange={e => setNota(e.target.value)} style={prodInp}/></div>
+    </ProdModal>
+  );
+}
+
+function ComprasView({ showToast }) {
+  const [compras, cargando] = useColeccion("compras");
+  const [productos] = useColeccion("productosCompra");
+  const [proveedores] = useColeccion("proveedores");
+  const [insumosVenta] = useColeccion("insumos");
+  const cajaCfg = useCajaCfg();
+  const [modal, setModal] = useState(null);
+  const [vista, setVista] = useState("compras");     // compras | productos
+  const [periodo, setPeriodo] = useState("mes");     // mes | anterior | anio | todo
+  const [busq, setBusq] = useState("");
+  const [abierta, setAbierta] = useState(null);      // compra desplegada
+  const [prodAbierto, setProdAbierto] = useState(null);
+
+  const hoy = hoyISO(), mes = hoy.slice(0,7), anio = hoy.slice(0,4);
+  const mesAnt = (() => { const d = new Date(+mes.slice(0,4), +mes.slice(5)-2, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; })();
+  const enPeriodo = (f) => periodo === "todo" || (f||"").startsWith(periodo === "mes" ? mes : periodo === "anterior" ? mesAnt : anio);
+  const q = normTxt(busq);
+  const lista = compras
+    .filter(c => enPeriodo(c.fecha))
+    .filter(c => !q || normTxt(`${c.proveedorNombre||""} ${c.nroFactura||""} ${c.nota||""} ${(c.items||[]).map(i => i.nombre).join(" ")}`).includes(q))
+    .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""));
+  const totalPeriodo = lista.reduce((s,c) => s + (parseFloat(c.total)||0), 0);
+
+  // Historial por producto (sale de los ítems de todas las compras)
+  const historial = {};
+  compras.forEach(c => (c.items||[]).forEach(it => {
+    const k = normTxt(it.nombre); (historial[k] = historial[k] || []).push({ ...it, fecha:c.fecha, proveedor:c.proveedorNombre, nroFactura:c.nroFactura, cr:c.creadoEn||"" });
+  }));
+  Object.values(historial).forEach(h => h.sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || b.cr.localeCompare(a.cr)));
+  const prods = productos
+    .filter(p => !q || normTxt(`${p.nombre} ${p.ultimoProveedor||""}`).includes(q))
+    .map(p => {
+      const h = historial[normTxt(p.nombre)] || [];
+      const prev = h[1]?.precioUnit, ult = h[0]?.precioUnit ?? p.ultimoPrecio;
+      return { ...p, h, veces: h.length, var: prev > 0 && ult > 0 ? Math.round((ult - prev) / prev * 100) : null,
+        totalAnio: h.filter(x => (x.fecha||"").startsWith(anio)).reduce((s,x) => s + (x.total||0), 0) };
+    })
+    .sort((a,b) => (b.ultimaFecha||"").localeCompare(a.ultimaFecha||""));
+
+  const borrar = async (c) => {
+    const conCaja = !!c.cajaMovId, conStock = (c.items||[]).some(i => i.insumoVentaId);
+    if (!window.confirm(`¿Borrar la compra${c.proveedorNombre ? " a " + c.proveedorNombre : ""} del ${fmtFecha(c.fecha)} por ${$ar(c.total)}?` +
+      (conStock ? "\n\nSe va a descontar el stock que había sumado." : "") + (conCaja ? "\nTambién se borra el egreso de la Caja." : ""))) return;
+    try {
+      await moverStockCompra(c.items, -1, false);
+      if (c.cajaMovId) await deleteDoc(doc(db, "cajaMovs", c.cajaMovId)).catch(() => {});
+      await deleteDoc(doc(db, "compras", c.fireId));
+      showToast("Compra borrada", "error");
+    } catch(e) { console.error(e); showToast("Error al borrar","error"); }
+  };
+  const cambiarUso = async (p, uso) => { await updateDoc(doc(db, "productosCompra", p.fireId), { uso }); };
+  const comprarDeNuevo = (p) => setModal({ proveedorNombre: p.ultimoProveedor || "", items:[{ nombre:p.nombre, unidad:p.unidad||"unidades", cantidad:"", precioUnit: p.ultimoPrecio || "", total:"", uso:p.uso||"materia", insumoVentaId:p.insumoVentaId||"" }] });
+
+  const resumenItems = (c) => { const it = c.items||[]; return it.slice(0,2).map(i => `${i.nombre} ×${i.cantidad}`).join(", ") + (it.length > 2 ? ` +${it.length-2}` : ""); };
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginBottom:14, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          {[["compras","🧾 Compras"],["productos","📦 Productos comprados"]].map(([id,l]) => (
+            <button key={id} onClick={() => setVista(id)} style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
+              background: vista===id ? "#1a2340" : "#fff", color: vista===id ? "#fff" : "#4a5568", boxShadow:"0 1px 6px rgba(0,0,0,.06)" }}>{l}</button>
+          ))}
+        </div>
+        <button onClick={() => setModal({})} style={btnPri()}>🛒 Nueva compra</button>
+      </div>
+
+      <div style={{ ...prodCard, padding:"12px 16px", marginBottom:14, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        <input value={busq} onChange={e => setBusq(e.target.value)} placeholder="🔍 Buscar proveedor, producto o N° de factura…" style={{ ...prodInp, flex:"1 1 240px" }}/>
+        {vista === "compras" && (
+          <>
+            <select value={periodo} onChange={e => setPeriodo(e.target.value)} style={{ ...prodInp, width:"auto", cursor:"pointer", fontWeight:600 }}>
+              <option value="mes">Este mes</option><option value="anterior">Mes anterior</option><option value="anio">Este año</option><option value="todo">Todo</option>
+            </select>
+            <div style={{ fontSize:13, color:"#4a5568", marginLeft:"auto" }}>{lista.length} compra{lista.length!==1?"s":""} · <b style={{ color:"#1a2340", fontSize:15 }}>{$ar(totalPeriodo)}</b></div>
+          </>
+        )}
+      </div>
+
+      {vista === "compras" ? (
+        <div style={{ ...prodCard, overflow:"hidden" }}>
+          {lista.length === 0 ? (
+            <div style={{ padding:36, textAlign:"center", color:"#a09080" }}>
+              <div style={{ fontSize:36, marginBottom:8 }}>🛒</div>
+              {cargando ? "Cargando…" : busq ? "Sin resultados" : "No hay compras en este período. Tocá 🛒 Nueva compra para cargar una."}
+            </div>
+          ) : (
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr>{["Fecha","Proveedor","N° factura","Productos","Total",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {lista.map(c => (
+                    <Fragment key={c.fireId}>
+                      <tr onClick={() => setAbierta(a => a === c.fireId ? null : c.fireId)} style={{ cursor:"pointer", background: abierta===c.fireId ? "var(--c-softer)" : "transparent" }}>
+                        <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(c.fecha)}</td>
+                        <td style={{ ...prodTd, fontWeight:700, color:"#1a2340" }}>{c.proveedorNombre || "—"}</td>
+                        <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{c.nroFactura || "—"}</td>
+                        <td style={prodTd}>{resumenItems(c)}{c.cajaMovId && <span title="Pagada desde la Caja" style={{ marginLeft:6 }}>💸</span>}</td>
+                        <td style={{ ...prodTd, fontWeight:800, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{$ar(c.total)}</td>
+                        <td style={{ ...prodTd, whiteSpace:"nowrap" }} onClick={e => e.stopPropagation()}>
+                          <button onClick={() => setModal(c)} style={{ background:"#fff", border:"1px solid var(--c-border)", borderRadius:6, padding:"4px 8px", cursor:"pointer", marginRight:6 }}>✏️</button>
+                          <button onClick={() => borrar(c)} style={btnDel}>🗑</button>
+                        </td>
+                      </tr>
+                      {abierta === c.fireId && (
+                        <tr><td colSpan={6} style={{ padding:"4px 14px 14px", background:"var(--c-softer)", borderBottom:"1px solid var(--c-row)" }}>
+                          <table style={{ width:"100%", borderCollapse:"collapse", background:"#fff", borderRadius:8 }}>
+                            <thead><tr>{["Producto","Uso","Cantidad","Precio c/u","Total"].map(h => <th key={h} style={{ ...prodTh, background:"#fff" }}>{h}</th>)}</tr></thead>
+                            <tbody>
+                              {(c.items||[]).map((it, i) => (
+                                <tr key={i}>
+                                  <td style={{ ...prodTd, fontWeight:600, color:"#1a2340" }}>{it.nombre}{it.insumoVentaId && <div style={{ fontSize:11, color:"#2e7d32", fontWeight:400 }}>sumó {it.cantidad} al stock de {insumosVenta.find(x => x.fireId === it.insumoVentaId)?.nombre || "un producto de venta"}</div>}</td>
+                                  <td style={prodTd}><span style={{ background:usoDe(it.uso).bg, color:usoDe(it.uso).color, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{usoDe(it.uso).corto}</span></td>
+                                  <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{it.cantidad} {it.unidad}</td>
+                                  <td style={prodTd}>{$ar(it.precioUnit)}</td>
+                                  <td style={{ ...prodTd, fontWeight:700 }}>{$ar(it.total)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {(c.nota || c.cajaMovId) && <div style={{ fontSize:12, color:"#a09080", marginTop:8 }}>{c.nota}{c.nota && c.cajaMovId ? " · " : ""}{c.cajaMovId ? `💸 Pagada desde ${nombreCajaCfg(cajaCfg, c.cajaCuenta)}` : ""}</div>}
+                        </td></tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ ...prodCard, overflow:"hidden" }}>
+          {prods.length === 0 ? <div style={{ padding:36, textAlign:"center", color:"#a09080" }}>Los productos se guardan solos cuando registrás una compra.</div> : (
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead><tr>{["Producto","Uso","Último precio","Cambio","Último proveedor","Compras",`Comprado ${anio}`,""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {prods.map(p => (
+                    <Fragment key={p.fireId}>
+                      <tr onClick={() => setProdAbierto(a => a === p.fireId ? null : p.fireId)} style={{ cursor:"pointer", background: prodAbierto===p.fireId ? "var(--c-softer)" : "transparent" }}>
+                        <td style={{ ...prodTd, fontWeight:700, color:"#1a2340" }}>{p.nombre}
+                          {p.insumoVentaId && <div style={{ fontSize:11, color:"#2e7d32", fontWeight:400 }}>🔗 {insumosVenta.find(x => x.fireId === p.insumoVentaId)?.nombre || "producto de venta"} · stock {parseFloat(insumosVenta.find(x => x.fireId === p.insumoVentaId)?.stock)||0}</div>}
+                        </td>
+                        <td style={prodTd} onClick={e => e.stopPropagation()}>
+                          <select value={p.uso||"materia"} onChange={e => cambiarUso(p, e.target.value)}
+                            style={{ border:"none", borderRadius:20, padding:"3px 8px", fontSize:11, fontWeight:700, cursor:"pointer", background:usoDe(p.uso).bg, color:usoDe(p.uso).color }}>
+                            {USOS_COMPRA.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
+                          </select>
+                        </td>
+                        <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{$ar(p.ultimoPrecio)}<span style={{ fontSize:11, color:"#a09080", fontWeight:400 }}> /{!p.unidad || p.unidad === "unidades" ? "unidad" : p.unidad.replace(/s$/,"")}</span></td>
+                        <td style={{ ...prodTd, fontWeight:700, whiteSpace:"nowrap", color: p.var === null ? "#c0b0a0" : p.var > 0 ? "#c62828" : p.var < 0 ? "#2e7d32" : "#a09080" }}>{p.var === null ? "—" : p.var === 0 ? "= igual" : `${p.var > 0 ? "▲" : "▼"} ${Math.abs(p.var)}%`}</td>
+                        <td style={prodTd}>{p.ultimoProveedor || "—"}<div style={{ fontSize:11, color:"#a09080" }}>{p.ultimaFecha ? fmtFecha(p.ultimaFecha) : ""}</div></td>
+                        <td style={prodTd}>{p.veces}</td>
+                        <td style={{ ...prodTd, fontWeight:600 }}>{$ar(p.totalAnio)}</td>
+                        <td style={prodTd} onClick={e => e.stopPropagation()}>
+                          <button onClick={() => comprarDeNuevo(p)} style={{ background:"var(--c-tint)", border:"1px solid var(--c-border)", color:"var(--c-pri)", borderRadius:6, padding:"4px 9px", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>🛒 Comprar</button>
+                        </td>
+                      </tr>
+                      {prodAbierto === p.fireId && (
+                        <tr><td colSpan={8} style={{ padding:"4px 14px 14px", background:"var(--c-softer)" }}>
+                          {p.h.length === 0 ? <div style={{ fontSize:12, color:"#a09080", padding:8 }}>Sin compras registradas.</div> : (
+                            <table style={{ width:"100%", borderCollapse:"collapse", background:"#fff" }}>
+                              <thead><tr>{["Fecha","Proveedor","N° factura","Cantidad","Precio c/u","Total"].map(h => <th key={h} style={{ ...prodTh, background:"#fff" }}>{h}</th>)}</tr></thead>
+                              <tbody>{p.h.map((x, i) => (
+                                <tr key={i}>
+                                  <td style={prodTd}>{fmtFecha(x.fecha)}</td><td style={prodTd}>{x.proveedor || "—"}</td><td style={prodTd}>{x.nroFactura || "—"}</td>
+                                  <td style={prodTd}>{x.cantidad} {x.unidad}</td><td style={{ ...prodTd, fontWeight:700 }}>{$ar(x.precioUnit)}</td><td style={prodTd}>{$ar(x.total)}</td>
+                                </tr>
+                              ))}</tbody>
+                            </table>
+                          )}
+                        </td></tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {modal && <ModalCompra inicial={modal} productos={productos} proveedores={proveedores} insumosVenta={insumosVenta} cajaCfg={cajaCfg} onClose={() => setModal(null)} showToast={showToast}/>}
     </div>
   );
 }
@@ -6842,6 +7266,12 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
             </span>
           )}
         </button>
+        <button onClick={()=>setTabActiva("compras")}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="compras"?"#5d4037":"#fff", color:tabActiva==="compras"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="compras"?"0 3px 10px rgba(93,64,55,.25)":"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>
+          🛒 Compras
+        </button>
       </div>
 
       {/* ── TAB VENTAS ── */}
@@ -6949,6 +7379,8 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
       )}
 
       {/* ── TAB PRESUPUESTOS ── */}
+      {tabActiva==="compras" && <ComprasView showToast={showToast}/>}
+
       {tabActiva==="presupuestos" && (
         <div>
           <div style={{ marginBottom:16 }}>
@@ -13195,6 +13627,9 @@ export default function App() {
           .card[style*="padding: 32px"],.card[style*="padding: 28px"],.card[style*="padding: 36px"]{padding:18px 14px!important}
           .modal-ov>div,div[style*="position: fixed"][style*="inset: 0"]>div{max-width:calc(100vw - 20px)!important;max-height:calc(100vh - 40px)!important;overflow-y:auto;padding-left:18px!important;padding-right:18px!important}
           .busq-global-box{top:calc(12px + env(safe-area-inset-top))}
+          .compra-fila{grid-template-columns:1fr 1fr 1fr!important}
+          .compra-fila>div:first-child{grid-column:1 / -1}
+          .compra-fila label{display:block!important}
           .modal-ov,div[style*="position: fixed"][style*="inset: 0"]{padding-top:env(safe-area-inset-top)!important}
           .nav-cel{display:grid;grid-template-columns:repeat(5,1fr);align-items:end;position:fixed;left:0;right:0;bottom:0;z-index:300;background:#fff;
             border-top:1px solid var(--c-border);box-shadow:0 -4px 18px rgba(0,0,0,.06);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
