@@ -7255,17 +7255,6 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
           💰 Ventas
           {filtradas.length>0 && tabActiva!=="ventas" && <span style={{ marginLeft:6, background:"var(--c-tint)", color:"var(--c-pri)", borderRadius:20, padding:"1px 7px", fontSize:12, fontWeight:700 }}>{filtradas.length}</span>}
         </button>
-        <button onClick={()=>setTabActiva("presupuestos")}
-          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
-            background:tabActiva==="presupuestos"?"#1a2340":"#fff", color:tabActiva==="presupuestos"?"#fff":"#4a5568",
-            boxShadow:tabActiva==="presupuestos"?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>
-          📋 Presupuestos
-          {presupuestos.filter(p=>p.estado!=="convertido").length>0 && (
-            <span style={{ marginLeft:6, background:tabActiva==="presupuestos"?"rgba(255,255,255,.2)":"#f0f3f9", color:tabActiva==="presupuestos"?"#fff":"#4a5568", borderRadius:20, padding:"1px 7px", fontSize:12, fontWeight:700 }}>
-              {presupuestos.filter(p=>p.estado!=="convertido").length}
-            </span>
-          )}
-        </button>
         <button onClick={()=>setTabActiva("compras")}
           style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
             background:tabActiva==="compras"?"#5d4037":"#fff", color:tabActiva==="compras"?"#fff":"#4a5568",
@@ -7381,78 +7370,6 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
       {/* ── TAB PRESUPUESTOS ── */}
       {tabActiva==="compras" && <ComprasView showToast={showToast}/>}
 
-      {tabActiva==="presupuestos" && (
-        <div>
-          <div style={{ marginBottom:16 }}>
-            <p style={{ fontSize:14, color:"#a09080" }}>{presupuestos.length} presupuesto{presupuestos.length!==1?"s":""} · {presupuestos.filter(p=>p.estado!=="convertido").length} pendiente{presupuestos.filter(p=>p.estado!=="convertido").length!==1?"s":""}</p>
-          </div>
-
-          {/* Buscador */}
-          <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px", marginBottom:18 }}>
-            <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)" }}>🔍</span>
-              <input placeholder="Buscar por cliente o número..." value={busq} onChange={e=>setBusq(e.target.value)}
-                style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
-            </div>
-          </div>
-
-          {presFiltrados.length===0 ? (
-            <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"52px 24px", textAlign:"center" }}>
-              <div style={{ fontSize:40, marginBottom:14 }}>📋</div>
-              <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>Sin presupuestos</div>
-              <div style={{ color:"#a09080", fontSize:14 }}>Generá un presupuesto desde Nueva Venta</div>
-            </div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-              {presFiltrados.map(p => {
-                const est = estadoPres(p);
-                return (
-                  <div key={p.fireId} style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"18px 22px" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
-                      <div style={{ flex:1 }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
-                          <span style={{ fontFamily:"monospace", fontSize:12, color:"#a09080" }}>P-{String(p.numero||1).padStart(5,"0")}</span>
-                          <span style={{ background:est.bg, color:est.color, padding:"2px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>{est.label}</span>
-                        </div>
-                        <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:4 }}>{p.clienteNombre||"Consumidor Final"}</div>
-                        <div style={{ fontSize:12, color:"#a09080", marginBottom:8 }}>
-                          {p.fecha} · {p.items?.length||0} item{p.items?.length!==1?"s":""}
-                        </div>
-                        {/* Items */}
-                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                          {p.items?.slice(0,4).map((it,i)=>(
-                            <span key={i} style={{ background:"#f0f3f9", color:"#4a5568", padding:"2px 8px", borderRadius:20, fontSize:11 }}>
-                              {it.cantidad}× {it.nombre.length>25?it.nombre.slice(0,25)+"...":it.nombre}
-                            </span>
-                          ))}
-                          {p.items?.length>4 && <span style={{ background:"#f0f3f9", color:"#a09080", padding:"2px 8px", borderRadius:20, fontSize:11 }}>+{p.items.length-4} más</span>}
-                        </div>
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:10 }}>
-                        <div style={{ fontWeight:800, fontSize:22, color:"#1a2340" }}>${parseFloat(p.total||0).toLocaleString("es-AR")}</div>
-                        <div style={{ display:"flex", gap:8 }}>
-                          <button onClick={()=>handleReimprimir(p)}
-                            style={{ background:"#f0f3f9", border:"none", color:"#4a5568", padding:"7px 12px", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer" }}>
-                            🖨️ Reimprimir
-                          </button>
-                          <button onClick={()=>handleDeletePres(p)}
-                            style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"7px 10px", borderRadius:8, fontSize:12, cursor:"pointer" }}>🗑</button>
-                          {p.estado!=="convertido" && (
-                            <button onClick={()=>setConvirtiendo(p)}
-                              style={{ background:"var(--c-pri)", color:"#fff", border:"none", padding:"7px 14px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer" }}>
-                              ✅ Convertir a venta
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Modal: elegir método de pago al convertir */}
       {convirtiendo && (
