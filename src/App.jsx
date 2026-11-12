@@ -3829,28 +3829,59 @@ function ComprasInsumosView({ showToast }) {
   );
 }
 
-// ── Ventas → Compras ──────────────────────────────────────────────────────
-// compras:          { proveedorId, proveedorNombre, fecha, nroFactura, items[], total, nota, cajaMovId, cajaCuenta, creadoEn }
-//   items[]:        { nombre, unidad, cantidad, precioUnit, total, uso, insumoVentaId }
-// productosCompra:  { nombre, unidad, uso ("materia"|"reventa"|"ambos"), insumoVentaId, ultimoPrecio, ultimaFecha, ultimoProveedor, creadoEn }
-// Los ítems de reventa vinculados a un producto de venta le suman stock y actualizan su precio de compra.
+// ── Compras/Ventas → Compras ──────────────────────────────────────────────
+// compras:          { proveedorId, proveedorNombre, fecha, nroFactura, cotizacion, items[], neto, iva, total, pago, nota, cajaMovId, cajaCuenta, creadoEn }
+//   pago:           "caja" (se pagó en el momento, sale de la caja) | "ctacte" (quedó debiendo al proveedor) | "aparte" (ya cargado en Finanzas)
+//   items[]:        { tipo:"producto"|"servicio", nombre, unidad, cantidad, moneda:"ARS"|"USD", precioUnit (neto, en su moneda), iva (%),
+//                     neto, ivaMonto, total (en pesos, con IVA), uso, insumoVentaId, maquina, maquinaNombre, servicioImpId }
+// productosCompra:  { nombre, unidad, uso, insumoVentaId, ultimoPrecio ($ por unidad con IVA), ultimoPrecioOrig, ultimaMoneda, ultimoIva, ultimaFecha, ultimoProveedor }
+// serviciosCompra:  { nombre, maquina, maquinaNombre, ultimoPrecio, ultimaFecha, ultimoProveedor }
+// pagosProveedor:   { proveedorId, proveedorNombre, fecha, monto, cuenta, nota, cajaMovId, creadoEn }
 const USOS_COMPRA = [
   { id:"materia", label:"🧱 Materia prima", corto:"🧱 Materia prima", bg:"#efebe9", color:"#5d4037" },
   { id:"reventa", label:"🏷️ Reventa",       corto:"🏷️ Reventa",       bg:"#e8f5e9", color:"#2e7d32" },
   { id:"ambos",   label:"🔀 Las dos",        corto:"🔀 Las dos",        bg:"#e3f2fd", color:"#1565c0" },
 ];
+const IVAS_COMPRA = [0, 10.5, 21, 27];
+const PAGOS_COMPRA = [
+  { id:"caja",   label:"💸 La pagué ahora",          sub:"Sale como egreso de la caja que elijas" },
+  { id:"ctacte", label:"📒 A cuenta corriente",      sub:"No la pagué: queda como deuda con el proveedor" },
+  { id:"aparte", label:"✔️ Ya la cargué en Finanzas", sub:"No mueve la caja" },
+];
 const usoDe = (id) => USOS_COMPRA.find(u => u.id === id) || USOS_COMPRA[0];
-const itemCompraVacio = () => ({ k: Math.random().toString(36).slice(2), nombre:"", unidad:"unidades", cantidad:"", precioUnit:"", total:"", uso:"materia", insumoVentaId:"" });
+const pagoDeCompra = (c) => c.pago || (c.cajaMovId ? "caja" : "aparte");
+const itemCompraVacio = (tipo = "producto") => ({ k: Math.random().toString(36).slice(2), tipo, nombre:"", unidad:"unidades", cantidad: tipo === "servicio" ? "1" : "", moneda:"ARS", precioUnit:"", iva:0, total:"", uso:"materia", insumoVentaId:"", maquina:"" });
 const esReventa = (uso) => uso === "reventa" || uso === "ambos";
+const r2 = (n) => Math.round((parseFloat(n)||0) * 100) / 100;
+const usd = (n) => `US$ ${(Math.round((parseFloat(n)||0) * 100) / 100).toLocaleString("es-AR")}`;
+// Cuentas de un renglón: neto e IVA en pesos (los dólares se pasan con la cotización de la compra)
+function calcItemCompra(it, cot) {
+  const cant = parseFloat(it.cantidad)||0, pu = parseFloat(it.precioUnit)||0, iva = parseFloat(it.iva)||0;
+  const tasa = it.moneda === "USD" ? (parseFloat(cot)||0) : 1;
+  const neto = cant * pu * tasa, ivaMonto = neto * iva / 100;
+  return { neto: r2(neto), ivaMonto: r2(ivaMonto), total: r2(neto + ivaMonto), sinCotizacion: it.moneda === "USD" && !tasa };
+}
+// Deuda con cada proveedor: compras a cuenta corriente − pagos
+function saldosProveedores(compras, pagos) {
+  const s = {};
+  compras.forEach(c => { if (pagoDeCompra(c) === "ctacte" && c.proveedorId) s[c.proveedorId] = (s[c.proveedorId]||0) + (parseFloat(c.total)||0); });
+  pagos.forEach(p => { if (p.proveedorId) s[p.proveedorId] = (s[p.proveedorId]||0) - (parseFloat(p.monto)||0); });
+  Object.keys(s).forEach(k => { s[k] = r2(s[k]); });
+  return s;
+}
+function catEgresoCompras(cajaCfg) {
+  return (cajaCfg.catsEgreso||[]).find(c => /insumo/.test(normTxt(c.nombre)))?.nombre
+      || (cajaCfg.catsEgreso||[]).find(c => !c.personal)?.nombre || "Compras";
+}
 
 // Suma (o resta) stock a los productos de venta vinculados y actualiza su precio de compra
 async function moverStockCompra(items, signo, actualizarPrecio) {
   const porProd = {};
   (items||[]).forEach(it => {
-    if (!it.insumoVentaId || !esReventa(it.uso)) return;
+    if (it.tipo === "servicio" || !it.insumoVentaId || !esReventa(it.uso)) return;
     const x = porProd[it.insumoVentaId] = porProd[it.insumoVentaId] || { cant:0, precio:0 };
     x.cant += parseFloat(it.cantidad)||0;
-    x.precio = parseFloat(it.precioUnit)||0;
+    x.precio = (parseFloat(it.cantidad)||0) > 0 ? r2((parseFloat(it.total)||0) / parseFloat(it.cantidad)) : 0;
   });
   for (const [id, x] of Object.entries(porProd)) {
     try {
@@ -3861,50 +3892,68 @@ async function moverStockCompra(items, signo, actualizarPrecio) {
     } catch(e) { console.error(e); }
   }
 }
+// Los services hechos a una impresora también quedan en su registro (Producción → Impresoras)
+async function borrarServiciosImpresora(items) {
+  for (const it of (items||[])) if (it.servicioImpId) await deleteDoc(doc(db, "impresoraServices", it.servicioImpId)).catch(() => {});
+}
 
-function ModalCompra({ inicial, productos, proveedores, insumosVenta, cajaCfg, onClose, showToast }) {
+function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta, maquinas, cajaCfg, ultimaCotizacion, onClose, showToast }) {
   const editando = !!inicial?.fireId;
   const [prov, setProv]       = useState(inicial?.proveedorNombre || "");
   const [crearProv, setCrearProv] = useState(true);
   const [fecha, setFecha]     = useState(inicial?.fecha || hoyISO());
   const [nroFactura, setNro]  = useState(inicial?.nroFactura || "");
+  const [cot, setCot]         = useState(String(inicial?.cotizacion || ultimaCotizacion || ""));
   const [nota, setNota]       = useState(inicial?.nota || "");
-  const [items, setItems]     = useState(inicial?.items?.length ? inicial.items.map(it => ({ ...itemCompraVacio(), ...it, cantidad:String(it.cantidad??""), precioUnit:String(it.precioUnit??""), total:String(it.total??"") })) : [itemCompraVacio()]);
-  const [pagarCaja, setPagarCaja] = useState(!!inicial?.cajaMovId);
+  const [items, setItems]     = useState(inicial?.items?.length
+    ? inicial.items.map(it => ({ ...itemCompraVacio(it.tipo), ...it, tipo: it.tipo || "producto", moneda: it.moneda || "ARS", iva: it.iva || 0,
+        cantidad:String(it.cantidad??""), precioUnit:String(it.precioUnit??""), total:String(it.total??"") }))
+    : [itemCompraVacio()]);
+  const [pago, setPago]       = useState(inicial?.fireId ? pagoDeCompra(inicial) : (inicial?.pago || "aparte"));
   const [cuentaPago, setCuentaPago] = useState(inicial?.cajaCuenta || cajaPorMetodo(cajaCfg, "Efectivo") || "");
   const [guardando, setGuardando] = useState(false);
 
   const provExistente = proveedores.find(p => normTxt(nomProveedor(p)) === normTxt(prov));
   const nombresProv = [...new Set(proveedores.map(nomProveedor))].sort((a,b) => a.localeCompare(b));
   const prodPorNombre = (n) => productos.find(p => normTxt(p.nombre) === normTxt(n));
-  const totalCompra = items.reduce((s,it) => s + (parseFloat(it.total)||0), 0);
+  const servPorNombre = (n) => servicios.find(p => normTxt(p.nombre) === normTxt(n));
+  const hayUSD = items.some(it => it.moneda === "USD");
+  const calcs = items.map(it => calcItemCompra(it, cot));
+  const tot = calcs.reduce((a,c) => ({ neto: a.neto + c.neto, iva: a.iva + c.ivaMonto, total: a.total + c.total }), { neto:0, iva:0, total:0 });
   const cuentasPesos = cajaCfg.cuentas.filter(c => c.moneda !== "USD");
 
   const setItem = (k, campo, val) => setItems(lista => lista.map(it => {
     if (it.k !== k) return it;
     const n = { ...it, [campo]: val };
-    const cant = parseFloat(campo === "cantidad" ? val : it.cantidad) || 0;
-    if (campo === "cantidad" || campo === "precioUnit") {
-      const pu = parseFloat(campo === "precioUnit" ? val : it.precioUnit) || 0;
-      n.total = cant && pu ? String(Math.round(cant * pu * 100) / 100) : n.total;
+    if (campo === "total") {   // escribieron el total final en pesos → calcular el precio c/u
+      const cant = parseFloat(n.cantidad)||0, tasa = n.moneda === "USD" ? (parseFloat(cot)||0) : 1, f = 1 + (parseFloat(n.iva)||0) / 100;
+      if (cant > 0 && tasa > 0) n.precioUnit = String(r2((parseFloat(val)||0) / (cant * tasa * f)));
     }
-    if (campo === "total" && cant > 0) n.precioUnit = String(Math.round((parseFloat(val)||0) / cant * 100) / 100);
-    if (campo === "nombre") {
+    if (campo === "nombre" && n.tipo === "producto") {
       const p = prodPorNombre(val);
-      if (p) { n.unidad = p.unidad || n.unidad; n.uso = p.uso || n.uso; n.insumoVentaId = p.insumoVentaId || n.insumoVentaId; }
+      if (p) { n.unidad = p.unidad || n.unidad; n.uso = p.uso || n.uso; n.insumoVentaId = p.insumoVentaId || n.insumoVentaId;
+               if (p.ultimaMoneda) n.moneda = p.ultimaMoneda; if (p.ultimoIva !== undefined) n.iva = p.ultimoIva; }
     }
-    if ((campo === "uso" || campo === "nombre") && esReventa(n.uso) && !n.insumoVentaId) {
+    if (campo === "nombre" && n.tipo === "servicio") {
+      const s = servPorNombre(val);
+      if (s && !n.maquina) n.maquina = s.maquina || "";
+    }
+    if ((campo === "uso" || campo === "nombre") && n.tipo === "producto" && esReventa(n.uso) && !n.insumoVentaId) {
       const iv = insumosVenta.find(x => normTxt(x.nombre) === normTxt(n.nombre));
       if (iv) n.insumoVentaId = iv.fireId;
     }
     return n;
   }));
+  const cambiarTipo = (k, tipo) => setItems(l => l.map(it => it.k !== k ? it : { ...itemCompraVacio(tipo), k: it.k, nombre: it.nombre, precioUnit: it.precioUnit, moneda: it.moneda, iva: it.iva, cantidad: tipo === "servicio" ? (it.cantidad || "1") : it.cantidad }));
 
   const guardar = async () => {
     const validos = items.filter(it => it.nombre.trim() && (parseFloat(it.cantidad)||0) > 0);
-    if (!validos.length) { showToast("Cargá al menos un producto con su cantidad","error"); return; }
-    if (items.some(it => it.nombre.trim() && !((parseFloat(it.cantidad)||0) > 0))) { showToast("Hay un producto sin cantidad","error"); return; }
-    if (pagarCaja && !cuentaPago) { showToast("Elegí de qué caja sale el pago","error"); return; }
+    if (!validos.length) { showToast("Cargá al menos un producto o servicio con su cantidad","error"); return; }
+    if (items.some(it => it.nombre.trim() && !((parseFloat(it.cantidad)||0) > 0))) { showToast("Hay un renglón sin cantidad","error"); return; }
+    if (validos.some(it => it.moneda === "USD") && !(parseFloat(cot) > 0)) { showToast("Hay precios en dólares: cargá la cotización del dólar","error"); return; }
+    if (pago === "caja" && !cuentaPago) { showToast("Elegí de qué caja sale el pago","error"); return; }
+    if (pago === "ctacte" && !prov.trim()) { showToast("Para dejarla a cuenta corriente tiene que tener proveedor","error"); return; }
+    if (pago === "ctacte" && !provExistente && !crearProv) { showToast("Para la cuenta corriente el proveedor tiene que quedar guardado","error"); return; }
     setGuardando(true);
     try {
       // Proveedor
@@ -3913,60 +3962,84 @@ function ModalCompra({ inicial, productos, proveedores, insumosVenta, cajaCfg, o
         const ref = await addDoc(collection(db, "proveedores"), { empresa:provNom, titular:"", telefono:"", creadoEn:new Date().toISOString() });
         provId = ref.id;
       }
-      const itemsOk = validos.map(it => ({
-        nombre: it.nombre.trim(), unidad: it.unidad, cantidad: parseFloat(it.cantidad)||0,
-        precioUnit: parseFloat(it.precioUnit)||0, total: parseFloat(it.total)||0, uso: it.uso,
-        insumoVentaId: esReventa(it.uso) ? (it.insumoVentaId || "") : "",
-      }));
-      const total = Math.round(itemsOk.reduce((s,it) => s + it.total, 0) * 100) / 100;
+      let itemsOk = validos.map(it => {
+        const c = calcItemCompra(it, cot), esServ = it.tipo === "servicio";
+        const maq = maquinas.find(m => m.id === it.maquina);
+        return {
+          tipo: esServ ? "servicio" : "producto", nombre: it.nombre.trim(), cantidad: parseFloat(it.cantidad)||0,
+          unidad: esServ ? "servicio" : it.unidad, moneda: it.moneda, precioUnit: parseFloat(it.precioUnit)||0, iva: parseFloat(it.iva)||0,
+          neto: c.neto, ivaMonto: c.ivaMonto, total: c.total,
+          uso: esServ ? "" : it.uso, insumoVentaId: !esServ && esReventa(it.uso) ? (it.insumoVentaId || "") : "",
+          maquina: esServ ? (it.maquina || "") : "", maquinaNombre: esServ ? (maq?.nombre || "") : "", servicioImpId: it.servicioImpId || "",
+        };
+      });
+      const neto = r2(itemsOk.reduce((s,it) => s + it.neto, 0)), iva = r2(itemsOk.reduce((s,it) => s + it.ivaMonto, 0));
+      const total = r2(neto + iva);
 
-      // Catálogo de productos comprados (memoria para la próxima compra)
+      // Memoria: productos comprados y servicios requeridos
       for (const it of itemsOk) {
-        const p = prodPorNombre(it.nombre);
-        const datos = { nombre: it.nombre, unidad: it.unidad, uso: it.uso, insumoVentaId: it.insumoVentaId };
-        const masNueva = !p || !p.ultimaFecha || fecha >= p.ultimaFecha;
-        const ultimos = masNueva ? { ultimoPrecio: it.precioUnit, ultimaFecha: fecha, ultimoProveedor: provNom || p?.ultimoProveedor || "" } : {};
-        if (p) await updateDoc(doc(db, "productosCompra", p.fireId), { ...datos, ...ultimos });
-        else await addDoc(collection(db, "productosCompra"), { ...datos, ...ultimos, creadoEn: new Date().toISOString() });
+        const unitPesos = it.cantidad > 0 ? r2(it.total / it.cantidad) : 0;
+        if (it.tipo === "producto") {
+          const p = prodPorNombre(it.nombre);
+          const masNueva = !p || !p.ultimaFecha || fecha >= p.ultimaFecha;
+          const datos = { nombre: it.nombre, unidad: it.unidad, uso: it.uso, insumoVentaId: it.insumoVentaId,
+            ...(masNueva ? { ultimoPrecio: unitPesos, ultimoPrecioOrig: it.precioUnit, ultimaMoneda: it.moneda, ultimoIva: it.iva, ultimaFecha: fecha, ultimoProveedor: provNom || p?.ultimoProveedor || "" } : {}) };
+          if (p) await updateDoc(doc(db, "productosCompra", p.fireId), datos);
+          else await addDoc(collection(db, "productosCompra"), { ...datos, creadoEn: new Date().toISOString() });
+        } else {
+          const s = servPorNombre(it.nombre);
+          const masNueva = !s || !s.ultimaFecha || fecha >= s.ultimaFecha;
+          const datos = { nombre: it.nombre, maquina: it.maquina, maquinaNombre: it.maquinaNombre,
+            ...(masNueva ? { ultimoPrecio: it.total, ultimaFecha: fecha, ultimoProveedor: provNom || s?.ultimoProveedor || "" } : {}) };
+          if (s) await updateDoc(doc(db, "serviciosCompra", s.fireId), datos);
+          else await addDoc(collection(db, "serviciosCompra"), { ...datos, creadoEn: new Date().toISOString() });
+        }
       }
 
-      // Stock de los productos de reventa (al editar se deshace lo anterior)
-      if (editando) await moverStockCompra(inicial.items, -1, false);
+      // Stock de reventa y registro de services de impresoras (al editar se deshace lo anterior)
+      if (editando) { await moverStockCompra(inicial.items, -1, false); await borrarServiciosImpresora(inicial.items); }
       await moverStockCompra(itemsOk, +1, true);
+      itemsOk = await Promise.all(itemsOk.map(async it => {
+        const imp = it.tipo === "servicio" && maquinas.find(m => m.id === it.maquina && m.esImpresora);
+        if (!imp) return { ...it, servicioImpId: "" };
+        const ref = await addDoc(collection(db, "impresoraServices"), { impresoraId: imp.id, impresoraNombre: imp.nombre, tipo:"service",
+          descripcion: it.nombre, tecnico: provNom, precio: it.total, fecha, nota: nroFactura.trim() ? `Fact. ${nroFactura.trim()}` : "", origen:"compra", cargadoEn: new Date().toISOString() });
+        return { ...it, servicioImpId: ref.id };
+      }));
 
-      // Pago en la caja (egreso)
+      // Pago: egreso en la caja solo si se pagó en el momento
       let cajaMovId = inicial?.cajaMovId || "";
-      const cat = (cajaCfg.catsEgreso||[]).find(c => /insumo/.test(normTxt(c.nombre)))?.nombre
-               || (cajaCfg.catsEgreso||[]).find(c => !c.personal)?.nombre || "Compras";
-      const movData = { fecha, tipo:"egreso", monto: total, cuenta: cuentaPago, categoria: cat, subcategoria:"",
+      const movData = { fecha, tipo:"egreso", monto: total, cuenta: cuentaPago, categoria: catEgresoCompras(cajaCfg), subcategoria:"",
         nota: `Compra${provNom ? " · " + provNom : ""}${nroFactura.trim() ? " · Fact. " + nroFactura.trim() : ""}`,
         proveedorId: provId || null, proveedorNombre: provNom || null, origen:"compra" };
-      if (pagarCaja) {
+      if (pago === "caja") {
         if (cajaMovId) await updateDoc(doc(db, "cajaMovs", cajaMovId), movData);
         else cajaMovId = (await addDoc(collection(db, "cajaMovs"), { ...movData, creadoEn: new Date().toISOString() })).id;
       } else if (cajaMovId) { await deleteDoc(doc(db, "cajaMovs", cajaMovId)); cajaMovId = ""; }
 
-      const data = { proveedorId: provId, proveedorNombre: provNom, fecha, nroFactura: nroFactura.trim(), items: itemsOk, total,
-        nota: nota.trim(), cajaMovId, cajaCuenta: pagarCaja ? cuentaPago : "" };
+      const data = { proveedorId: provId, proveedorNombre: provNom, fecha, nroFactura: nroFactura.trim(), cotizacion: parseFloat(cot)||0,
+        items: itemsOk, neto, iva, total, pago, nota: nota.trim(), cajaMovId, cajaCuenta: pago === "caja" ? cuentaPago : "" };
       if (editando) await updateDoc(doc(db, "compras", inicial.fireId), data);
       else {
         const ref = await addDoc(collection(db, "compras"), { ...data, creadoEn: new Date().toISOString() });
         if (cajaMovId) await updateDoc(doc(db, "cajaMovs", cajaMovId), { compraId: ref.id });
       }
       const nStock = itemsOk.filter(it => it.insumoVentaId).length;
-      showToast(`Compra ${editando ? "actualizada" : "registrada"} ✅${nStock ? ` · stock actualizado en ${nStock} producto${nStock>1?"s":""}` : ""}`);
+      showToast(`Compra ${editando ? "actualizada" : "registrada"} ✅${pago === "ctacte" ? " · quedó en la cuenta corriente de " + provNom : ""}${nStock ? ` · stock actualizado` : ""}`);
       onClose();
     } catch(e) { console.error(e); showToast("Error al guardar la compra","error"); setGuardando(false); }
   };
 
   const inpC = { ...prodInp, padding:"9px 10px", fontSize:13 };
+  const chip = (activo, color, bg) => ({ padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:700, cursor:"pointer",
+    border:`1.5px solid ${activo ? color : "var(--c-border)"}`, background: activo ? bg : "#fff", color: activo ? color : "#a09080" });
   return (
     <ProdModal titulo={editando ? "✏️ Editar compra" : "🛒 Nueva compra"} onClose={onClose} onGuardar={guardar} guardando={guardando}
-      textoGuardar={editando ? "💾 Guardar cambios" : "🛒 Registrar compra"} ancho={860}>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:12 }}>
+      textoGuardar={editando ? "💾 Guardar cambios" : "🛒 Registrar compra"} ancho={900}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12 }}>
         <div style={{ gridColumn:"span 2" }}>
           <label style={prodLbl}>Proveedor</label>
-          <input list="compra-provs" value={prov} onChange={e => setProv(e.target.value)} placeholder="Elegí o escribí uno nuevo" style={prodInp} autoFocus={!editando}/>
+          <input list="compra-provs" value={prov} onChange={e => setProv(e.target.value)} placeholder="Elegí o escribí uno nuevo" style={prodInp} autoFocus={!editando && !prov}/>
           <datalist id="compra-provs">{nombresProv.map(n => <option key={n} value={n}/>)}</datalist>
           {prov.trim() && !provExistente && (
             <label style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, fontSize:12, color:"#4a5568", cursor:"pointer" }}>
@@ -3977,104 +4050,279 @@ function ModalCompra({ inicial, productos, proveedores, insumosVenta, cajaCfg, o
         </div>
         <div><label style={prodLbl}>Fecha de compra</label><input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={prodInp}/></div>
         <div><label style={prodLbl}>N° de factura</label><input value={nroFactura} onChange={e => setNro(e.target.value)} placeholder="Ej: 0003-00012345" style={prodInp}/></div>
+        <div>
+          <label style={prodLbl}>💵 Dólar (cotización)</label>
+          <input type="number" value={cot} onChange={e => setCot(e.target.value)} placeholder={hayUSD ? "Obligatorio" : "Si hay precios en US$"} style={{ ...prodInp, borderColor: hayUSD && !(parseFloat(cot) > 0) ? "#ef5350" : undefined }}/>
+        </div>
       </div>
 
-      {/* Lista de productos */}
+      {/* Renglones */}
       <div>
-        <label style={{ ...prodLbl, marginBottom:8 }}>Productos comprados</label>
+        <label style={{ ...prodLbl, marginBottom:8 }}>Productos y servicios</label>
         <datalist id="compra-prods">{productos.map(p => <option key={p.fireId} value={p.nombre}/>)}</datalist>
+        <datalist id="compra-servs">{servicios.map(p => <option key={p.fireId} value={p.nombre}/>)}</datalist>
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
           {items.map((it, idx) => {
-            const p = prodPorNombre(it.nombre);
-            const pu = parseFloat(it.precioUnit)||0, prev = parseFloat(p?.ultimoPrecio)||0;
-            const dif = pu > 0 && prev > 0 ? Math.round((pu - prev) / prev * 100) : 0;
+            const c = calcs[idx], esServ = it.tipo === "servicio";
+            const p = esServ ? servPorNombre(it.nombre) : prodPorNombre(it.nombre);
+            const unitPesos = (parseFloat(it.cantidad)||0) > 0 ? c.total / parseFloat(it.cantidad) : 0;
+            const prev = parseFloat(p?.ultimoPrecio)||0;
+            const dif = !esServ && unitPesos > 0 && prev > 0 ? Math.round((unitPesos - prev) / prev * 100) : 0;
             const iv = insumosVenta.find(x => x.fireId === it.insumoVentaId);
             return (
-              <div key={it.k} style={{ background:"var(--c-softer)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px" }}>
-                <div style={{ display:"grid", gridTemplateColumns:"minmax(180px,2.4fr) minmax(70px,.8fr) minmax(95px,1fr) minmax(95px,1fr) minmax(105px,1.1fr) 30px", gap:8, alignItems:"end" }} className="compra-fila">
+              <div key={it.k} style={{ background: esServ ? "#f3f8ff" : "var(--c-softer)", border:`1px solid ${esServ ? "#bbdefb" : "var(--c-border)"}`, borderRadius:10, padding:"10px 12px" }}>
+                <div style={{ display:"flex", gap:6, marginBottom:8, alignItems:"center", flexWrap:"wrap" }}>
+                  <button type="button" onClick={() => cambiarTipo(it.k, "producto")} style={chip(!esServ, "#5d4037", "#efebe9")}>📦 Producto</button>
+                  <button type="button" onClick={() => cambiarTipo(it.k, "servicio")} style={chip(esServ, "#1565c0", "#e3f2fd")}>🔧 Servicio</button>
+                  <button onClick={() => setItems(l => l.length > 1 ? l.filter(x => x.k !== it.k) : [itemCompraVacio()])} title="Quitar renglón"
+                    style={{ ...btnDel, marginLeft:"auto" }}>✕</button>
+                </div>
+                <div className="compra-fila" style={{ display:"grid", gridTemplateColumns: esServ ? "minmax(200px,2.6fr) minmax(150px,1.4fr) minmax(70px,.6fr)" : "minmax(200px,2.6fr) minmax(70px,.7fr) minmax(100px,1fr)", gap:8, alignItems:"end" }}>
                   <div>
-                    {idx === 0 && <label style={prodLbl}>Producto</label>}
-                    <input list="compra-prods" value={it.nombre} onChange={e => setItem(it.k, "nombre", e.target.value)} placeholder="Ej: Vinilo blanco brillo 1,52" style={inpC}/>
+                    <label style={prodLbl}>{esServ ? "Servicio" : "Producto"}</label>
+                    <input list={esServ ? "compra-servs" : "compra-prods"} value={it.nombre} onChange={e => setItem(it.k, "nombre", e.target.value)}
+                      placeholder={esServ ? "Ej: Service técnico cabezales" : "Ej: Vinilo blanco brillo 1,52"} style={inpC}/>
+                  </div>
+                  {esServ ? (
+                    <div>
+                      <label style={prodLbl}>Máquina</label>
+                      <select value={it.maquina} onChange={e => setItem(it.k, "maquina", e.target.value)} style={{ ...inpC, cursor:"pointer" }}>
+                        <option value="">— Ninguna / otra —</option>
+                        {maquinas.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                      </select>
+                    </div>
+                  ) : (
+                    <div><label style={prodLbl}>Cantidad</label><input type="number" value={it.cantidad} onChange={e => setItem(it.k, "cantidad", e.target.value)} placeholder="1" style={inpC}/></div>
+                  )}
+                  {esServ ? (
+                    <div><label style={prodLbl}>Cant.</label><input type="number" value={it.cantidad} onChange={e => setItem(it.k, "cantidad", e.target.value)} placeholder="1" style={inpC}/></div>
+                  ) : (
+                    <div>
+                      <label style={prodLbl}>Unidad</label>
+                      <select value={it.unidad} onChange={e => setItem(it.k, "unidad", e.target.value)} style={{ ...inpC, cursor:"pointer" }}>
+                        {UNIDADES_INSUMO.map(u => <option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div className="compra-fila" style={{ display:"grid", gridTemplateColumns:"minmax(110px,1fr) minmax(90px,.8fr) minmax(90px,.8fr) minmax(130px,1.2fr)", gap:8, alignItems:"end", marginTop:8 }}>
+                  <div>
+                    <label style={prodLbl}>Precio c/u sin IVA</label>
+                    <input type="number" value={it.precioUnit} onChange={e => setItem(it.k, "precioUnit", e.target.value)}
+                      placeholder={p?.ultimoPrecioOrig ? `últ. ${p.ultimaMoneda === "USD" ? "US$" : "$"}${r2(p.ultimoPrecioOrig)}` : "0"} style={inpC}/>
                   </div>
                   <div>
-                    {idx === 0 && <label style={prodLbl}>Cantidad</label>}
-                    <input type="number" value={it.cantidad} onChange={e => setItem(it.k, "cantidad", e.target.value)} placeholder="1" style={inpC}/>
+                    <label style={prodLbl}>Moneda</label>
+                    <div style={{ display:"flex", gap:4 }}>
+                      {[["ARS","$"],["USD","US$"]].map(([m,l]) => (
+                        <button key={m} type="button" onClick={() => setItem(it.k, "moneda", m)}
+                          style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:12, fontWeight:800, cursor:"pointer",
+                            border:`1.5px solid ${it.moneda===m ? (m==="USD" ? "#2e7d32" : "var(--c-pri)") : "var(--c-border)"}`,
+                            background: it.moneda===m ? (m==="USD" ? "#e8f5e9" : "var(--c-tint)") : "#fff", color: it.moneda===m ? (m==="USD" ? "#2e7d32" : "var(--c-pri)") : "#a09080" }}>{l}</button>
+                      ))}
+                    </div>
                   </div>
                   <div>
-                    {idx === 0 && <label style={prodLbl}>Unidad</label>}
-                    <select value={it.unidad} onChange={e => setItem(it.k, "unidad", e.target.value)} style={{ ...inpC, cursor:"pointer" }}>
-                      {UNIDADES_INSUMO.map(u => <option key={u}>{u}</option>)}
+                    <label style={prodLbl}>IVA</label>
+                    <select value={it.iva} onChange={e => setItem(it.k, "iva", parseFloat(e.target.value))} style={{ ...inpC, cursor:"pointer" }}>
+                      {IVAS_COMPRA.map(v => <option key={v} value={v}>{v ? `${String(v).replace(".", ",")}%` : "Sin IVA"}</option>)}
                     </select>
                   </div>
                   <div>
-                    {idx === 0 && <label style={prodLbl}>Precio c/u</label>}
-                    <input type="number" value={it.precioUnit} onChange={e => setItem(it.k, "precioUnit", e.target.value)} placeholder={prev ? `últ. ${Math.round(prev)}` : "$"} style={inpC}/>
+                    <label style={prodLbl}>Total en pesos (con IVA)</label>
+                    <input type="number" value={it.precioUnit !== "" || it.moneda !== "ARS" ? (c.total || "") : it.total} onChange={e => setItem(it.k, "total", e.target.value)} placeholder="$" style={{ ...inpC, fontWeight:700 }}/>
                   </div>
-                  <div>
-                    {idx === 0 && <label style={prodLbl}>Total</label>}
-                    <input type="number" value={it.total} onChange={e => setItem(it.k, "total", e.target.value)} placeholder="$" style={{ ...inpC, fontWeight:700 }}/>
-                  </div>
-                  <button onClick={() => setItems(l => l.length > 1 ? l.filter(x => x.k !== it.k) : [itemCompraVacio()])} title="Quitar"
-                    style={{ ...btnDel, height:36, padding:0 }}>✕</button>
                 </div>
-                <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginTop:8 }}>
-                  {USOS_COMPRA.map(u => (
-                    <button key={u.id} type="button" onClick={() => setItem(it.k, "uso", u.id)}
-                      style={{ padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:700, cursor:"pointer",
-                        border:`1.5px solid ${it.uso===u.id ? u.color : "var(--c-border)"}`, background: it.uso===u.id ? u.bg : "#fff", color: it.uso===u.id ? u.color : "#a09080" }}>{u.label}</button>
+                <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginTop:8, fontSize:11 }}>
+                  {c.sinCotizacion && <span style={{ color:"#c62828", fontWeight:700 }}>⚠️ Cargá la cotización del dólar arriba</span>}
+                  {c.total > 0 && (
+                    <span style={{ color:"#4a5568" }}>
+                      Neto {$ar(c.neto)}{c.ivaMonto > 0 && <> + IVA {$ar(c.ivaMonto)}</>}
+                      {parseFloat(cot) > 0 && <> · <b style={{ color:"#2e7d32" }}>{usd(c.total / parseFloat(cot))}</b></>}
+                      {(parseFloat(it.cantidad)||0) > 1 && <> · {$ar(unitPesos)} c/u</>}
+                    </span>
+                  )}
+                  {!esServ && USOS_COMPRA.map(u => (
+                    <button key={u.id} type="button" onClick={() => setItem(it.k, "uso", u.id)} style={chip(it.uso===u.id, u.color, u.bg)}>{u.label}</button>
                   ))}
-                  {esReventa(it.uso) && (
+                  {!esServ && esReventa(it.uso) && (
                     <select value={it.insumoVentaId} onChange={e => setItem(it.k, "insumoVentaId", e.target.value)}
                       style={{ ...inpC, width:"auto", maxWidth:260, padding:"5px 8px", fontSize:12 }} title="Producto de Servicios y Productos al que se le suma el stock">
                       <option value="">— Sin vincular a un producto de venta —</option>
                       {[...insumosVenta].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"")).map(x => <option key={x.fireId} value={x.fireId}>{x.nombre}</option>)}
                     </select>
                   )}
-                  {esReventa(it.uso) && iv && parseFloat(it.cantidad) > 0 && <span style={{ fontSize:11, color:"#2e7d32", fontWeight:600 }}>+{it.cantidad} al stock ({parseFloat(iv.stock)||0} → {(parseFloat(iv.stock)||0) + (parseFloat(it.cantidad)||0)})</span>}
-                  {p && <span style={{ fontSize:11, color:"#1565c0" }}>🕘 Última: {$ar(p.ultimoPrecio)} c/u{p.ultimaFecha ? ` · ${fmtFecha(p.ultimaFecha)}` : ""}{p.ultimoProveedor ? ` · ${p.ultimoProveedor}` : ""}</span>}
-                  {dif !== 0 && <span style={{ fontSize:11, fontWeight:700, color: dif > 0 ? "#c62828" : "#2e7d32" }}>{dif > 0 ? "▲" : "▼"} {Math.abs(dif)}%</span>}
-                  {it.nombre.trim() && !p && <span style={{ fontSize:11, color:"#a09080" }}>✨ Producto nuevo: queda guardado para la próxima</span>}
+                  {!esServ && esReventa(it.uso) && iv && parseFloat(it.cantidad) > 0 && <span style={{ color:"#2e7d32", fontWeight:600 }}>+{it.cantidad} al stock ({parseFloat(iv.stock)||0} → {(parseFloat(iv.stock)||0) + (parseFloat(it.cantidad)||0)})</span>}
+                  {esServ && maquinas.find(m => m.id === it.maquina && m.esImpresora) && <span style={{ color:"#1565c0" }}>🖨️ También queda en el registro de la impresora</span>}
+                  {p && <span style={{ color:"#1565c0" }}>🕘 Última: {$ar(p.ultimoPrecio)}{esServ ? "" : " c/u"}{p.ultimaFecha ? ` · ${fmtFecha(p.ultimaFecha)}` : ""}{p.ultimoProveedor ? ` · ${p.ultimoProveedor}` : ""}</span>}
+                  {dif !== 0 && <span style={{ fontWeight:700, color: dif > 0 ? "#c62828" : "#2e7d32" }}>{dif > 0 ? "▲" : "▼"} {Math.abs(dif)}%</span>}
+                  {it.nombre.trim() && !p && <span style={{ color:"#a09080" }}>✨ Nuevo: queda guardado en {esServ ? "Servicios requeridos" : "Productos comprados"}</span>}
                 </div>
               </div>
             );
           })}
         </div>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10, flexWrap:"wrap", gap:10 }}>
-          <button onClick={() => setItems(l => [...l, itemCompraVacio()])}
-            style={{ background:"#fff", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:8, padding:"7px 14px", fontSize:13, fontWeight:700, cursor:"pointer" }}>➕ Agregar producto</button>
-          <div style={{ fontSize:15, color:"#4a5568" }}>Total de la compra: <b style={{ fontSize:20, color:"#1a2340" }}>{$ar(totalCompra)}</b></div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginTop:10, flexWrap:"wrap", gap:10 }}>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <button onClick={() => setItems(l => [...l, itemCompraVacio("producto")])}
+              style={{ background:"#fff", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:8, padding:"7px 14px", fontSize:13, fontWeight:700, cursor:"pointer" }}>➕ Producto</button>
+            <button onClick={() => setItems(l => [...l, itemCompraVacio("servicio")])}
+              style={{ background:"#fff", border:"1.5px solid #1565c0", color:"#1565c0", borderRadius:8, padding:"7px 14px", fontSize:13, fontWeight:700, cursor:"pointer" }}>➕ Servicio</button>
+          </div>
+          <div style={{ textAlign:"right", fontSize:13, color:"#4a5568", lineHeight:1.6 }}>
+            <div>Neto: <b>{$ar(tot.neto)}</b> · IVA: <b>{$ar(tot.iva)}</b></div>
+            <div style={{ fontSize:15 }}>Total: <b style={{ fontSize:20, color:"#1a2340" }}>{$ar(tot.total)}</b>
+              {parseFloat(cot) > 0 && <span style={{ color:"#2e7d32", fontWeight:700, marginLeft:8 }}>{usd(tot.total / parseFloat(cot))}</span>}</div>
+          </div>
         </div>
       </div>
 
-      <div style={{ background: pagarCaja ? "#fff3e0" : "#fafafa", border:`1px solid ${pagarCaja ? "#ffcc80" : "var(--c-border)"}`, borderRadius:10, padding:"10px 12px" }}>
-        <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, fontWeight:600, color:"#1a2340", cursor:"pointer" }}>
-          <input type="checkbox" checked={pagarCaja} onChange={e => setPagarCaja(e.target.checked)} style={{ accentColor:"#e65100" }}/>
-          💸 Registrar el pago en la Caja (sale como egreso)
-        </label>
-        {pagarCaja && (
+      {/* Forma de pago */}
+      <div>
+        <label style={prodLbl}>¿Cómo la pagaste?</label>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:8 }}>
+          {PAGOS_COMPRA.map(o => (
+            <div key={o.id} onClick={() => setPago(o.id)}
+              style={{ border:`2px solid ${pago===o.id ? (o.id==="ctacte" ? "#c62828" : o.id==="caja" ? "#e65100" : "#2e7d32") : "var(--c-border)"}`, borderRadius:10, padding:"9px 12px", cursor:"pointer",
+                background: pago===o.id ? (o.id==="ctacte" ? "#ffebee" : o.id==="caja" ? "#fff3e0" : "#e8f5e9") : "#fff" }}>
+              <div style={{ fontSize:13, fontWeight:700, color:"#1a2340" }}>{o.label}</div>
+              <div style={{ fontSize:11, color:"#a09080" }}>{o.sub}</div>
+            </div>
+          ))}
+        </div>
+        {pago === "caja" && (
           <select value={cuentaPago} onChange={e => setCuentaPago(e.target.value)} style={{ ...prodInp, marginTop:8 }}>
             {cuentasPesos.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
           </select>
         )}
-        {!pagarCaja && <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>Dejalo sin tildar si el pago ya lo cargaste en Finanzas.</div>}
+        {pago === "ctacte" && <div style={{ fontSize:12, color:"#c62828", marginTop:6 }}>Le vas a deber {$ar(tot.total)} a {prov.trim() || "este proveedor"}. Cuando le pagues, lo registrás desde su cuenta corriente.</div>}
       </div>
       <div><label style={prodLbl}>Nota (opcional)</label><input value={nota} onChange={e => setNota(e.target.value)} style={prodInp}/></div>
     </ProdModal>
   );
 }
 
+// Pago a un proveedor (baja su cuenta corriente y sale de la caja)
+function ModalPagoProveedor({ proveedor, saldo, cajaCfg, onClose, showToast }) {
+  const [monto, setMonto] = useState(saldo > 0 ? String(saldo) : "");
+  const [fecha, setFecha] = useState(hoyISO());
+  const [cuenta, setCuenta] = useState(cajaPorMetodo(cajaCfg, "Efectivo") || "");
+  const [nota, setNota] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const cuentasPesos = cajaCfg.cuentas.filter(c => c.moneda !== "USD");
+  const nombre = nomProveedor(proveedor);
+  const guardar = async () => {
+    const m = parseFloat(monto)||0;
+    if (!(m > 0)) { showToast("Poné el monto que le pagaste","error"); return; }
+    setGuardando(true);
+    try {
+      const mov = await addDoc(collection(db, "cajaMovs"), { fecha, tipo:"egreso", monto:m, cuenta, categoria: catEgresoCompras(cajaCfg), subcategoria:"",
+        nota:`Pago a proveedor · ${nombre}${nota.trim() ? " · " + nota.trim() : ""}`, proveedorId: proveedor.fireId, proveedorNombre: nombre, origen:"pagoProveedor", creadoEn:new Date().toISOString() });
+      await addDoc(collection(db, "pagosProveedor"), { proveedorId: proveedor.fireId, proveedorNombre: nombre, fecha, monto:m, cuenta, nota: nota.trim(), cajaMovId: mov.id, creadoEn:new Date().toISOString() });
+      showToast(`Pago de ${$ar(m)} a ${nombre} registrado ✅`);
+      onClose();
+    } catch(e) { console.error(e); showToast("Error al guardar","error"); setGuardando(false); }
+  };
+  return (
+    <ProdModal titulo={`💵 Pago a ${nombre}`} onClose={onClose} onGuardar={guardar} guardando={guardando} textoGuardar="💵 Registrar pago" ancho={440}>
+      <div style={{ background: saldo > 0 ? "#ffebee" : "#e8f5e9", borderRadius:10, padding:"10px 14px", fontSize:13, color: saldo > 0 ? "#c62828" : "#2e7d32" }}>
+        {saldo > 0 ? <>Le debés <b style={{ fontSize:17 }}>{$ar(saldo)}</b></> : saldo < 0 ? <>Tenés <b>{$ar(-saldo)}</b> a favor</> : "No le debés nada"}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        <div><label style={prodLbl}>Monto ($)</label><input type="number" value={monto} onChange={e => setMonto(e.target.value)} style={{ ...prodInp, fontWeight:700 }} autoFocus/></div>
+        <div><label style={prodLbl}>Fecha</label><input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={prodInp}/></div>
+      </div>
+      <div>
+        <label style={prodLbl}>¿De qué caja sale?</label>
+        <select value={cuenta} onChange={e => setCuenta(e.target.value)} style={prodInp}>
+          {cuentasPesos.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
+        </select>
+      </div>
+      <div><label style={prodLbl}>Nota (opcional)</label><input value={nota} onChange={e => setNota(e.target.value)} placeholder="Ej: transferencia, cheque…" style={prodInp}/></div>
+    </ProdModal>
+  );
+}
+
+// Cuenta corriente de un proveedor (se muestra en su ficha)
+function CuentaCorrienteProveedor({ prov, showToast }) {
+  const [compras] = useColeccion("compras");
+  const [pagos] = useColeccion("pagosProveedor");
+  const cajaCfg = useCajaCfg();
+  const [modalPago, setModalPago] = useState(false);
+  const movs = [
+    ...compras.filter(c => c.proveedorId === prov.fireId && pagoDeCompra(c) === "ctacte")
+      .map(c => ({ id:c.fireId, fecha:c.fecha, cr:c.creadoEn||"", txt:`🛒 Compra${c.nroFactura ? " · Fact. " + c.nroFactura : ""}`, det:(c.items||[]).map(i => i.nombre).join(", "), debe:parseFloat(c.total)||0, haber:0 })),
+    ...pagos.filter(p => p.proveedorId === prov.fireId)
+      .map(p => ({ id:p.fireId, fecha:p.fecha, cr:p.creadoEn||"", txt:`💵 Pago${p.nota ? " · " + p.nota : ""}`, det:nombreCajaCfg(cajaCfg, p.cuenta), debe:0, haber:parseFloat(p.monto)||0, pago:p })),
+  ].sort((a,b) => (a.fecha||"").localeCompare(b.fecha||"") || a.cr.localeCompare(b.cr));
+  let acum = 0; movs.forEach(m => { acum = r2(acum + m.debe - m.haber); m.saldo = acum; });
+  const saldo = acum;
+  const borrarPago = async (p) => {
+    if (!window.confirm(`¿Borrar el pago de ${$ar(p.monto)} del ${fmtFecha(p.fecha)}? También se borra el egreso de la caja.`)) return;
+    if (p.cajaMovId) await deleteDoc(doc(db, "cajaMovs", p.cajaMovId)).catch(() => {});
+    await deleteDoc(doc(db, "pagosProveedor", p.fireId));
+    showToast("Pago borrado", "error");
+  };
+  return (
+    <div>
+      <div style={{ ...prodCard, padding:"16px 20px", marginBottom:14, display:"flex", alignItems:"center", gap:16, flexWrap:"wrap", borderLeft:`5px solid ${saldo > 0 ? "#c62828" : "#2e7d32"}` }}>
+        <div>
+          <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{saldo > 0 ? "Le debés" : saldo < 0 ? "Saldo a tu favor" : "Cuenta al día"}</div>
+          <div style={{ fontSize:26, fontWeight:800, color: saldo > 0 ? "#c62828" : "#2e7d32" }}>{$ar(Math.abs(saldo))}</div>
+        </div>
+        <button onClick={() => setModalPago(true)} style={{ ...btnPri("#2e7d32"), marginLeft:"auto" }}>💵 Registrar pago</button>
+      </div>
+      <div style={{ ...prodCard, overflow:"hidden" }}>
+        {movs.length === 0 ? <div style={{ padding:30, textAlign:"center", color:"#a09080" }}>Sin movimientos. Las compras que cargues "📒 A cuenta corriente" aparecen acá.</div> : (
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead><tr>{["Fecha","Movimiento","Debe","Pagado","Saldo",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+              <tbody>
+                {[...movs].reverse().map(m => (
+                  <tr key={m.id}>
+                    <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(m.fecha)}</td>
+                    <td style={prodTd}><div style={{ fontWeight:600, color:"#1a2340" }}>{m.txt}</div><div style={{ fontSize:11, color:"#a09080" }}>{m.det}</div></td>
+                    <td style={{ ...prodTd, color:"#c62828", fontWeight:700 }}>{m.debe ? $ar(m.debe) : ""}</td>
+                    <td style={{ ...prodTd, color:"#2e7d32", fontWeight:700 }}>{m.haber ? $ar(m.haber) : ""}</td>
+                    <td style={{ ...prodTd, fontWeight:800, color: m.saldo > 0 ? "#c62828" : "#2e7d32" }}>{$ar(m.saldo)}</td>
+                    <td style={prodTd}>{m.pago && <button onClick={() => borrarPago(m.pago)} style={btnDel}>🗑</button>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {modalPago && <ModalPagoProveedor proveedor={prov} saldo={saldo} cajaCfg={cajaCfg} onClose={() => setModalPago(false)} showToast={showToast}/>}
+    </div>
+  );
+}
+
 function ComprasView({ showToast }) {
   const [compras, cargando] = useColeccion("compras");
   const [productos] = useColeccion("productosCompra");
+  const [servicios] = useColeccion("serviciosCompra");
   const [proveedores] = useColeccion("proveedores");
+  const [pagos] = useColeccion("pagosProveedor");
   const [insumosVenta] = useColeccion("insumos");
+  const [impresoras] = useColeccion("impresoras");
   const cajaCfg = useCajaCfg();
   const [modal, setModal] = useState(null);
-  const [vista, setVista] = useState("compras");     // compras | productos
+  const [vista, setVista] = useState("compras");     // compras | productos | servicios
   const [periodo, setPeriodo] = useState("mes");     // mes | anterior | anio | todo
   const [busq, setBusq] = useState("");
-  const [abierta, setAbierta] = useState(null);      // compra desplegada
+  const [abierta, setAbierta] = useState(null);
   const [prodAbierto, setProdAbierto] = useState(null);
+
+  // Máquinas para los servicios: las impresoras cargadas + las fijas
+  const maquinas = [
+    ...impresoras.map(i => ({ id:i.fireId, nombre:`🖨️ ${i.nombre}`, esImpresora:true })).sort((a,b) => a.nombre.localeCompare(b.nombre)),
+    { id:"__konica", nombre:"🖥️ Konica Minolta C558" }, { id:"__hancolor", nombre:"🖨️ Hancolor i3200" },
+  ];
+  const nombreMaquina = (id, guardado) => maquinas.find(m => m.id === id)?.nombre || guardado || "—";
+  const saldos = saldosProveedores(compras, pagos);
+  const deudaTotal = Object.values(saldos).reduce((s,v) => s + (v > 0 ? v : 0), 0);
+  const ultimaCotizacion = [...compras].filter(c => c.cotizacion > 0).sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""))[0]?.cotizacion || "";
 
   const hoy = hoyISO(), mes = hoy.slice(0,7), anio = hoy.slice(0,4);
   const mesAnt = (() => { const d = new Date(+mes.slice(0,4), +mes.slice(5)-2, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; })();
@@ -4086,43 +4334,58 @@ function ComprasView({ showToast }) {
     .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""));
   const totalPeriodo = lista.reduce((s,c) => s + (parseFloat(c.total)||0), 0);
 
-  // Historial por producto (sale de los ítems de todas las compras)
-  const historial = {};
+  // Historial por producto (de los renglones de todas las compras)
+  const historial = {}, histServ = [];
   compras.forEach(c => (c.items||[]).forEach(it => {
-    const k = normTxt(it.nombre); (historial[k] = historial[k] || []).push({ ...it, fecha:c.fecha, proveedor:c.proveedorNombre, nroFactura:c.nroFactura, cr:c.creadoEn||"" });
+    const x = { ...it, fecha:c.fecha, proveedor:c.proveedorNombre, nroFactura:c.nroFactura, cr:c.creadoEn||"", compraId:c.fireId };
+    if (it.tipo === "servicio") histServ.push(x);
+    else { const k = normTxt(it.nombre); (historial[k] = historial[k] || []).push(x); }
   }));
   Object.values(historial).forEach(h => h.sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || b.cr.localeCompare(a.cr)));
+  const unitDe = (x) => x && x.cantidad > 0 ? (x.total || 0) / x.cantidad : 0;
   const prods = productos
     .filter(p => !q || normTxt(`${p.nombre} ${p.ultimoProveedor||""}`).includes(q))
     .map(p => {
       const h = historial[normTxt(p.nombre)] || [];
-      const prev = h[1]?.precioUnit, ult = h[0]?.precioUnit ?? p.ultimoPrecio;
+      const prev = unitDe(h[1]), ult = h[0] ? unitDe(h[0]) : p.ultimoPrecio;
       return { ...p, h, veces: h.length, var: prev > 0 && ult > 0 ? Math.round((ult - prev) / prev * 100) : null,
         totalAnio: h.filter(x => (x.fecha||"").startsWith(anio)).reduce((s,x) => s + (x.total||0), 0) };
     })
     .sort((a,b) => (b.ultimaFecha||"").localeCompare(a.ultimaFecha||""));
+  const servs = histServ
+    .filter(x => !q || normTxt(`${x.nombre} ${x.proveedor||""} ${x.maquinaNombre||""}`).includes(q))
+    .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||"") || b.cr.localeCompare(a.cr));
+  const porMaquina = {};
+  histServ.filter(x => (x.fecha||"").startsWith(anio)).forEach(x => { const n = nombreMaquina(x.maquina, x.maquinaNombre); porMaquina[n] = (porMaquina[n]||0) + (x.total||0); });
 
   const borrar = async (c) => {
     const conCaja = !!c.cajaMovId, conStock = (c.items||[]).some(i => i.insumoVentaId);
     if (!window.confirm(`¿Borrar la compra${c.proveedorNombre ? " a " + c.proveedorNombre : ""} del ${fmtFecha(c.fecha)} por ${$ar(c.total)}?` +
-      (conStock ? "\n\nSe va a descontar el stock que había sumado." : "") + (conCaja ? "\nTambién se borra el egreso de la Caja." : ""))) return;
+      (conStock ? "\n\nSe va a descontar el stock que había sumado." : "") + (conCaja ? "\nTambién se borra el egreso de la Caja." : "") +
+      (pagoDeCompra(c) === "ctacte" ? "\nSe saca de la cuenta corriente del proveedor." : ""))) return;
     try {
       await moverStockCompra(c.items, -1, false);
+      await borrarServiciosImpresora(c.items);
       if (c.cajaMovId) await deleteDoc(doc(db, "cajaMovs", c.cajaMovId)).catch(() => {});
       await deleteDoc(doc(db, "compras", c.fireId));
       showToast("Compra borrada", "error");
     } catch(e) { console.error(e); showToast("Error al borrar","error"); }
   };
   const cambiarUso = async (p, uso) => { await updateDoc(doc(db, "productosCompra", p.fireId), { uso }); };
-  const comprarDeNuevo = (p) => setModal({ proveedorNombre: p.ultimoProveedor || "", items:[{ nombre:p.nombre, unidad:p.unidad||"unidades", cantidad:"", precioUnit: p.ultimoPrecio || "", total:"", uso:p.uso||"materia", insumoVentaId:p.insumoVentaId||"" }] });
+  const comprarDeNuevo = (p) => setModal({ proveedorNombre: p.ultimoProveedor || "", items:[{ tipo:"producto", nombre:p.nombre, unidad:p.unidad||"unidades", cantidad:"",
+    moneda:p.ultimaMoneda||"ARS", precioUnit: p.ultimoPrecioOrig ?? p.ultimoPrecio ?? "", iva:p.ultimoIva||0, total:"", uso:p.uso||"materia", insumoVentaId:p.insumoVentaId||"" }] });
 
-  const resumenItems = (c) => { const it = c.items||[]; return it.slice(0,2).map(i => `${i.nombre} ×${i.cantidad}`).join(", ") + (it.length > 2 ? ` +${it.length-2}` : ""); };
+  const resumenItems = (c) => { const it = c.items||[]; return it.slice(0,2).map(i => `${i.tipo === "servicio" ? "🔧 " : ""}${i.nombre}${i.tipo === "servicio" ? "" : " ×" + i.cantidad}`).join(", ") + (it.length > 2 ? ` +${it.length-2}` : ""); };
+  const badgePago = (c) => { const p = pagoDeCompra(c);
+    return p === "ctacte" ? <span style={{ background:"#ffebee", color:"#c62828", borderRadius:20, padding:"2px 8px", fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>📒 A cuenta</span>
+         : p === "caja" ? <span title={`Pagada desde ${nombreCajaCfg(cajaCfg, c.cajaCuenta)}`} style={{ background:"#fff3e0", color:"#e65100", borderRadius:20, padding:"2px 8px", fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>💸 Pagada</span>
+         : <span style={{ color:"#a09080", fontSize:11 }}>✔️ Pagada aparte</span>; };
 
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginBottom:14, flexWrap:"wrap" }}>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          {[["compras","🧾 Compras"],["productos","📦 Productos comprados"]].map(([id,l]) => (
+          {[["compras","🧾 Compras"],["productos","📦 Productos comprados"],["servicios","🔧 Servicios requeridos"]].map(([id,l]) => (
             <button key={id} onClick={() => setVista(id)} style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none",
               background: vista===id ? "#1a2340" : "#fff", color: vista===id ? "#fff" : "#4a5568", boxShadow:"0 1px 6px rgba(0,0,0,.06)" }}>{l}</button>
           ))}
@@ -4131,18 +4394,21 @@ function ComprasView({ showToast }) {
       </div>
 
       <div style={{ ...prodCard, padding:"12px 16px", marginBottom:14, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
-        <input value={busq} onChange={e => setBusq(e.target.value)} placeholder="🔍 Buscar proveedor, producto o N° de factura…" style={{ ...prodInp, flex:"1 1 240px" }}/>
+        <input value={busq} onChange={e => setBusq(e.target.value)} placeholder={vista === "servicios" ? "🔍 Buscar servicio, máquina o proveedor…" : "🔍 Buscar proveedor, producto o N° de factura…"} style={{ ...prodInp, flex:"1 1 240px" }}/>
         {vista === "compras" && (
           <>
             <select value={periodo} onChange={e => setPeriodo(e.target.value)} style={{ ...prodInp, width:"auto", cursor:"pointer", fontWeight:600 }}>
               <option value="mes">Este mes</option><option value="anterior">Mes anterior</option><option value="anio">Este año</option><option value="todo">Todo</option>
             </select>
-            <div style={{ fontSize:13, color:"#4a5568", marginLeft:"auto" }}>{lista.length} compra{lista.length!==1?"s":""} · <b style={{ color:"#1a2340", fontSize:15 }}>{$ar(totalPeriodo)}</b></div>
+            <div style={{ fontSize:13, color:"#4a5568", marginLeft:"auto", textAlign:"right" }}>
+              {lista.length} compra{lista.length!==1?"s":""} · <b style={{ color:"#1a2340", fontSize:15 }}>{$ar(totalPeriodo)}</b>
+              {deudaTotal > 0 && <div style={{ fontSize:12, color:"#c62828", fontWeight:700 }}>📒 Les debés a proveedores: {$ar(deudaTotal)}</div>}
+            </div>
           </>
         )}
       </div>
 
-      {vista === "compras" ? (
+      {vista === "compras" && (
         <div style={{ ...prodCard, overflow:"hidden" }}>
           {lista.length === 0 ? (
             <div style={{ padding:36, textAlign:"center", color:"#a09080" }}>
@@ -4152,7 +4418,7 @@ function ComprasView({ showToast }) {
           ) : (
             <div style={{ overflowX:"auto" }}>
               <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                <thead><tr>{["Fecha","Proveedor","N° factura","Productos","Total",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+                <thead><tr>{["Fecha","Proveedor","N° factura","Detalle","Total","Pago",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
                 <tbody>
                   {lista.map(c => (
                     <Fragment key={c.fireId}>
@@ -4160,30 +4426,45 @@ function ComprasView({ showToast }) {
                         <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(c.fecha)}</td>
                         <td style={{ ...prodTd, fontWeight:700, color:"#1a2340" }}>{c.proveedorNombre || "—"}</td>
                         <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{c.nroFactura || "—"}</td>
-                        <td style={prodTd}>{resumenItems(c)}{c.cajaMovId && <span title="Pagada desde la Caja" style={{ marginLeft:6 }}>💸</span>}</td>
-                        <td style={{ ...prodTd, fontWeight:800, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{$ar(c.total)}</td>
+                        <td style={prodTd}>{resumenItems(c)}</td>
+                        <td style={{ ...prodTd, fontWeight:800, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{$ar(c.total)}
+                          {c.cotizacion > 0 && (c.items||[]).some(i => i.moneda === "USD") && <div style={{ fontSize:11, color:"#2e7d32", fontWeight:600 }}>{usd(c.total / c.cotizacion)}</div>}
+                        </td>
+                        <td style={prodTd}>{badgePago(c)}</td>
                         <td style={{ ...prodTd, whiteSpace:"nowrap" }} onClick={e => e.stopPropagation()}>
                           <button onClick={() => setModal(c)} style={{ background:"#fff", border:"1px solid var(--c-border)", borderRadius:6, padding:"4px 8px", cursor:"pointer", marginRight:6 }}>✏️</button>
                           <button onClick={() => borrar(c)} style={btnDel}>🗑</button>
                         </td>
                       </tr>
                       {abierta === c.fireId && (
-                        <tr><td colSpan={6} style={{ padding:"4px 14px 14px", background:"var(--c-softer)", borderBottom:"1px solid var(--c-row)" }}>
+                        <tr><td colSpan={7} style={{ padding:"4px 14px 14px", background:"var(--c-softer)", borderBottom:"1px solid var(--c-row)" }}>
                           <table style={{ width:"100%", borderCollapse:"collapse", background:"#fff", borderRadius:8 }}>
-                            <thead><tr>{["Producto","Uso","Cantidad","Precio c/u","Total"].map(h => <th key={h} style={{ ...prodTh, background:"#fff" }}>{h}</th>)}</tr></thead>
+                            <thead><tr>{["Detalle","Tipo","Cantidad","Precio c/u","IVA","Total"].map(h => <th key={h} style={{ ...prodTh, background:"#fff" }}>{h}</th>)}</tr></thead>
                             <tbody>
                               {(c.items||[]).map((it, i) => (
                                 <tr key={i}>
-                                  <td style={{ ...prodTd, fontWeight:600, color:"#1a2340" }}>{it.nombre}{it.insumoVentaId && <div style={{ fontSize:11, color:"#2e7d32", fontWeight:400 }}>sumó {it.cantidad} al stock de {insumosVenta.find(x => x.fireId === it.insumoVentaId)?.nombre || "un producto de venta"}</div>}</td>
-                                  <td style={prodTd}><span style={{ background:usoDe(it.uso).bg, color:usoDe(it.uso).color, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{usoDe(it.uso).corto}</span></td>
-                                  <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{it.cantidad} {it.unidad}</td>
-                                  <td style={prodTd}>{$ar(it.precioUnit)}</td>
+                                  <td style={{ ...prodTd, fontWeight:600, color:"#1a2340" }}>{it.nombre}
+                                    {it.insumoVentaId && <div style={{ fontSize:11, color:"#2e7d32", fontWeight:400 }}>sumó {it.cantidad} al stock de {insumosVenta.find(x => x.fireId === it.insumoVentaId)?.nombre || "un producto de venta"}</div>}
+                                    {it.tipo === "servicio" && it.maquina && <div style={{ fontSize:11, color:"#1565c0", fontWeight:400 }}>{nombreMaquina(it.maquina, it.maquinaNombre)}</div>}
+                                  </td>
+                                  <td style={prodTd}>{it.tipo === "servicio"
+                                    ? <span style={{ background:"#e3f2fd", color:"#1565c0", padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>🔧 Servicio</span>
+                                    : <span style={{ background:usoDe(it.uso).bg, color:usoDe(it.uso).color, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>{usoDe(it.uso).corto}</span>}</td>
+                                  <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{it.cantidad} {it.tipo === "servicio" ? "" : it.unidad}</td>
+                                  <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{it.moneda === "USD" ? usd(it.precioUnit) : $ar(it.precioUnit)}</td>
+                                  <td style={prodTd}>{it.iva ? `${String(it.iva).replace(".", ",")}%` : "—"}</td>
                                   <td style={{ ...prodTd, fontWeight:700 }}>{$ar(it.total)}</td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
-                          {(c.nota || c.cajaMovId) && <div style={{ fontSize:12, color:"#a09080", marginTop:8 }}>{c.nota}{c.nota && c.cajaMovId ? " · " : ""}{c.cajaMovId ? `💸 Pagada desde ${nombreCajaCfg(cajaCfg, c.cajaCuenta)}` : ""}</div>}
+                          <div style={{ fontSize:12, color:"#4a5568", marginTop:8 }}>
+                            {c.iva > 0 && <>Neto {$ar(c.neto)} · IVA {$ar(c.iva)} · </>}Total <b>{$ar(c.total)}</b>
+                            {c.cotizacion > 0 && <> · dólar a {$ar(c.cotizacion)}</>}
+                            {c.nota && <> · {c.nota}</>}
+                            {pagoDeCompra(c) === "caja" && <> · 💸 Pagada desde {nombreCajaCfg(cajaCfg, c.cajaCuenta)}</>}
+                            {pagoDeCompra(c) === "ctacte" && <> · 📒 En la cuenta corriente de {c.proveedorNombre}</>}
+                          </div>
                         </td></tr>
                       )}
                     </Fragment>
@@ -4193,7 +4474,9 @@ function ComprasView({ showToast }) {
             </div>
           )}
         </div>
-      ) : (
+      )}
+
+      {vista === "productos" && (
         <div style={{ ...prodCard, overflow:"hidden" }}>
           {prods.length === 0 ? <div style={{ padding:36, textAlign:"center", color:"#a09080" }}>Los productos se guardan solos cuando registrás una compra.</div> : (
             <div style={{ overflowX:"auto" }}>
@@ -4212,7 +4495,10 @@ function ComprasView({ showToast }) {
                             {USOS_COMPRA.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
                           </select>
                         </td>
-                        <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{$ar(p.ultimoPrecio)}<span style={{ fontSize:11, color:"#a09080", fontWeight:400 }}> /{!p.unidad || p.unidad === "unidades" ? "unidad" : p.unidad.replace(/s$/,"")}</span></td>
+                        <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{$ar(p.ultimoPrecio)}<span style={{ fontSize:11, color:"#a09080", fontWeight:400 }}> /{!p.unidad || p.unidad === "unidades" ? "unidad" : p.unidad.replace(/s$/,"")}</span>
+                          {p.ultimaMoneda === "USD" && <div style={{ fontSize:11, color:"#2e7d32", fontWeight:600 }}>{usd(p.ultimoPrecioOrig)} + {p.ultimoIva ? `IVA ${String(p.ultimoIva).replace(".", ",")}%` : "sin IVA"}</div>}
+                          {p.ultimaMoneda !== "USD" && p.ultimoIva > 0 && <div style={{ fontSize:11, color:"#a09080", fontWeight:400 }}>con IVA {String(p.ultimoIva).replace(".", ",")}%</div>}
+                        </td>
                         <td style={{ ...prodTd, fontWeight:700, whiteSpace:"nowrap", color: p.var === null ? "#c0b0a0" : p.var > 0 ? "#c62828" : p.var < 0 ? "#2e7d32" : "#a09080" }}>{p.var === null ? "—" : p.var === 0 ? "= igual" : `${p.var > 0 ? "▲" : "▼"} ${Math.abs(p.var)}%`}</td>
                         <td style={prodTd}>{p.ultimoProveedor || "—"}<div style={{ fontSize:11, color:"#a09080" }}>{p.ultimaFecha ? fmtFecha(p.ultimaFecha) : ""}</div></td>
                         <td style={prodTd}>{p.veces}</td>
@@ -4225,11 +4511,14 @@ function ComprasView({ showToast }) {
                         <tr><td colSpan={8} style={{ padding:"4px 14px 14px", background:"var(--c-softer)" }}>
                           {p.h.length === 0 ? <div style={{ fontSize:12, color:"#a09080", padding:8 }}>Sin compras registradas.</div> : (
                             <table style={{ width:"100%", borderCollapse:"collapse", background:"#fff" }}>
-                              <thead><tr>{["Fecha","Proveedor","N° factura","Cantidad","Precio c/u","Total"].map(h => <th key={h} style={{ ...prodTh, background:"#fff" }}>{h}</th>)}</tr></thead>
+                              <thead><tr>{["Fecha","Proveedor","N° factura","Cantidad","Precio c/u","IVA","Total"].map(h => <th key={h} style={{ ...prodTh, background:"#fff" }}>{h}</th>)}</tr></thead>
                               <tbody>{p.h.map((x, i) => (
                                 <tr key={i}>
                                   <td style={prodTd}>{fmtFecha(x.fecha)}</td><td style={prodTd}>{x.proveedor || "—"}</td><td style={prodTd}>{x.nroFactura || "—"}</td>
-                                  <td style={prodTd}>{x.cantidad} {x.unidad}</td><td style={{ ...prodTd, fontWeight:700 }}>{$ar(x.precioUnit)}</td><td style={prodTd}>{$ar(x.total)}</td>
+                                  <td style={prodTd}>{x.cantidad} {x.unidad}</td>
+                                  <td style={{ ...prodTd, fontWeight:700 }}>{x.moneda === "USD" ? usd(x.precioUnit) : $ar(x.precioUnit)}</td>
+                                  <td style={prodTd}>{x.iva ? `${String(x.iva).replace(".", ",")}%` : "—"}</td>
+                                  <td style={prodTd}>{$ar(x.total)}</td>
                                 </tr>
                               ))}</tbody>
                             </table>
@@ -4245,7 +4534,45 @@ function ComprasView({ showToast }) {
         </div>
       )}
 
-      {modal && <ModalCompra inicial={modal} productos={productos} proveedores={proveedores} insumosVenta={insumosVenta} cajaCfg={cajaCfg} onClose={() => setModal(null)} showToast={showToast}/>}
+      {vista === "servicios" && (
+        <div>
+          {Object.keys(porMaquina).length > 0 && (
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12, marginBottom:14 }}>
+              {Object.entries(porMaquina).sort((a,b) => b[1]-a[1]).map(([n, v]) => (
+                <div key={n} style={{ ...prodCard, padding:"12px 16px" }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase" }}>{n === "—" ? "Sin máquina" : n} · {anio}</div>
+                  <div style={{ fontSize:20, fontWeight:800, color:"#1565c0" }}>{$ar(v)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ ...prodCard, overflow:"hidden" }}>
+            {servs.length === 0 ? <div style={{ padding:36, textAlign:"center", color:"#a09080" }}>
+              <div style={{ fontSize:32, marginBottom:8 }}>🔧</div>Los servicios técnicos que cargues en una compra (con ➕ Servicio) aparecen acá.</div> : (
+              <div style={{ overflowX:"auto" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                  <thead><tr>{["Fecha","Servicio","Máquina","Proveedor","N° factura","Costo",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+                  <tbody>{servs.map((x, i) => (
+                    <tr key={i}>
+                      <td style={{ ...prodTd, whiteSpace:"nowrap" }}>{fmtFecha(x.fecha)}</td>
+                      <td style={{ ...prodTd, fontWeight:700, color:"#1a2340" }}>{x.nombre}</td>
+                      <td style={prodTd}>{nombreMaquina(x.maquina, x.maquinaNombre)}</td>
+                      <td style={prodTd}>{x.proveedor || "—"}</td>
+                      <td style={prodTd}>{x.nroFactura || "—"}</td>
+                      <td style={{ ...prodTd, fontWeight:700, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{$ar(x.total)}
+                        {x.moneda === "USD" && <div style={{ fontSize:11, color:"#2e7d32" }}>{usd(x.precioUnit * x.cantidad)} + IVA</div>}</td>
+                      <td style={prodTd}><button onClick={() => { const c = compras.find(y => y.fireId === x.compraId); if (c) setModal(c); }} style={{ background:"#fff", border:"1px solid var(--c-border)", borderRadius:6, padding:"4px 8px", cursor:"pointer" }} title="Ver la compra">✏️</button></td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {modal && <ModalCompra inicial={modal} productos={productos} servicios={servicios} proveedores={proveedores} insumosVenta={insumosVenta} maquinas={maquinas}
+        cajaCfg={cajaCfg} ultimaCotizacion={ultimaCotizacion} onClose={() => setModal(null)} showToast={showToast}/>}
     </div>
   );
 }
@@ -6370,6 +6697,11 @@ function ProveedoresView({ view, setView, showToast }) {
   const [busq, setBusq]               = useState("");
   const [editingId, setEditingId]     = useState(null);
   const [tabProv, setTabProv]         = useState("proveedores"); // proveedores | compras
+  const [soloDeudas, setSoloDeudas]   = useState(false);
+  const [comprasCC] = useColeccion("compras");
+  const [pagosCC]   = useColeccion("pagosProveedor");
+  const saldosProv  = saldosProveedores(comprasCC, pagosCC);
+  const deudaTotalProv = Object.values(saldosProv).reduce((t,v) => t + (v > 0 ? v : 0), 0);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db,"proveedores"), snap => {
@@ -6380,8 +6712,9 @@ function ProveedoresView({ view, setView, showToast }) {
 
   const filtrados = proveedores.filter(p => {
     const q = busq.toLowerCase();
+    if (soloDeudas && !((saldosProv[p.fireId]||0) > 0)) return false;
     return !busq || `${p.empresa||""} ${p.titular||""} ${p.telefono||""}`.toLowerCase().includes(q);
-  });
+  }).sort((a,b) => soloDeudas ? (saldosProv[b.fireId]||0) - (saldosProv[a.fireId]||0) : nomProveedor(a).localeCompare(nomProveedor(b)));
 
   const handleDelete = async (p) => {
     if (!window.confirm(`¿Eliminar proveedor "${p.empresa||p.titular}"?`)) return;
@@ -6434,6 +6767,12 @@ function ProveedoresView({ view, setView, showToast }) {
               <input placeholder="Buscar proveedor..." value={busq} onChange={e=>setBusq(e.target.value)}
                 style={{ width:"100%", padding:"10px 14px 10px 32px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
             </div>
+            <div style={{ display:"flex", gap:10, alignItems:"center", marginTop:10, flexWrap:"wrap" }}>
+              <button onClick={()=>setSoloDeudas(v=>!v)}
+                style={{ padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${soloDeudas?"#c62828":"var(--c-border)"}`,
+                  background:soloDeudas?"#ffebee":"#fff", color:soloDeudas?"#c62828":"#4a5568" }}>📒 Solo a los que les debo</button>
+              {deudaTotalProv > 0 && <span style={{ fontSize:13, color:"#c62828", fontWeight:700 }}>Total que les debés: {$ar(deudaTotalProv)}</span>}
+            </div>
           </div>
 
           {filtrados.length===0 ? (
@@ -6450,6 +6789,7 @@ function ProveedoresView({ view, setView, showToast }) {
                   onMouseOver={e=>e.currentTarget.style.boxShadow="0 6px 24px rgba(var(--c-pri-rgb),.15)"}
                   onMouseOut={e=>e.currentTarget.style.boxShadow="0 2px 14px rgba(var(--c-pri-rgb),.07)"}>
                   <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:17, fontWeight:700, color:"#1a2340", marginBottom:4 }}>{p.empresa||"Sin nombre"}</div>
+                  {(saldosProv[p.fireId]||0) > 0 && <div style={{ display:"inline-block", background:"#ffebee", color:"#c62828", borderRadius:20, padding:"2px 10px", fontSize:12, fontWeight:700, marginBottom:6 }}>📒 Le debés {$ar(saldosProv[p.fireId])}</div>}
                   {p.titular && <div style={{ fontSize:13, color:"#a09080", marginBottom:8 }}>👤 {p.titular}</div>}
                   <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
                     {p.telefono && <div style={{ fontSize:12, fontWeight:700, color:"var(--c-pri)" }}>📞 {p.telefono}</div>}
@@ -6707,7 +7047,7 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
   const [pedidoModal, setPedidoModal]   = useState(false);
   const [pedidosList, setPedidosList]   = useState([]);
   const [facturas, setFacturas]         = useState([]);
-  const [tabActiva, setTabActiva]       = useState("pedidos");
+  const [tabActiva, setTabActiva]       = useState("ctacte");
   const [nuevoPedItem, setNuevoPedItem] = useState("");
   const [compras, setCompras]           = useState([]);
   const [anioCompras, setAnioCompras]   = useState(String(new Date().getFullYear()));
@@ -6787,8 +7127,8 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
       </div>
 
       {/* Tabs */}
-      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-        {[["pedidos","📋 Lista de pedidos"],["compras","💸 Compras"],["facturas","🧾 Facturas"],["historial","📦 Historial"]].map(([tab,lbl])=>(
+      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+        {[["ctacte","📒 Cuenta corriente"],["pedidos","📋 Lista de pedidos"],["compras","💸 Pagos"],["facturas","🧾 Facturas"],["historial","📦 Historial"]].map(([tab,lbl])=>(
           <button key={tab} onClick={()=>setTabActiva(tab)}
             style={{ padding:"8px 18px", borderRadius:20, fontSize:13, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
               background:tabActiva===tab?"var(--c-pri)":"#fff", color:tabActiva===tab?"#fff":"#4a5568",
@@ -6851,6 +7191,8 @@ function ProveedorDetalle({ prov, setSelected, setEditingId, setView, handleDele
       })()}
 
       {/* Tab: Lista de pedidos */}
+      {tabActiva==="ctacte" && <CuentaCorrienteProveedor prov={prov} showToast={showToast}/>}
+
       {tabActiva==="pedidos" && (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"20px 24px" }}>
           <div style={{ fontWeight:700, fontSize:15, color:"#1a2340", marginBottom:14 }}>📋 Cosas para pedir</div>
@@ -7100,7 +7442,7 @@ function SalidasDeHoy() {
   );
 }
 
-function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
+function VentasView({ setView, showToast, clientes, empresa, configCargada, view = "ventas", tabInicial = "ventas" }) {
   const [ventas, setVentas]           = useState([]);
   const [presupuestos, setPresupuestos] = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -7108,7 +7450,8 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
   const [filtroFecha, setFiltroFecha] = useState("hoy");
   const [fechaDia, setFechaDia]       = useState(hoyISO());
   const [cobrosApp, setCobrosApp]     = useState([]);   // señas, pagos a cuenta y pagos de cta. cte. (desde la Caja diaria)
-  const [tabActiva, setTabActiva]     = useState("ventas"); // ventas | presupuestos
+  const [tabActiva, setTabActiva]     = useState(tabInicial); // ventas | compras | proveedores
+  useEffect(() => { if (tabInicial === "proveedores") setTabActiva("proveedores"); }, [tabInicial]);
   const [convirtiendo, setConvirtiendo] = useState(null);
   const cajaCfg = useCajaCfg();
   const [convMetodo, setConvMetodo] = useState("Efectivo");
@@ -7261,6 +7604,12 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
             boxShadow:tabActiva==="compras"?"0 3px 10px rgba(93,64,55,.25)":"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>
           🛒 Compras
         </button>
+        <button onClick={()=>{ setTabActiva("proveedores"); if (view !== "ventas") setView("ventas"); }}
+          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+            background:tabActiva==="proveedores"?"#1a2340":"#fff", color:tabActiva==="proveedores"?"#fff":"#4a5568",
+            boxShadow:tabActiva==="proveedores"?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>
+          🏭 Proveedores
+        </button>
       </div>
 
       {/* ── TAB VENTAS ── */}
@@ -7369,6 +7718,7 @@ function VentasView({ setView, showToast, clientes, empresa, configCargada }) {
 
       {/* ── TAB PRESUPUESTOS ── */}
       {tabActiva==="compras" && <ComprasView showToast={showToast}/>}
+      {tabActiva==="proveedores" && <ProveedoresView view={view === "ventas" ? "proveedores" : view} setView={setView} showToast={showToast}/>}
 
 
       {/* Modal: elegir método de pago al convertir */}
@@ -13606,9 +13956,9 @@ export default function App() {
               <span className="sidebar-icon">📅</span>
               <span className="sidebar-label">Calendario</span>
             </button>
-            <button className={`sidebar-item ${(view==="ventas"||view==="nuevaVenta")?"act":""}` + ""} onClick={()=>{ setView("ventas"); }}>
+            <button className={`sidebar-item ${(view==="ventas"||view==="nuevaVenta"||view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}` + ""} onClick={()=>{ setView("ventas"); }}>
               <span className="sidebar-icon">💰</span>
-              <span className="sidebar-label">Ventas</span>
+              <span className="sidebar-label">Compras/Ventas</span>
             </button>
             <button className={`sidebar-item ${view==="presupuestos"?"act":""}`} onClick={()=>{ setView("presupuestos"); }}>
               <span className="sidebar-icon">📋</span>
@@ -13627,10 +13977,6 @@ export default function App() {
             <button className={`sidebar-item ${(view==="clientes"||view==="nuevoCliente"||view==="editarCliente")?"act":""}` + ""} onClick={()=>{ setView("clientes"); }}>
               <span className="sidebar-icon">👥</span>
               <span className="sidebar-label">Clientes</span>
-            </button>
-            <button className={`sidebar-item ${(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor")?"act":""}` + ""} onClick={()=>{ setView("proveedores"); }}>
-              <span className="sidebar-icon">🏭</span>
-              <span className="sidebar-label">Proveedores</span>
             </button>
             <button className={`sidebar-item ${(view==="agenda")?"act":""}` + ""} onClick={()=>{ setView("agenda"); }}>
               <span className="sidebar-icon">📅</span>
@@ -13681,11 +14027,11 @@ export default function App() {
           view==="insumos" ? "🏷️ Servicios y Productos" :
           view==="nuevoInsumo" ? "🏷️ Servicios y Productos" :
           view==="editarInsumo" ? "🏷️ Servicios y Productos" :
-          view==="ventas" ? "💰 Ventas" :
+          view==="ventas" ? "💰 Compras/Ventas" :
           view==="nuevaVenta" ? "💰 Ventas" :
           view==="presupuestos" ? "📋 Presupuestos" :
           view==="agenda" ? "📅 Agenda" :
-          view==="proveedores" ? "🏭 Proveedores" :
+          view==="proveedores" ? "💰 Compras/Ventas · Proveedores" :
           view==="nuevoProveedor" ? "🏭 Proveedores" :
           view==="editarProveedor" ? "🏭 Proveedores" :
           view==="calculadora" ? "🧮 Calculadora de Costos" :
@@ -14388,8 +14734,9 @@ export default function App() {
         )}
 
         {/* ── VENTAS ── */}
-        {view==="ventas" && (
-          <VentasView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} configCargada={configCargada} />
+        {(view==="ventas"||view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor") && (
+          <VentasView key="compras-ventas" setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} configCargada={configCargada}
+            view={view} tabInicial={view==="ventas" ? "ventas" : "proveedores"} />
         )}
         {view==="nuevaVenta" && (
           <NuevaVentaView setView={setView} showToast={showToast} clientes={clientes} empresa={empresa} configCargada={configCargada} />
@@ -14410,13 +14757,7 @@ export default function App() {
         )}
 
         {/* ── PROVEEDORES ── */}
-        {(view==="proveedores"||view==="nuevoProveedor"||view==="editarProveedor") && (
-          <ProveedoresView
-            view={view}
-            setView={setView}
-            showToast={showToast}
-          />
-        )}
+        {/* Proveedores ahora está dentro de Compras/Ventas */}
 
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
@@ -14468,8 +14809,8 @@ export default function App() {
             <div style={{ width:40, height:5, borderRadius:3, background:"#ddd", margin:"0 auto 14px" }}/>
             <div className="grilla">
               {[
-                ["✅","Listos",() => irA("listos")], ["💰","Ventas",() => irA("ventas")], ["📋","Presupuestos",() => irA("presupuestos")],
-                ["👥","Clientes",() => irA("clientes")], ["🏷️","Productos",() => irA("insumos")], ["🏭","Proveedores",() => irA("proveedores")],
+                ["✅","Listos",() => irA("listos")], ["💰","Compras/Ventas",() => irA("ventas")], ["📋","Presupuestos",() => irA("presupuestos")],
+                ["👥","Clientes",() => irA("clientes")], ["🏷️","Productos",() => irA("insumos")], 
                 ["📊","Producción",() => irA("produccion")], ["⚙️","Configuración",() => irA("config")],
                 ...(APP_CFG.accesos||[]).filter(a => a && a.url).map(a => [a.icono||"🔗", a.nombre||"Acceso", () => { setMasAbierto(false); window.open(a.url,"_blank"); }]),
                 ["🔒","Salir",() => { setMasAbierto(false); handleLogout(); }],
