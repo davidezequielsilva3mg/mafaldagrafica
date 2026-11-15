@@ -565,7 +565,7 @@ const ESTADO_COLOR = {
 const EMPTY_FORM = {
   nombre: "", cliente: "", telefono: "", categoria: "",
   estado: "Pendiente", fechaPedido: "", fechaEntrega: "", precio: "",
-  seña: "", notas: "", notasItems: [""], tomadoPor: ""
+  seña: "", notas: "", notasItems: [""], items: [], tomadoPor: ""
 };
 
 
@@ -2315,7 +2315,7 @@ function getLunes(fecha) {
 }
 function semanaKey(lunes) { return lunes.toISOString().split("T")[0]; }
 
-function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, clientes }) {
+function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, clientes, abrirPedidoFlotante }) {
   const cajaCfg = useCajaCfg();
   const cel = useEsCelular();
   const [diaSel, setDiaSel] = useState(null);
@@ -2447,6 +2447,8 @@ function PedidosOnlineView({ showToast, setView: setViewApp, setSelectedPedido, 
   };
 
   const abrirModalNuevo = (fecha, catId) => {
+    // Mismo formulario que en Pedidos, en ventana flotante
+    if (abrirPedidoFlotante) { abrirPedidoFlotante({ fechaEntrega: fecha, categoria: catId }); return; }
     setModalNuevo({ fecha, catId });
     setMTel(""); setMNombre(""); setMDetalleItems([""]);
     setMEntrega(fecha); setMPrecio(""); setMSeña("");
@@ -8460,6 +8462,112 @@ function CotAjustes({ cz, guardar, materias, deUso, productos, tintaM2, tinta, p
   );
 }
 
+// ── Renglones del pedido: Cant. · Detalle · Material · Ancho × Alto · Valor unit. · Total ──
+// pedido.items: [{ cant, detalle, materiaId, material, ancho, alto (cm), unit, total, m2 }]
+const renglonVacio = () => ({ k: Math.random().toString(36).slice(2), cant:"1", detalle:"", material:"", materiaId:"", ancho:"", alto:"", unit:"", total:"" });
+const sumaRenglones = (items) => (items||[]).reduce((s, it) => s + (parseFloat(it.total)||0), 0);
+const m2Renglon = (it) => (parseFloat(it.cant)||1) * (parseFloat(it.ancho)||0) * (parseFloat(it.alto)||0) / 10000;
+// Texto de cada renglón para la orden de trabajo y el mensaje de WhatsApp (sin precios)
+const textoRenglon = (it) => {
+  const cant = parseFloat(it.cant)||0;
+  const medida = parseFloat(it.ancho) && parseFloat(it.alto) ? ` ${fmtN(it.ancho)}×${fmtN(it.alto)} cm` : "";
+  return `${cant && cant !== 1 ? `${fmtN(cant)} × ` : ""}${(it.detalle||"").trim()}${it.material ? ` — ${it.material}` : ""}${medida}`.trim();
+};
+function limpiarRenglones(items) {
+  return (items||[]).filter(it => (it.detalle||"").trim() || it.material || parseFloat(it.total) > 0).map(it => ({
+    cant: parseFloat(it.cant)||1, detalle: (it.detalle||"").trim(), material: it.material||"", materiaId: it.materiaId||"",
+    ancho: parseFloat(it.ancho)||0, alto: parseFloat(it.alto)||0, unit: parseFloat(it.unit)||0, total: parseFloat(it.total)||0,
+    m2: Math.round(m2Renglon(it) * 10000) / 10000,
+  }));
+}
+function renglonesDesdePedido(p) {
+  if (p?.items?.length) return p.items.map(it => ({ ...renglonVacio(), ...it, cant:String(it.cant ?? 1), ancho:it.ancho ? String(it.ancho) : "", alto:it.alto ? String(it.alto) : "", unit:it.unit ? String(it.unit) : "", total:it.total ? String(it.total) : "" }));
+  const lineas = (p?.notas||"").split("\n").map(l => l.trim()).filter(Boolean);
+  return lineas.length ? lineas.map(l => ({ ...renglonVacio(), detalle:l })) : [renglonVacio()];
+}
+
+function RenglonesPedido({ items, onChange }) {
+  const [materias] = useColeccion("materiasPrimas");
+  const [cz, setCz] = useState(null);
+  useEffect(() => onSnapshot(doc(db, "cotizadorConfig", "data"), s => setCz(s.exists() ? s.data() : null), () => {}), []);
+  const filas = items?.length ? items : [renglonVacio()];
+  const nombres = [...new Set(materias.map(m => m.nombre).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+  const set = (k, campo, val) => onChange(filas.map(it => {
+    if (it.k !== k) return it;
+    const n = { ...it, [campo]: val };
+    if (campo === "material") n.materiaId = materias.find(m => normTxt(m.nombre) === normTxt(val))?.fireId || "";
+    const cant = parseFloat(n.cant)||0;
+    if (campo === "cant" || campo === "unit") { const u = parseFloat(n.unit)||0; n.total = cant && u ? String(Math.round(cant * u * 100) / 100) : (campo === "unit" && !val ? "" : n.total); }
+    if (campo === "total" && cant > 0) n.unit = val ? String(Math.round((parseFloat(val)||0) / cant * 100) / 100) : "";
+    return n;
+  }));
+  // Precio sugerido por unidad: producto del Cotizador que se imprime en ese material × m² de la pieza
+  const sugerido = (it) => {
+    const a = parseFloat(it.ancho)||0, h = parseFloat(it.alto)||0;
+    if (!it.materiaId || !a || !h || !cz) return null;
+    const prod = (cz.products||[]).find(p => p.materiaId === it.materiaId && parseFloat(p.salePriceM2) > 0);
+    if (!prod) return null;
+    return { precio: Math.round(parseFloat(prod.salePriceM2) * a * h / 10000), prod };
+  };
+  const agregar = () => onChange([...filas, renglonVacio()]);
+  const total = sumaRenglones(filas), m2 = filas.reduce((s, it) => s + m2Renglon(it), 0);
+  const inpR = { width:"100%", padding:"9px 10px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", background:"#fff" };
+  const th = { fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".4px" };
+  return (
+    <div>
+      <datalist id="renglon-materiales">{nombres.map(n => <option key={n} value={n}/>)}</datalist>
+      <div className="renglon-grid renglon-head" style={{ marginBottom:6 }}>
+        <span/><span style={th}>Cant.</span><span style={th}>Detalle</span><span style={th}>Material</span><span style={th}>Ancho</span><span style={th}>Alto</span><span style={th}>Valor unit.</span><span style={th}>Total</span><span/>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {filas.map((it, idx) => {
+          const sug = sugerido(it), m2r = m2Renglon(it);
+          return (
+            <div key={it.k} className="renglon-card">
+              <div className="renglon-grid">
+                <span className="renglon-n">{idx + 1}.</span>
+                <input type="number" inputMode="decimal" value={it.cant} onChange={e => set(it.k, "cant", e.target.value)} placeholder="Cant." style={inpR} title="Cantidad" aria-label="Cantidad"/>
+                <input value={it.detalle} onChange={e => set(it.k, "detalle", e.target.value)} placeholder={idx === 0 ? "Ej: Cartel frente del local" : "Detalle"} style={inpR} className="renglon-detalle"
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); agregar(); } }} aria-label="Detalle"/>
+                <input list="renglon-materiales" value={it.material} onChange={e => set(it.k, "material", e.target.value)} placeholder="Material…" aria-label="Material"
+                  style={{ ...inpR, borderColor: it.material && !it.materiaId ? "#ffcc80" : it.materiaId ? "#a5d6a7" : "var(--c-border)" }}/>
+                <input type="number" inputMode="decimal" value={it.ancho} onChange={e => set(it.k, "ancho", e.target.value)} placeholder="Ancho cm" style={inpR} aria-label="Ancho en cm"/>
+                <input type="number" inputMode="decimal" value={it.alto} onChange={e => set(it.k, "alto", e.target.value)} placeholder="Alto cm" style={inpR} aria-label="Alto en cm"/>
+                <input type="number" inputMode="decimal" value={it.unit} onChange={e => set(it.k, "unit", e.target.value)} placeholder={sug ? String(sug.precio) : "Unit. $"} style={inpR} aria-label="Valor unitario"/>
+                <input type="number" inputMode="decimal" value={it.total} onChange={e => set(it.k, "total", e.target.value)} placeholder="Total $" style={{ ...inpR, fontWeight:700 }} aria-label="Total"/>
+                <button type="button" onClick={() => onChange(filas.length > 1 ? filas.filter(x => x.k !== it.k) : [renglonVacio()])} title="Quitar renglón"
+                  style={{ background:"transparent", border:"none", color:"#c0b0a0", cursor:"pointer", fontSize:16 }}>✕</button>
+              </div>
+              {(m2r > 0 || sug || (it.material && !it.materiaId)) && (
+                <div className="renglon-info">
+                  {m2r > 0 && <span>📐 {fmtN(Math.round(m2r * 100) / 100)} m²</span>}
+                  {sug && !(parseFloat(it.unit) > 0) && (
+                    <button type="button" onClick={() => set(it.k, "unit", String(sug.precio))}
+                      style={{ background:"#fff", border:"1px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:6, padding:"1px 8px", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                      usar ${sug.precio.toLocaleString("es-AR")} c/u ({sug.prod.name} ${parseFloat(sug.prod.salePriceM2).toLocaleString("es-AR")}/m²)
+                    </button>
+                  )}
+                  {it.material && !it.materiaId && <span style={{ color:"#e65100" }}>No está en Materias primas (queda como texto)</span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10, flexWrap:"wrap", gap:8 }}>
+        <button type="button" onClick={agregar}
+          style={{ background:"transparent", border:"1px dashed var(--c-border)", color:"var(--c-pri)", borderRadius:6, padding:"5px 14px", fontSize:13, cursor:"pointer", fontWeight:600 }}>+ Agregar renglón</button>
+        {(total > 0 || m2 > 0) && (
+          <div style={{ fontSize:13, color:"#4a5568" }}>
+            {m2 > 0 && <span style={{ marginRight:14 }}>📐 {fmtN(Math.round(m2 * 100) / 100)} m²</span>}
+            Total renglones: <b style={{ fontSize:16, color:"#1a2340" }}>${total.toLocaleString("es-AR")}</b>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Componente: Nueva Venta ───────────────────────────────────────────────
 function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }) {
   const cajaCfg = useCajaCfg();
@@ -14357,6 +14465,12 @@ export default function App() {
   const [selectedPedido, setSelectedPedido] = useState(null);
   const [formData, setFormData]           = useState(EMPTY_FORM);
   const [editingId, setEditingId]         = useState(null);
+  const [formFlotante, setFormFlotante]   = useState(false);   // formulario de pedido en ventana flotante
+  const cerrarFormulario = () => { if (formFlotante) setFormFlotante(false); else setView("lista"); };
+  const abrirPedidoFlotante = ({ fechaEntrega = "", categoria = "" } = {}) => {
+    setFormData({ ...EMPTY_FORM, categoria: categoria || CATEGORIAS[0] || "", fechaPedido: new Date().toLocaleDateString("sv-SE"), fechaEntrega, origenCalendario: true });
+    setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setFormFlotante(true);
+  };
   const [busqueda, setBusqueda]           = useState("");
   const [filtroEstado, setFiltroEstado]   = useState("Todos");
   const [filtroCategoria, setFiltroCategoria] = useState("Todas");
@@ -14558,10 +14672,13 @@ export default function App() {
     const limpiar = (obj) => Object.fromEntries(
       Object.entries(obj).filter(([k, v]) => v !== undefined && k !== "notasItems" && k !== "fireId")
     );
-    const notasStr = (formData.notasItems||[""]).filter(x=>x.trim()).join("\n");
+    // Renglones: se guardan ordenados y además como texto (para la orden de trabajo y WhatsApp)
+    const itemsOk = limpiarRenglones(formData.items);
+    const notasStr = itemsOk.length ? itemsOk.map(textoRenglon).filter(Boolean).join("\n") : (formData.notasItems||[""]).filter(x=>x.trim()).join("\n");
+    const extrasRenglones = { items: itemsOk, m2Total: Math.round(itemsOk.reduce((t, it) => t + it.m2, 0) * 10000) / 10000 };
     if (editingId !== null) {
       const prev    = pedidos.find(p => p.fireId === editingId || p.id === editingId);
-      const updated = limpiar({ ...formData, notas: notasStr || formData.notas, notasItems: undefined, id: prev?.id, clienteId: selectedClienteId||prev?.clienteId||null });
+      const updated = limpiar({ ...formData, ...extrasRenglones, notas: notasStr || (itemsOk.length ? "" : formData.notas), notasItems: undefined, id: prev?.id, clienteId: selectedClienteId||prev?.clienteId||null });
       await updateDoc(doc(db, "pedidos", editingId), updated);
       try { await ajustarSeñaEnCaja({ ...prev, ...updated, fireId: editingId }, prev?.seña, updated.seña, formData.señaCuenta || prev?.señaCuenta || cajaSugerida(cajaCfg, "seña")); }
       catch(e) { console.error(e); showToast("El pedido se guardó, pero no se pudo actualizar la seña en la caja","error"); }
@@ -14573,7 +14690,7 @@ export default function App() {
       const newId = ids.length ? Math.max(...ids, 0) + 1 : 1;
       const nroOT = await getNextNroOT();
       const señaCuenta = parseFloat(formData.seña) > 0 ? (formData.señaCuenta || cajaSugerida(cajaCfg, "seña")) : "";
-      const nuevo = limpiar({ ...formData, señaCuenta, notas: notasStr || formData.notas, notasItems: undefined, id: newId, ...(nroOT ? {nroOT} : {}), clienteId: selectedClienteId||null });
+      const nuevo = limpiar({ ...formData, ...extrasRenglones, señaCuenta, notas: notasStr || formData.notas, notasItems: undefined, id: newId, ...(nroOT ? {nroOT} : {}), clienteId: selectedClienteId||null });
       const refNuevo = await addDoc(collection(db, "pedidos"), nuevo);
       if (parseFloat(nuevo.seña) > 0) {
         try { await registrarCobroCaja({ pedido: nuevo, pedidoId: refNuevo.id, cobro:"seña", monto: nuevo.seña, cuenta: señaCuenta, fecha: nuevo.fechaPedido || hoyISO() }); recordarCaja("seña", señaCuenta); }
@@ -14584,7 +14701,7 @@ export default function App() {
       if (nuevo.estado === "Listo") triggerMsgIfNeeded(null, nuevo);
       else avisarPedidoAgendado(nuevo);
     }
-    setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("lista");
+    setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); cerrarFormulario();
   };
 
   const handleEstadoChange = async (id, nuevoEstado) => {
@@ -14703,8 +14820,7 @@ export default function App() {
   };
 
   const handleEdit = (p) => {
-    const notasItems = p.notas ? p.notas.split("\n").filter(x=>x.trim()) : [""];
-    setFormData({...EMPTY_FORM, ...p, notasItems: notasItems.length ? notasItems : [""]});
+    setFormData({...EMPTY_FORM, ...p, items: renglonesDesdePedido(p)});
     setEditingId(p.fireId);
     setErrors({});
     setView("formulario");
@@ -14758,6 +14874,210 @@ export default function App() {
       <MarcaPantalla/>
       <div style={{ fontSize:14, color:"#a09080" }}>Cargando pedidos...</div>
     </div>
+  );
+
+  // El formulario de pedido se usa en la pantalla de Pedidos y como ventana flotante (Calendario)
+  const formularioPedido = (
+          <div className="card" style={{ padding:"32px 36px" }}>
+            <div style={{ marginBottom:26 }}>
+              <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
+                {editingId?"✏️ Editar Pedido":"📥 Nuevo Pedido"}
+              </h2>
+              <p style={{ fontSize:14, color:"#a09080" }}>{editingId?"Modificá los datos del pedido.":"Completá el formulario para registrar el pedido."}</p>
+            </div>
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
+              {/* Categoría */}
+              <div style={{ gridColumn:"1 / -1" }}>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:8 }}>
+                  Categoría *
+                  {errors.categoria && <span style={{ color:"#ef5350", fontSize:12, fontWeight:400, marginLeft:8 }}>{errors.categoria}</span>}
+                </label>
+                <select value={formData.categoria||""} onChange={e=>setFormData(p=>({...p,categoria:e.target.value}))}
+                  style={{ width:"100%", padding:"11px 14px", borderRadius:8, border:`1.5px solid ${errors.categoria?"#ef5350":formData.categoria?"var(--c-pri)":"#dde3ef"}`,
+                    fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer",
+                    background: formData.categoria ? (CATEGORIA_COLOR[formData.categoria]?.bg||"var(--c-soft)") : "#fff",
+                    color: formData.categoria ? (CATEGORIA_COLOR[formData.categoria]?.text||"#1a2340") : "#a09080",
+                    fontWeight: formData.categoria ? 700 : 400 }}>
+                  <option value="">— Seleccioná una categoría —</option>
+                  {formData.categoria && !CATEGORIAS.includes(formData.categoria) && (
+                    <option value={formData.categoria}>{formData.categoria} (ya no existe)</option>
+                  )}
+                  {CATEGORIAS.map(cat=>(
+                    <option key={cat} value={cat}>{CATEGORIA_ICON[cat]} {cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ gridColumn:"1 / -1" }}>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Descripción del pedido *</label>
+                <input value={formData.nombre} onChange={e=>setFormData(p=>({...p,nombre:e.target.value}))}
+                  placeholder="Ej: Remeras con logo, Banner 2x1m..." style={inp("nombre")}/>
+                {errors.nombre && <div style={{ color:"#ef5350", fontSize:12, marginTop:4 }}>{errors.nombre}</div>}
+              </div>
+
+              <div style={{ position:"relative", gridColumn:"1 / -1" }}>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Cliente *</label>
+                {selectedClienteId ? (
+                  (() => {
+                    const cl = clientes.find(c => c.fireId === selectedClienteId);
+                    return cl ? (
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", borderRadius:8, border:"1.5px solid var(--c-pri)", background:"var(--c-soft)" }}>
+                        <div>
+                          <div style={{ fontWeight:700, color:"#1a2340", fontSize:14 }}>{cl.nombre} {cl.apellido} {cl.empresa && `— ${cl.empresa}`}</div>
+                          <div style={{ fontSize:12, color:"var(--c-pri)", fontWeight:600, marginTop:2 }}>📞 {cl.telefono || "Sin teléfono"}</div>
+                        </div>
+                        <button onClick={() => { setSelectedClienteId(null); setFormData(p=>({...p,cliente:"",telefono:""})); setClienteSearch(""); }}
+                          style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>
+                          ✕ Cambiar
+                        </button>
+                      </div>
+                    ) : null;
+                  })()
+                ) : null}
+                {selectedClienteId && <AvisoDeuda cl={clientes.find(c => c.fireId === selectedClienteId)}/>}
+                {selectedClienteId ? null : (
+                  <div style={{ position:"relative" }}>
+                    <input
+                      value={clienteSearch}
+                      onChange={e => { setClienteSearch(e.target.value); setFormData(p=>({...p,cliente:e.target.value})); setClienteDropdown(true); }}
+                      onFocus={() => setClienteDropdown(true)}
+                      placeholder="Buscar cliente o escribir nuevo..."
+                      style={{ ...inp("cliente"), paddingRight:40 }}
+                      autoComplete="off"
+                    />
+                    <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:16 }}>🔍</span>
+                    {clienteDropdown && (clienteSearch.length > 0) && (
+                      <div style={{ position:"absolute", top:"100%", left:0, right:0, background:"#fff", border:"1.5px solid var(--c-border)", borderRadius:8, boxShadow:"0 8px 24px rgba(var(--c-pri-rgb),.12)", zIndex:100, maxHeight:220, overflowY:"auto", marginTop:4 }}>
+                        {clientes.filter(c => {
+                          const q = clienteSearch.toLowerCase();
+                          return `${c.nombre} ${c.apellido} ${c.empresa||""} ${c.telefono||""}`.toLowerCase().includes(q);
+                        }).map(cl => (
+                          <div key={cl.fireId}
+                            onClick={() => {
+                              setSelectedClienteId(cl.fireId);
+                              setFormData(p=>({...p, cliente:`${cl.nombre} ${cl.apellido}`.trim(), telefono: cl.telefono||""}));
+                              setClienteDropdown(false);
+                              setClienteSearch(`${cl.nombre} ${cl.apellido}`.trim());
+                            }}
+                            style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--c-row)", display:"flex", alignItems:"center", justifyContent:"space-between" }}
+                            onMouseOver={e=>e.currentTarget.style.background="var(--c-soft)"}
+                            onMouseOut={e=>e.currentTarget.style.background="#fff"}>
+                            <div>
+                              <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{cl.nombre} {cl.apellido} {cl.empresa&&<span style={{color:"#a09080",fontWeight:400}}>— {cl.empresa}</span>}<BadgeDeuda cl={cl}/></div>
+                              {cl.telefono && <div style={{ fontSize:11, color:"var(--c-pri)", fontWeight:600 }}>📞 {cl.telefono}</div>}
+                            </div>
+                            <span style={{ fontSize:11, color:"#a09080" }}>Seleccionar →</span>
+                          </div>
+                        ))}
+                        <div
+                          onClick={() => { setView("nuevoCliente"); setFormData(p=>({...p,_volver:"formulario"})); }}
+                          style={{ padding:"10px 14px", cursor:"pointer", background:"var(--c-soft)", color:"var(--c-pri)", fontWeight:700, fontSize:13, borderTop:"1.5px solid var(--c-border)", display:"flex", alignItems:"center", gap:6 }}>
+                          ➕ Crear cliente "{clienteSearch}"
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {errors.cliente && <div style={{ color:"#ef5350", fontSize:12, marginTop:4 }}>{errors.cliente}</div>}
+              </div>
+
+              <div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Teléfono</label>
+                <input value={formData.telefono} onChange={e=>setFormData(p=>({...p,telefono:e.target.value}))} placeholder="11-xxxx-xxxx" style={inp()}/>
+              </div>
+
+              <div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Estado</label>
+                <select value={formData.estado} onChange={e=>setFormData(p=>({...p,estado:e.target.value}))} style={{ ...inp(), cursor:"pointer" }}>
+                  {ESTADOS.filter(e=>e!=="Todos").map(e=><option key={e}>{e}</option>)}
+                </select>
+                {formData.estado==="En Producción" && (
+                  <div style={{ marginTop:6, fontSize:12, color:"#bf360c", background:"#fff3e0", borderRadius:6, padding:"5px 10px" }}>
+                    🖨️ Se generará la orden de trabajo al guardar
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha del Pedido</label>
+                <input type="date" value={formData.fechaPedido} onChange={e=>setFormData(p=>({...p,fechaPedido:e.target.value}))} style={inp()}/>
+              </div>
+
+              <div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha de Entrega *</label>
+                <input type="date" value={formData.fechaEntrega} onChange={e=>setFormData(p=>({...p,fechaEntrega:e.target.value}))} style={inp("fechaEntrega")}/>
+                {errors.fechaEntrega && <div style={{ color:"#ef5350", fontSize:12, marginTop:4 }}>{errors.fechaEntrega}</div>}
+              </div>
+
+              <div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio Total ($)</label>
+                <input type="number" value={formData.precio} onChange={e=>setFormData(p=>({...p,precio:e.target.value}))} placeholder="0.00" style={inp()}/>
+              </div>
+
+              <div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Seña / Adelanto ($)</label>
+                <input type="number" value={formData.seña} onChange={e=>setFormData(p=>({...p,seña:e.target.value}))} placeholder="0.00" style={inp()}/>
+              </div>
+
+              {parseFloat(formData.seña) > 0 && (() => {
+                const prevP = editingId !== null ? pedidos.find(p => p.fireId === editingId) : null;
+                const cambio = !prevP || parseFloat(prevP.seña||0) !== parseFloat(formData.seña||0);
+                if (!cambio) return null;
+                return (
+                  <div style={{ gridColumn:"1 / -1", display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"end", background:"#f1f8e9", borderRadius:10, padding:"12px 14px" }}>
+                    <SelectorCajaCobro cfg={cajaCfg} value={formData.señaCuenta || cajaSugerida(cajaCfg, "seña")} onChange={v => setFormData(p => ({ ...p, señaCuenta:v }))}
+                      label={prevP ? "La diferencia de seña entra en" : "¿Dónde entró la seña?"}/>
+                    <div style={{ fontSize:12, color:"#558b2f", paddingBottom:10 }}>
+                      💰 {prevP
+                        ? `Se ${parseFloat(formData.seña) > parseFloat(prevP.seña||0) ? "suman" : "descuentan"} $${Math.abs(parseFloat(formData.seña) - parseFloat(prevP.seña||0)).toLocaleString("es-AR")} en la Caja diaria.`
+                        : `Se cargan $${parseFloat(formData.seña).toLocaleString("es-AR")} como ingreso en la Caja diaria.`}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {(formData.precio||formData.seña) && (
+                <div style={{ gridColumn:"1 / -1", background:"var(--c-soft)", borderRadius:10, padding:"12px 18px", display:"flex", gap:24 }}>
+                  <div><span style={{ fontSize:12, color:"#a09080" }}>Total: </span><strong>${parseFloat(formData.precio||0).toLocaleString("es-AR")}</strong></div>
+                  <div><span style={{ fontSize:12, color:"#a09080" }}>Seña: </span><strong style={{ color:"#2e7d32" }}>${parseFloat(formData.seña||0).toLocaleString("es-AR")}</strong></div>
+                  <div><span style={{ fontSize:12, color:"#a09080" }}>Saldo: </span><strong style={{ color:saldo(formData)>0?"#c62828":"#2e7d32" }}>${saldo(formData).toLocaleString("es-AR")}</strong></div>
+                </div>
+              )}
+
+              <div style={{ gridColumn:"1 / -1" }}>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>👤 Tomado por</label>
+                <select value={formData.tomadoPor||""} onChange={e=>setFormData(p=>({...p,tomadoPor:e.target.value}))}
+                  style={{ ...inp(), cursor:"pointer",
+                    borderColor: formData.tomadoPor?"var(--c-pri)":"",
+                    background: formData.tomadoPor?"var(--c-soft)":"#fff",
+                    fontWeight: formData.tomadoPor?600:400,
+                    color: formData.tomadoPor?"#1a2340":"#a09080" }}>
+                  <option value="">— Sin asignar —</option>
+                  {empleados.map(e=>(
+                    <option key={e.fireId} value={`${e.nombre||""} ${e.apellido||""}`.trim()}>
+                      {`${e.nombre||""} ${e.apellido||""}`.trim()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ gridColumn:"1 / -1" }}>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:8 }}>📝 Detalle del pedido</label>
+                <RenglonesPedido items={formData.items} onChange={items => setFormData(p => {
+                  // El Precio Total sigue a la suma de los renglones, salvo que lo hayas cambiado a mano
+                  const antes = sumaRenglones(p.items), ahora = sumaRenglones(items);
+                  const sigue = !p.precio || Math.abs((parseFloat(p.precio)||0) - antes) < 0.01;
+                  return { ...p, items, ...(sigue && ahora > 0 ? { precio: String(ahora) } : {}) };
+                })}/>
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:12, marginTop:28, justifyContent:"flex-end" }}>
+              <button className="btn-g" onClick={() => { setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); cerrarFormulario(); }}>Cancelar</button>
+              <button className="btn-p" onClick={handleSubmit}>{editingId?"💾 Guardar Cambios":"✅ Guardar Pedido"}</button>
+            </div>
+          </div>
   );
 
   return (
@@ -14835,6 +15155,12 @@ export default function App() {
         .ctx-btn{background:rgba(var(--c-pri-rgb),.1);color:var(--c-pri);border:1.5px solid rgba(var(--c-pri-rgb),.3);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:"DM Sans",sans-serif;transition:all .18s}
         .ctx-btn:hover{background:var(--c-pri);color:#fff}
         .cot-2col{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+        .form-flotante-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1500;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow-y:auto}
+        .form-flotante{position:relative;width:100%;max-width:1000px;margin:auto 0}
+        .form-flotante-x{position:absolute;top:14px;right:14px;z-index:2;width:34px;height:34px;border-radius:50%;border:1.5px solid var(--c-border);background:#fff;color:#a09080;font-size:16px;cursor:pointer}
+        .renglon-grid{display:grid;grid-template-columns:22px 64px minmax(150px,2.2fr) minmax(130px,1.6fr) 74px 74px 100px 110px 24px;gap:6px;align-items:center}
+        .renglon-n{font-size:12px;color:#a09080;text-align:right}
+        .renglon-info{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:11px;color:#1565c0;margin:4px 0 0 28px}
         .cot-res{position:sticky;top:76px}
         @media(max-width:900px){
           .sidebar{position:fixed;top:0;left:0;height:100vh;z-index:200;transform:translateX(0);transition:width .25s cubic-bezier(.4,0,.2,1)}
@@ -14875,6 +15201,16 @@ export default function App() {
           .modal-ov>div,div[style*="position: fixed"][style*="inset: 0"]>div{max-width:calc(100vw - 20px)!important;max-height:calc(100vh - 40px)!important;overflow-y:auto;padding-left:18px!important;padding-right:18px!important}
           .busq-global-box{top:calc(12px + env(safe-area-inset-top))}
           .cot-2col{grid-template-columns:1fr}
+          .form-flotante-ov{padding:calc(8px + env(safe-area-inset-top)) 0 0}
+          .form-flotante{max-width:none}
+          .renglon-head{display:none!important}
+          .renglon-card{background:var(--c-softer);border:1px solid var(--c-border);border-radius:10px;padding:8px}
+          .renglon-grid{grid-template-columns:1fr 1fr 1fr;gap:6px}
+          .renglon-grid>.renglon-n{display:none}
+          .renglon-grid>.renglon-detalle{grid-column:1 / -1;order:-2}
+          .renglon-grid>input[list]{grid-column:1 / -1;order:-1}
+          .renglon-grid>button{grid-column:3;justify-self:end}
+          .renglon-info{margin-left:0}
           .cot-res{position:static}
           .compra-fila{grid-template-columns:1fr 1fr 1fr!important}
           .compra-fila>div:first-child{grid-column:1 / -1}
@@ -15288,244 +15624,7 @@ export default function App() {
         )}
 
         {/* ── FORMULARIO ── */}
-        {view==="formulario" && (
-          <div className="card" style={{ padding:"32px 36px" }}>
-            <div style={{ marginBottom:26 }}>
-              <h2 style={{ fontFamily:"'DM Sans',sans-serif", fontSize:26, fontWeight:700, color:"#1a2340", marginBottom:4 }}>
-                {editingId?"✏️ Editar Pedido":"📥 Nuevo Pedido"}
-              </h2>
-              <p style={{ fontSize:14, color:"#a09080" }}>{editingId?"Modificá los datos del pedido.":"Completá el formulario para registrar el pedido."}</p>
-            </div>
-
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
-              {/* Categoría */}
-              <div style={{ gridColumn:"1 / -1" }}>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:8 }}>
-                  Categoría *
-                  {errors.categoria && <span style={{ color:"#ef5350", fontSize:12, fontWeight:400, marginLeft:8 }}>{errors.categoria}</span>}
-                </label>
-                <select value={formData.categoria||""} onChange={e=>setFormData(p=>({...p,categoria:e.target.value}))}
-                  style={{ width:"100%", padding:"11px 14px", borderRadius:8, border:`1.5px solid ${errors.categoria?"#ef5350":formData.categoria?"var(--c-pri)":"#dde3ef"}`,
-                    fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer",
-                    background: formData.categoria ? (CATEGORIA_COLOR[formData.categoria]?.bg||"var(--c-soft)") : "#fff",
-                    color: formData.categoria ? (CATEGORIA_COLOR[formData.categoria]?.text||"#1a2340") : "#a09080",
-                    fontWeight: formData.categoria ? 700 : 400 }}>
-                  <option value="">— Seleccioná una categoría —</option>
-                  {formData.categoria && !CATEGORIAS.includes(formData.categoria) && (
-                    <option value={formData.categoria}>{formData.categoria} (ya no existe)</option>
-                  )}
-                  {CATEGORIAS.map(cat=>(
-                    <option key={cat} value={cat}>{CATEGORIA_ICON[cat]} {cat}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ gridColumn:"1 / -1" }}>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Descripción del pedido *</label>
-                <input value={formData.nombre} onChange={e=>setFormData(p=>({...p,nombre:e.target.value}))}
-                  placeholder="Ej: Remeras con logo, Banner 2x1m..." style={inp("nombre")}/>
-                {errors.nombre && <div style={{ color:"#ef5350", fontSize:12, marginTop:4 }}>{errors.nombre}</div>}
-              </div>
-
-              <div style={{ position:"relative", gridColumn:"1 / -1" }}>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Cliente *</label>
-                {selectedClienteId ? (
-                  (() => {
-                    const cl = clientes.find(c => c.fireId === selectedClienteId);
-                    return cl ? (
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", borderRadius:8, border:"1.5px solid var(--c-pri)", background:"var(--c-soft)" }}>
-                        <div>
-                          <div style={{ fontWeight:700, color:"#1a2340", fontSize:14 }}>{cl.nombre} {cl.apellido} {cl.empresa && `— ${cl.empresa}`}</div>
-                          <div style={{ fontSize:12, color:"var(--c-pri)", fontWeight:600, marginTop:2 }}>📞 {cl.telefono || "Sin teléfono"}</div>
-                        </div>
-                        <button onClick={() => { setSelectedClienteId(null); setFormData(p=>({...p,cliente:"",telefono:""})); setClienteSearch(""); }}
-                          style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>
-                          ✕ Cambiar
-                        </button>
-                      </div>
-                    ) : null;
-                  })()
-                ) : null}
-                {selectedClienteId && <AvisoDeuda cl={clientes.find(c => c.fireId === selectedClienteId)}/>}
-                {selectedClienteId ? null : (
-                  <div style={{ position:"relative" }}>
-                    <input
-                      value={clienteSearch}
-                      onChange={e => { setClienteSearch(e.target.value); setFormData(p=>({...p,cliente:e.target.value})); setClienteDropdown(true); }}
-                      onFocus={() => setClienteDropdown(true)}
-                      placeholder="Buscar cliente o escribir nuevo..."
-                      style={{ ...inp("cliente"), paddingRight:40 }}
-                      autoComplete="off"
-                    />
-                    <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:16 }}>🔍</span>
-                    {clienteDropdown && (clienteSearch.length > 0) && (
-                      <div style={{ position:"absolute", top:"100%", left:0, right:0, background:"#fff", border:"1.5px solid var(--c-border)", borderRadius:8, boxShadow:"0 8px 24px rgba(var(--c-pri-rgb),.12)", zIndex:100, maxHeight:220, overflowY:"auto", marginTop:4 }}>
-                        {clientes.filter(c => {
-                          const q = clienteSearch.toLowerCase();
-                          return `${c.nombre} ${c.apellido} ${c.empresa||""} ${c.telefono||""}`.toLowerCase().includes(q);
-                        }).map(cl => (
-                          <div key={cl.fireId}
-                            onClick={() => {
-                              setSelectedClienteId(cl.fireId);
-                              setFormData(p=>({...p, cliente:`${cl.nombre} ${cl.apellido}`.trim(), telefono: cl.telefono||""}));
-                              setClienteDropdown(false);
-                              setClienteSearch(`${cl.nombre} ${cl.apellido}`.trim());
-                            }}
-                            style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--c-row)", display:"flex", alignItems:"center", justifyContent:"space-between" }}
-                            onMouseOver={e=>e.currentTarget.style.background="var(--c-soft)"}
-                            onMouseOut={e=>e.currentTarget.style.background="#fff"}>
-                            <div>
-                              <div style={{ fontWeight:600, fontSize:13, color:"#1a2340" }}>{cl.nombre} {cl.apellido} {cl.empresa&&<span style={{color:"#a09080",fontWeight:400}}>— {cl.empresa}</span>}<BadgeDeuda cl={cl}/></div>
-                              {cl.telefono && <div style={{ fontSize:11, color:"var(--c-pri)", fontWeight:600 }}>📞 {cl.telefono}</div>}
-                            </div>
-                            <span style={{ fontSize:11, color:"#a09080" }}>Seleccionar →</span>
-                          </div>
-                        ))}
-                        <div
-                          onClick={() => { setView("nuevoCliente"); setFormData(p=>({...p,_volver:"formulario"})); }}
-                          style={{ padding:"10px 14px", cursor:"pointer", background:"var(--c-soft)", color:"var(--c-pri)", fontWeight:700, fontSize:13, borderTop:"1.5px solid var(--c-border)", display:"flex", alignItems:"center", gap:6 }}>
-                          ➕ Crear cliente "{clienteSearch}"
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {errors.cliente && <div style={{ color:"#ef5350", fontSize:12, marginTop:4 }}>{errors.cliente}</div>}
-              </div>
-
-              <div>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Teléfono</label>
-                <input value={formData.telefono} onChange={e=>setFormData(p=>({...p,telefono:e.target.value}))} placeholder="11-xxxx-xxxx" style={inp()}/>
-              </div>
-
-              <div>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Estado</label>
-                <select value={formData.estado} onChange={e=>setFormData(p=>({...p,estado:e.target.value}))} style={{ ...inp(), cursor:"pointer" }}>
-                  {ESTADOS.filter(e=>e!=="Todos").map(e=><option key={e}>{e}</option>)}
-                </select>
-                {formData.estado==="En Producción" && (
-                  <div style={{ marginTop:6, fontSize:12, color:"#bf360c", background:"#fff3e0", borderRadius:6, padding:"5px 10px" }}>
-                    🖨️ Se generará la orden de trabajo al guardar
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha del Pedido</label>
-                <input type="date" value={formData.fechaPedido} onChange={e=>setFormData(p=>({...p,fechaPedido:e.target.value}))} style={inp()}/>
-              </div>
-
-              <div>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Fecha de Entrega *</label>
-                <input type="date" value={formData.fechaEntrega} onChange={e=>setFormData(p=>({...p,fechaEntrega:e.target.value}))} style={inp("fechaEntrega")}/>
-                {errors.fechaEntrega && <div style={{ color:"#ef5350", fontSize:12, marginTop:4 }}>{errors.fechaEntrega}</div>}
-              </div>
-
-              <div>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio Total ($)</label>
-                <input type="number" value={formData.precio} onChange={e=>setFormData(p=>({...p,precio:e.target.value}))} placeholder="0.00" style={inp()}/>
-              </div>
-
-              <div>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Seña / Adelanto ($)</label>
-                <input type="number" value={formData.seña} onChange={e=>setFormData(p=>({...p,seña:e.target.value}))} placeholder="0.00" style={inp()}/>
-              </div>
-
-              {parseFloat(formData.seña) > 0 && (() => {
-                const prevP = editingId !== null ? pedidos.find(p => p.fireId === editingId) : null;
-                const cambio = !prevP || parseFloat(prevP.seña||0) !== parseFloat(formData.seña||0);
-                if (!cambio) return null;
-                return (
-                  <div style={{ gridColumn:"1 / -1", display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"end", background:"#f1f8e9", borderRadius:10, padding:"12px 14px" }}>
-                    <SelectorCajaCobro cfg={cajaCfg} value={formData.señaCuenta || cajaSugerida(cajaCfg, "seña")} onChange={v => setFormData(p => ({ ...p, señaCuenta:v }))}
-                      label={prevP ? "La diferencia de seña entra en" : "¿Dónde entró la seña?"}/>
-                    <div style={{ fontSize:12, color:"#558b2f", paddingBottom:10 }}>
-                      💰 {prevP
-                        ? `Se ${parseFloat(formData.seña) > parseFloat(prevP.seña||0) ? "suman" : "descuentan"} $${Math.abs(parseFloat(formData.seña) - parseFloat(prevP.seña||0)).toLocaleString("es-AR")} en la Caja diaria.`
-                        : `Se cargan $${parseFloat(formData.seña).toLocaleString("es-AR")} como ingreso en la Caja diaria.`}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {(formData.precio||formData.seña) && (
-                <div style={{ gridColumn:"1 / -1", background:"var(--c-soft)", borderRadius:10, padding:"12px 18px", display:"flex", gap:24 }}>
-                  <div><span style={{ fontSize:12, color:"#a09080" }}>Total: </span><strong>${parseFloat(formData.precio||0).toLocaleString("es-AR")}</strong></div>
-                  <div><span style={{ fontSize:12, color:"#a09080" }}>Seña: </span><strong style={{ color:"#2e7d32" }}>${parseFloat(formData.seña||0).toLocaleString("es-AR")}</strong></div>
-                  <div><span style={{ fontSize:12, color:"#a09080" }}>Saldo: </span><strong style={{ color:saldo(formData)>0?"#c62828":"#2e7d32" }}>${saldo(formData).toLocaleString("es-AR")}</strong></div>
-                </div>
-              )}
-
-              <div style={{ gridColumn:"1 / -1" }}>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>👤 Tomado por</label>
-                <select value={formData.tomadoPor||""} onChange={e=>setFormData(p=>({...p,tomadoPor:e.target.value}))}
-                  style={{ ...inp(), cursor:"pointer",
-                    borderColor: formData.tomadoPor?"var(--c-pri)":"",
-                    background: formData.tomadoPor?"var(--c-soft)":"#fff",
-                    fontWeight: formData.tomadoPor?600:400,
-                    color: formData.tomadoPor?"#1a2340":"#a09080" }}>
-                  <option value="">— Sin asignar —</option>
-                  {empleados.map(e=>(
-                    <option key={e.fireId} value={`${e.nombre||""} ${e.apellido||""}`.trim()}>
-                      {`${e.nombre||""} ${e.apellido||""}`.trim()}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ gridColumn:"1 / -1" }}>
-                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Notas / Detalles</label>
-                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                  {(formData.notasItems||[""]).map((item, idx) => (
-                    <div key={idx} style={{ display:"flex", gap:6, alignItems:"center" }}>
-                      <span style={{ fontSize:12, color:"#a09080", minWidth:18, textAlign:"right" }}>{idx+1}.</span>
-                      <input
-                        value={item}
-                        onChange={e => {
-                          const arr = [...(formData.notasItems||[""])];
-                          arr[idx] = e.target.value;
-                          setFormData(p=>({...p, notasItems:arr}));
-                        }}
-                        onKeyDown={e => {
-                          if (e.key==="Enter") {
-                            e.preventDefault();
-                            const arr = [...(formData.notasItems||[""])];
-                            arr.splice(idx+1, 0, "");
-                            setFormData(p=>({...p, notasItems:arr}));
-                          }
-                          if (e.key==="Backspace" && !item && (formData.notasItems||[""]).length > 1) {
-                            e.preventDefault();
-                            const arr = [...(formData.notasItems||[""])];
-                            arr.splice(idx, 1);
-                            setFormData(p=>({...p, notasItems:arr}));
-                          }
-                        }}
-                        placeholder={idx===0 ? "Medidas, color, cantidad..." : ""}
-                        style={{ ...inp(), flex:1 }}
-                      />
-                      {(formData.notasItems||[""]).length > 1 && (
-                        <button onClick={() => {
-                          const arr = [...(formData.notasItems||[""])];
-                          arr.splice(idx, 1);
-                          setFormData(p=>({...p, notasItems:arr}));
-                        }} style={{ background:"transparent", border:"none", color:"#ccc", cursor:"pointer", fontSize:16, padding:"0 4px" }}>✕</button>
-                      )}
-                    </div>
-                  ))}
-                  <button onClick={() => setFormData(p=>({...p, notasItems:[...(p.notasItems||[""]), ""]}))}
-                    style={{ alignSelf:"flex-start", background:"transparent", border:"1px dashed var(--c-border)", color:"var(--c-pri)", borderRadius:6, padding:"4px 12px", fontSize:12, cursor:"pointer", marginTop:2 }}>
-                    + Agregar ítem
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display:"flex", gap:12, marginTop:28, justifyContent:"flex-end" }}>
-              <button className="btn-g" onClick={() => { setFormData(EMPTY_FORM); setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setView("lista"); }}>Cancelar</button>
-              <button className="btn-p" onClick={handleSubmit}>{editingId?"💾 Guardar Cambios":"✅ Guardar Pedido"}</button>
-            </div>
-          </div>
-        )}
+        {view==="formulario" && !formFlotante && formularioPedido}
 
         {/* ── DETALLE ── */}
         {view==="detalle" && selectedPedido && (() => {
@@ -15637,7 +15736,26 @@ export default function App() {
                 );
               })()}
 
-              {p.notas && (
+              {p.items?.length > 0 ? (
+                <div style={{ background:"var(--c-softer)", borderRadius:10, padding:"14px 18px", overflowX:"auto" }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:7 }}>📝 Detalle</div>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                    <thead><tr>{["#","Cant.","Detalle","Material","Medida","Unit.","Total"].map(h => <th key={h} style={{ textAlign:"left", fontSize:10, color:"#a09080", textTransform:"uppercase", padding:"4px 6px" }}>{h}</th>)}</tr></thead>
+                    <tbody>{p.items.map((it, i) => (
+                      <tr key={i} style={{ borderTop:"1px solid var(--c-row)" }}>
+                        <td style={{ padding:"6px", color:"#a09080" }}>{i+1}</td>
+                        <td style={{ padding:"6px", fontWeight:700 }}>{fmtN(it.cant)}</td>
+                        <td style={{ padding:"6px", color:"#1a2340", fontWeight:600 }}>{it.detalle}</td>
+                        <td style={{ padding:"6px", color:"#4a5568" }}>{it.material || "—"}</td>
+                        <td style={{ padding:"6px", whiteSpace:"nowrap" }}>{it.ancho && it.alto ? `${fmtN(it.ancho)}×${fmtN(it.alto)} cm` : "—"}{it.m2 ? <div style={{ fontSize:11, color:"#a09080" }}>{fmtN(Math.round(it.m2*100)/100)} m²</div> : null}</td>
+                        <td style={{ padding:"6px", whiteSpace:"nowrap" }}>{it.unit ? `$${Number(it.unit).toLocaleString("es-AR")}` : "—"}</td>
+                        <td style={{ padding:"6px", fontWeight:700, whiteSpace:"nowrap" }}>{it.total ? `$${Number(it.total).toLocaleString("es-AR")}` : "—"}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                  {p.m2Total > 0 && <div style={{ fontSize:12, color:"#4a5568", marginTop:6 }}>📐 Total: {fmtN(Math.round(p.m2Total*100)/100)} m²</div>}
+                </div>
+              ) : p.notas && (
                 <div style={{ background:"var(--c-softer)", borderRadius:10, padding:"16px 18px" }}>
                   <div style={{ fontSize:11, fontWeight:600, color:"#a09080", textTransform:"uppercase", letterSpacing:".7px", marginBottom:7 }}>📝 Notas</div>
                   <p style={{ color:"#4a5568", lineHeight:1.6, fontSize:14 }}>{p.notas}</p>
@@ -15747,7 +15865,15 @@ export default function App() {
         {view==="calculadora" && <CalculadoraCostos/>}
         {view==="cotizador" && <CotizadorView showToast={showToast}/>}
         {view==="produccion"   && <ProduccionView showToast={showToast} pedidos={pedidos}/>}
-        {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido} clientes={clientes}/>}
+        {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido} clientes={clientes} abrirPedidoFlotante={abrirPedidoFlotante}/>}
+        {formFlotante && (
+          <div className="modal-ov form-flotante-ov" onClick={() => { if (window.confirm("¿Cerrar sin guardar el pedido?")) cerrarFormulario(); }}>
+            <div className="form-flotante" onClick={e => e.stopPropagation()}>
+              <button onClick={() => { if (window.confirm("¿Cerrar sin guardar el pedido?")) cerrarFormulario(); }} title="Cerrar" className="form-flotante-x">✕</button>
+              {formularioPedido}
+            </div>
+          </div>
+        )}
 
         {view==="finanzas" && (
           <FinanzasView
