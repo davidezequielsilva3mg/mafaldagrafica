@@ -3850,7 +3850,7 @@ const PAGOS_COMPRA = [
 ];
 const usoDe = (id) => USOS_COMPRA.find(u => u.id === id) || USOS_COMPRA[0];
 const pagoDeCompra = (c) => c.pago || (c.cajaMovId ? "caja" : "aparte");
-const itemCompraVacio = (tipo = "producto") => ({ k: Math.random().toString(36).slice(2), tipo, nombre:"", unidad:"unidades", cantidad: tipo === "servicio" ? "1" : "", moneda:"ARS", precioUnit:"", iva:0, total:"", uso:"materia", insumoVentaId:"", maquina:"" });
+const itemCompraVacio = (tipo = "producto") => ({ k: Math.random().toString(36).slice(2), tipo, nombre:"", unidad:"unidades", cantidad: tipo === "servicio" ? "1" : "", moneda:"ARS", precioUnit:"", iva:0, total:"", uso:"materia", insumoVentaId:"", materiaId:"", maquina:"" });
 const esReventa = (uso) => uso === "reventa" || uso === "ambos";
 const r2 = (n) => Math.round((parseFloat(n)||0) * 100) / 100;
 const usd = (n) => `US$ ${(Math.round((parseFloat(n)||0) * 100) / 100).toLocaleString("es-AR")}`;
@@ -3887,6 +3887,7 @@ async function moverStockCompra(items, signo, actualizarPrecio) {
     try {
       const snap = await getDoc(doc(db, "insumos", id));
       if (!snap.exists()) continue;
+      if (snap.data().materiaId) continue;   // su costo sale de una materia prima (ej: se compra por resma y se vende por hoja)
       const stock = (parseFloat(snap.data().stock)||0) + signo * x.cant;
       await updateDoc(doc(db, "insumos", id), { stock, ...(actualizarPrecio && x.precio > 0 ? { precioCompra: x.precio } : {}) });
     } catch(e) { console.error(e); }
@@ -3897,7 +3898,7 @@ async function borrarServiciosImpresora(items) {
   for (const it of (items||[])) if (it.servicioImpId) await deleteDoc(doc(db, "impresoraServices", it.servicioImpId)).catch(() => {});
 }
 
-function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta, maquinas, cajaCfg, ultimaCotizacion, onClose, showToast }) {
+function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta, materias = [], maquinas, cajaCfg, ultimaCotizacion, onClose, showToast }) {
   const editando = !!inicial?.fireId;
   const [prov, setProv]       = useState(inicial?.proveedorNombre || "");
   const [crearProv, setCrearProv] = useState(true);
@@ -3931,6 +3932,7 @@ function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta,
     }
     if (campo === "nombre" && n.tipo === "producto") {
       const p = prodPorNombre(val);
+      n.materiaId = (p?.materiaId && materias.some(m => m.fireId === p.materiaId) ? p.materiaId : materias.find(m => normTxt(m.nombre) === normTxt(val))?.fireId) || "";
       if (p) { n.unidad = p.unidad || n.unidad; n.uso = p.uso || n.uso; n.insumoVentaId = p.insumoVentaId || n.insumoVentaId;
                if (p.ultimaMoneda) n.moneda = p.ultimaMoneda; if (p.ultimoIva !== undefined) n.iva = p.ultimoIva; }
     }
@@ -3938,6 +3940,8 @@ function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta,
       const s = servPorNombre(val);
       if (s && !n.maquina) n.maquina = s.maquina || "";
     }
+    if (campo === "uso" && n.tipo === "producto" && n.uso !== "reventa" && !n.materiaId)
+      n.materiaId = materias.find(m => normTxt(m.nombre) === normTxt(n.nombre))?.fireId || "";
     if ((campo === "uso" || campo === "nombre") && n.tipo === "producto" && esReventa(n.uso) && !n.insumoVentaId) {
       const iv = insumosVenta.find(x => normTxt(x.nombre) === normTxt(n.nombre));
       if (iv) n.insumoVentaId = iv.fireId;
@@ -3970,11 +3974,27 @@ function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta,
           unidad: esServ ? "servicio" : it.unidad, moneda: it.moneda, precioUnit: parseFloat(it.precioUnit)||0, iva: parseFloat(it.iva)||0,
           neto: c.neto, ivaMonto: c.ivaMonto, total: c.total,
           uso: esServ ? "" : it.uso, insumoVentaId: !esServ && esReventa(it.uso) ? (it.insumoVentaId || "") : "",
+          materiaId: !esServ && it.uso !== "reventa" ? (it.materiaId || "") : "",
           maquina: esServ ? (it.maquina || "") : "", maquinaNombre: esServ ? (maq?.nombre || "") : "", servicioImpId: it.servicioImpId || "",
         };
       });
       const neto = r2(itemsOk.reduce((s,it) => s + it.neto, 0)), iva = r2(itemsOk.reduce((s,it) => s + it.ivaMonto, 0));
       const total = r2(neto + iva);
+
+      // Materias primas: la compra les pone el costo nuevo (o las crea si son nuevas)
+      for (const it of itemsOk) {
+        if (it.tipo !== "producto" || it.uso === "reventa") continue;
+        const unit = it.cantidad > 0 ? r2(it.total / it.cantidad) : 0;
+        const m = materias.find(x => x.fireId === it.materiaId);
+        if (m) {
+          if (!m.costoFecha || fecha >= m.costoFecha)
+            await updateDoc(doc(db, "materiasPrimas", m.fireId), { precioCosto: unit, costoFecha: fecha, origenCosto:"compra", ...(provNom ? { proveedor: provNom, proveedorId: provId || "" } : {}) });
+        } else {
+          const ref = await addDoc(collection(db, "materiasPrimas"), { nombre: it.nombre, descripcion:"", precioCosto: unit, unidad: it.unidad, rendimiento:0, unidadUso:"",
+            proveedorId: provId || "", proveedor: provNom, stock:0, categoria:"", categoriaKey:"", costoFecha: fecha, origen:"compra", origenCosto:"compra" });
+          it.materiaId = ref.id;
+        }
+      }
 
       // Memoria: productos comprados y servicios requeridos
       for (const it of itemsOk) {
@@ -3982,7 +4002,7 @@ function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta,
         if (it.tipo === "producto") {
           const p = prodPorNombre(it.nombre);
           const masNueva = !p || !p.ultimaFecha || fecha >= p.ultimaFecha;
-          const datos = { nombre: it.nombre, unidad: it.unidad, uso: it.uso, insumoVentaId: it.insumoVentaId,
+          const datos = { nombre: it.nombre, unidad: it.unidad, uso: it.uso, insumoVentaId: it.insumoVentaId, materiaId: it.materiaId || "",
             ...(masNueva ? { ultimoPrecio: unitPesos, ultimoPrecioOrig: it.precioUnit, ultimaMoneda: it.moneda, ultimoIva: it.iva, ultimaFecha: fecha, ultimoProveedor: provNom || p?.ultimoProveedor || "" } : {}) };
           if (p) await updateDoc(doc(db, "productosCompra", p.fireId), datos);
           else await addDoc(collection(db, "productosCompra"), { ...datos, creadoEn: new Date().toISOString() });
@@ -4024,6 +4044,7 @@ function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta,
         const ref = await addDoc(collection(db, "compras"), { ...data, creadoEn: new Date().toISOString() });
         if (cajaMovId) await updateDoc(doc(db, "cajaMovs", cajaMovId), { compraId: ref.id });
       }
+      recalcularArticulos().catch(() => {});
       const nStock = itemsOk.filter(it => it.insumoVentaId).length;
       showToast(`Compra ${editando ? "actualizada" : "registrada"} ✅${pago === "ctacte" ? " · quedó en la cuenta corriente de " + provNom : ""}${nStock ? ` · stock actualizado` : ""}`);
       onClose();
@@ -4150,6 +4171,13 @@ function ModalCompra({ inicial, productos, servicios, proveedores, insumosVenta,
                       style={{ ...inpC, width:"auto", maxWidth:260, padding:"5px 8px", fontSize:12 }} title="Producto de Servicios y Productos al que se le suma el stock">
                       <option value="">— Sin vincular a un producto de venta —</option>
                       {[...insumosVenta].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"")).map(x => <option key={x.fireId} value={x.fireId}>{x.nombre}</option>)}
+                    </select>
+                  )}
+                  {!esServ && it.uso !== "reventa" && (
+                    <select value={it.materiaId||""} onChange={e => setItem(it.k, "materiaId", e.target.value)} title="Materia prima a la que se le actualiza el costo"
+                      style={{ ...inpC, width:"auto", maxWidth:260, padding:"5px 8px", fontSize:12, borderColor:"#bcaaa4" }}>
+                      <option value="">{it.nombre.trim() ? `✨ Crear materia prima "${it.nombre.trim().slice(0,30)}"` : "🧱 Materia prima…"}</option>
+                      {[...materias].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"")).map(x => <option key={x.fireId} value={x.fireId}>🧱 {x.nombre}</option>)}
                     </select>
                   )}
                   {!esServ && esReventa(it.uso) && iv && parseFloat(it.cantidad) > 0 && <span style={{ color:"#2e7d32", fontWeight:600 }}>+{it.cantidad} al stock ({parseFloat(iv.stock)||0} → {(parseFloat(iv.stock)||0) + (parseFloat(it.cantidad)||0)})</span>}
@@ -4306,6 +4334,7 @@ function ComprasView({ showToast }) {
   const [pagos] = useColeccion("pagosProveedor");
   const [insumosVenta] = useColeccion("insumos");
   const [impresoras] = useColeccion("impresoras");
+  const [materiasMP] = useColeccion("materiasPrimas");
   const cajaCfg = useCajaCfg();
   const [modal, setModal] = useState(null);
   const [vista, setVista] = useState("compras");     // compras | productos | servicios
@@ -4571,7 +4600,7 @@ function ComprasView({ showToast }) {
         </div>
       )}
 
-      {modal && <ModalCompra inicial={modal} productos={productos} servicios={servicios} proveedores={proveedores} insumosVenta={insumosVenta} maquinas={maquinas}
+      {modal && <ModalCompra inicial={modal} productos={productos} servicios={servicios} proveedores={proveedores} insumosVenta={insumosVenta} materias={materiasMP} maquinas={maquinas}
         cajaCfg={cajaCfg} ultimaCotizacion={ultimaCotizacion} onClose={() => setModal(null)} showToast={showToast}/>}
     </div>
   );
@@ -9032,6 +9061,145 @@ async function exportarExcelProductos(insumos, showToast) {
   }
 }
 
+// ── Costos: materias primas → artículos que se venden ─────────────────────
+// materiasPrimas: precioCosto = lo que sale 1 unidad de compra (ej: 1 resma) · rendimiento = cuántas unidades de uso trae (ej: 500 hojas)
+// insumos (lo que se vende): tipo (elaborado | reventa | servicio), materiaId + materiaCant (sale de una materia prima),
+//                            margen (% de ganancia sobre el costo), precioAuto (el precio de venta se calcula solo)
+const TIPOS_ARTICULO = [
+  { id:"elaborado", label:"🖨️ Producto terminado", corto:"🖨️ Terminado", bg:"#fff3e0", color:"#e65100" },
+  { id:"reventa",   label:"🏷️ Reventa",            corto:"🏷️ Reventa",   bg:"#e8f5e9", color:"#2e7d32" },
+  { id:"servicio",  label:"🛠️ Servicio",           corto:"🛠️ Servicio",  bg:"#e3f2fd", color:"#1565c0" },
+];
+const tipoArticulo = (id) => TIPOS_ARTICULO.find(t => t.id === id);
+const UNIDADES_USO = ["hojas","m²","metros","ml","g","unidades"];
+const costoUsoMateria = (m) => { const p = parseFloat(m?.precioCosto)||0, r = parseFloat(m?.rendimiento)||0; return r > 0 ? p / r : p; };
+const unidadUsoMateria = (m) => (parseFloat(m?.rendimiento) > 0
+  ? (m?.unidadUso || (m?.categoriaKey === "filamento_pla" ? "g" : m?.categoriaKey ? "m²" : "unid."))
+  : (m?.unidad || "unidad"));
+function costoArticulo(ins, materias) {
+  if (ins?.materiaId) {
+    const m = materias.find(x => x.fireId === ins.materiaId);
+    if (m) return costoUsoMateria(m) * (parseFloat(ins.materiaCant)||1);
+  }
+  return parseFloat(ins?.precioCompra)||0;
+}
+// Precio con el % de ganancia, redondeado hacia arriba (a $1 si es menos de $100, a $5 hasta $1.000, a $10 arriba de eso)
+const precioConMargen = (costo, margen) => {
+  if (!(costo > 0)) return 0;
+  const p = costo * (1 + (parseFloat(margen)||0) / 100), paso = p < 100 ? 1 : p < 1000 ? 5 : 10;
+  return Math.ceil(Math.round(p * 100) / 100 / paso) * paso;
+};
+const gananciaPct = (costo, venta) => costo > 0 && venta > 0 ? Math.round((venta - costo) / costo * 100) : null;
+
+// Recalcula costo (y precio, si es automático) de todos los artículos que dependen de materias primas
+async function recalcularArticulos() {
+  const [si, sm] = await Promise.all([getDocs(collection(db, "insumos")), getDocs(collection(db, "materiasPrimas"))]);
+  const materias = sm.docs.map(d => ({ ...d.data(), fireId:d.id }));
+  let n = 0;
+  for (const d of si.docs) {
+    const ins = { ...d.data(), fireId:d.id };
+    if (!ins.materiaId && !ins.precioAuto) continue;
+    const costo = Math.round(costoArticulo(ins, materias) * 100) / 100;
+    const cambios = {};
+    if (ins.materiaId && costo !== (parseFloat(ins.precioCompra)||0)) cambios.precioCompra = costo;
+    if (ins.precioAuto && parseFloat(ins.margen) > 0) {
+      const p = precioConMargen(costo, ins.margen);
+      if (p && p !== (parseFloat(ins.precioVenta)||0)) cambios.precioVenta = p;
+    }
+    if (Object.keys(cambios).length) { await updateDoc(doc(db, "insumos", ins.fireId), cambios); n++; }
+  }
+  return n;
+}
+
+// Bloque del formulario del artículo: tipo, de dónde sale el costo y % de ganancia
+function EditorCostoArticulo({ form, setForm, materias }) {
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const desdeMateria = !!form.materiaId || form._origenCosto === "materia";
+  const m = materias.find(x => x.fireId === form.materiaId);
+  const costo = costoArticulo(form, materias);
+  const sugerido = precioConMargen(costo, form.margen);
+  const actual = gananciaPct(costo, parseFloat(form.precioVenta)||0);
+  const inpE = { width:"100%", padding:"9px 12px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", background:"#fff" };
+  const lbl = { display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:4 };
+  return (
+    <div style={{ background:"var(--c-softer)", border:"1.5px dashed var(--c-border)", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:12 }}>
+      <div>
+        <label style={lbl}>¿Qué es?</label>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {TIPOS_ARTICULO.map(t => (
+            <button key={t.id} type="button" onClick={() => set("tipo", t.id)}
+              style={{ padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
+                border:`1.5px solid ${form.tipo===t.id ? t.color : "var(--c-border)"}`, background: form.tipo===t.id ? t.bg : "#fff", color: form.tipo===t.id ? t.color : "#a09080" }}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <label style={lbl}>¿De dónde sale el costo?</label>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
+          <button type="button" onClick={() => setForm(f => ({ ...f, materiaId:"", _origenCosto:"manual" }))}
+            style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${!desdeMateria ? "#1a2340" : "var(--c-border)"}`, background: !desdeMateria ? "#1a2340" : "#fff", color: !desdeMateria ? "#fff" : "#4a5568" }}>✍️ Lo pongo yo</button>
+          <button type="button" onClick={() => set("_origenCosto", "materia")}
+            style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${desdeMateria ? "#1a2340" : "var(--c-border)"}`, background: desdeMateria ? "#1a2340" : "#fff", color: desdeMateria ? "#fff" : "#4a5568" }}>🧱 De una materia prima</button>
+        </div>
+        {desdeMateria ? (
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:8 }}>
+            <select value={form.materiaId||""} onChange={e => set("materiaId", e.target.value)} style={{ ...inpE, cursor:"pointer" }}>
+              <option value="">— Elegí la materia prima —</option>
+              {[...materias].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"")).map(x => <option key={x.fireId} value={x.fireId}>{x.nombre}</option>)}
+            </select>
+            <input type="number" value={form.materiaCant ?? ""} onChange={e => set("materiaCant", e.target.value)} placeholder="1" style={inpE}
+              title={`Cuántas ${m ? unidadUsoMateria(m) : "unidades"} usa`}/>
+            {m && (
+              <div style={{ gridColumn:"1 / -1", fontSize:12, color:"#1565c0" }}>
+                {m.nombre}: {$ar(m.precioCosto)} por {m.unidad || "unidad"}{parseFloat(m.rendimiento) > 0 && <> ÷ {m.rendimiento} {unidadUsoMateria(m)} = <b>{$ar(costoUsoMateria(m))} por {unidadUsoMateria(m).replace(/s$/,"")}</b></>}
+                {" "}× {parseFloat(form.materiaCant)||1} = <b>costo {$ar(costo)}</b>
+                {!(parseFloat(m.rendimiento) > 0) && <div style={{ color:"#e65100" }}>💡 Si esta materia prima trae varias unidades (ej: 1 resma = 500 hojas), cargá el rendimiento en Materias primas.</div>}
+              </div>
+            )}
+          </div>
+        ) : (
+          <input type="number" value={form.precioCompra ?? ""} onChange={e => set("precioCompra", e.target.value)} placeholder="Costo ($)" style={inpE}/>
+        )}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:8, alignItems:"end" }}>
+        <div>
+          <label style={lbl}>% de ganancia</label>
+          <input type="number" value={form.margen ?? ""} onChange={e => set("margen", e.target.value)} placeholder="Ej: 40" style={inpE}/>
+        </div>
+        <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#4a5568", cursor:"pointer", paddingBottom:10 }}>
+          <input type="checkbox" checked={!!form.precioAuto} onChange={e => setForm(f => ({ ...f, precioAuto: e.target.checked, ...(e.target.checked && sugerido ? { precioVenta: sugerido } : {}) }))} style={{ accentColor:"var(--c-pri)" }}/>
+          Calcular el precio de venta solo con este % (se actualiza cuando cambia el costo)
+        </label>
+      </div>
+      <div style={{ fontSize:12, color:"#4a5568" }}>
+        Costo <b>{costo ? $ar(costo) : "—"}</b>
+        {parseFloat(form.margen) > 0 && costo > 0 && <> · Precio con {form.margen}%: <b>{$ar(sugerido)}</b>
+          {!form.precioAuto && sugerido !== (parseFloat(form.precioVenta)||0) && <button type="button" onClick={() => set("precioVenta", sugerido)} style={{ marginLeft:6, background:"#fff", border:"1px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:6, padding:"1px 7px", fontSize:11, fontWeight:700, cursor:"pointer" }}>usar</button>}</>}
+        {actual !== null && <> · Ganancia actual: <b style={{ color: actual < 20 ? "#c62828" : "#2e7d32" }}>{actual}%</b></>}
+      </div>
+    </div>
+  );
+}
+
+// Trae a Materias primas lo que se viene cargando como materia prima en Compras
+async function traerMateriasDeCompras(showToast) {
+  const [sp, sm] = await Promise.all([getDocs(collection(db, "productosCompra")), getDocs(collection(db, "materiasPrimas"))]);
+  const materias = sm.docs.map(d => ({ ...d.data(), fireId:d.id }));
+  let creadas = 0, vinculadas = 0;
+  for (const d of sp.docs) {
+    const p = { ...d.data(), fireId:d.id };
+    if (p.uso === "reventa" || p.materiaId) continue;
+    let m = materias.find(x => normTxt(x.nombre) === normTxt(p.nombre));
+    if (!m) {
+      const ref = await addDoc(collection(db, "materiasPrimas"), { nombre:p.nombre, descripcion:"", precioCosto: parseFloat(p.ultimoPrecio)||0, unidad: p.unidad || "unidad",
+        rendimiento:0, unidadUso:"", proveedorId:"", proveedor: p.ultimoProveedor || "", stock:0, categoria:"", categoriaKey:"", costoFecha: p.ultimaFecha || "", origen:"compra" });
+      m = { fireId: ref.id }; creadas++;
+    } else vinculadas++;
+    await updateDoc(doc(db, "productosCompra", p.fireId), { materiaId: m.fireId });
+  }
+  showToast(creadas || vinculadas ? `Listo: ${creadas} materia${creadas!==1?"s":""} prima${creadas!==1?"s":""} nueva${creadas!==1?"s":""}${vinculadas ? `, ${vinculadas} vinculada${vinculadas!==1?"s":""}` : ""} ✅` : "No había nada nuevo para traer");
+}
+
 function InsumosView({ setView, showToast }) {
   const [insumos, setInsumos]         = useState([]);
   const [busq, setBusq]               = useState("");
@@ -9044,6 +9212,8 @@ function InsumosView({ setView, showToast }) {
   const [editingId, setEditingId]     = useState(null);
   const [editModal, setEditModal]     = useState(null);
   const [tabActiva, setTabActiva]     = useState("productos"); // productos | materias
+  const [filtroTipo, setFiltroTipo]   = useState("todos");
+  const [materiasMP] = useColeccion("materiasPrimas");
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "insumos"), snap => {
@@ -9061,8 +9231,10 @@ function InsumosView({ setView, showToast }) {
       const texto = `${i.nombre||""} ${i.codigo||""} ${i.categoria||""}`.toLowerCase();
       if (!palabras.every(p => texto.includes(p))) return false;
     }
+    if (filtroTipo !== "todos" && (filtroTipo === "sin" ? !!tipoArticulo(i.tipo) : i.tipo !== filtroTipo)) return false;
     return filtroCat === "Todas" || i.categoria === filtroCat;
   }).sort((a,b) => (a.categoria||"").localeCompare(b.categoria||"") || (a.nombre||"").localeCompare(b.nombre||""));
+  const cambiarTipo = async (ins, tipo) => { await updateDoc(doc(db, "insumos", ins.fireId), { tipo }); };
 
   // ── Importar Excel ──
   const handleExcel = async (e) => {
@@ -9147,12 +9319,19 @@ function InsumosView({ setView, showToast }) {
 
   const handleEditSave = async () => {
     if (!editModal) return;
+    const costoCalc = Math.round(costoArticulo(editModal, materiasMP) * 100) / 100;
+    const precioAuto = !!editModal.precioAuto && parseFloat(editModal.margen) > 0;
     await updateDoc(doc(db, "insumos", editModal.fireId), {
       nombre:       editModal.nombre,
       codigo:       editModal.codigo,
       categoria:    editModal.categoria,
-      precioCompra: parseFloat(editModal.precioCompra)||0,
-      precioVenta:  parseFloat(editModal.precioVenta)||0,
+      tipo:         editModal.tipo || "",
+      materiaId:    editModal.materiaId || "",
+      materiaCant:  parseFloat(editModal.materiaCant)||1,
+      margen:       parseFloat(editModal.margen)||0,
+      precioAuto,
+      precioCompra: editModal.materiaId ? costoCalc : (parseFloat(editModal.precioCompra)||0),
+      precioVenta:  precioAuto ? precioConMargen(costoCalc, editModal.margen) : (parseFloat(editModal.precioVenta)||0),
       precioGremio: parseFloat(editModal.precioGremio)||0,
       stockMinimo:  parseFloat(editModal.stockMinimo)||0,
       escalas:      limpiarEscalas(editModal.escalas),
@@ -9238,6 +9417,19 @@ function InsumosView({ setView, showToast }) {
           style={{ padding:"10px 14px", borderRadius:8, border:"1.5px solid var(--c-border)", fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer", minWidth:180 }}>
           {categorias.map(c => <option key={c}>{c}</option>)}
         </select>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", width:"100%" }}>
+          {[["todos","Todos"], ...TIPOS_ARTICULO.map(t => [t.id, t.label]), ["sin","❓ Sin clasificar"]].map(([v,l]) => {
+            const n = v === "todos" ? insumos.length : v === "sin" ? insumos.filter(i => !tipoArticulo(i.tipo)).length : insumos.filter(i => i.tipo === v).length;
+            return (
+              <button key={v} onClick={() => setFiltroTipo(v)}
+                style={{ padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", border:"none",
+                  background: filtroTipo===v ? "#1a2340" : "var(--c-soft)", color: filtroTipo===v ? "#fff" : "#4a5568" }}>{l} <span style={{ opacity:.7 }}>{n}</span></button>
+            );
+          })}
+          <button onClick={async () => { const n = await recalcularArticulos(); showToast(n ? `${n} artículo${n!==1?"s":""} actualizado${n!==1?"s":""} ✅` : "Todo estaba al día ✅"); }}
+            title="Vuelve a calcular costos y precios automáticos con los costos actuales de las materias primas"
+            style={{ marginLeft:"auto", padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:"1.5px solid var(--c-border)", background:"#fff", color:"#4a5568" }}>↻ Recalcular costos</button>
+        </div>
       </div>
 
       {/* Tabla */}
@@ -9254,7 +9446,7 @@ function InsumosView({ setView, showToast }) {
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
             <thead>
               <tr style={{ background:"var(--c-softer)" }}>
-                {["Código","Nombre","Categoría","P. Compra","P. Venta","P. Gremio","Stock",""].map(h => (
+                {["Código","Nombre","Categoría","Costo","P. Venta","Ganancia","P. Gremio","Stock",""].map(h => (
                   <th key={h} style={{ padding:"11px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid var(--c-row2)", whiteSpace:"nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -9270,14 +9462,30 @@ function InsumosView({ setView, showToast }) {
                     <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340", maxWidth:280 }}>
                       {ins.nombre}
                       {bajo && <span style={{ marginLeft:6, fontSize:10, background:"#ffebee", color:"#c62828", padding:"2px 6px", borderRadius:10, fontWeight:700 }}>STOCK BAJO</span>}
+                      <div style={{ marginTop:3 }}>
+                        <select value={ins.tipo||""} onChange={e => cambiarTipo(ins, e.target.value)} title="¿Qué es?"
+                          style={{ border:"none", borderRadius:20, padding:"2px 6px", fontSize:10.5, fontWeight:700, cursor:"pointer",
+                            background: tipoArticulo(ins.tipo)?.bg || "#f5f5f5", color: tipoArticulo(ins.tipo)?.color || "#9e9e9e" }}>
+                          <option value="">❓ Sin clasificar</option>
+                          {TIPOS_ARTICULO.map(t => <option key={t.id} value={t.id}>{t.corto}</option>)}
+                        </select>
+                      </div>
                     </td>
                     <td style={{ padding:"11px 14px" }}>
                       <span style={{ background:"#fff3e0", color:"#bf360c", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{ins.categoria||"—"}</span>
                     </td>
-                    <td style={{ padding:"11px 14px", color:"#4a5568" }}>{ins.precioCompra?`$${parseFloat(ins.precioCompra).toLocaleString("es-AR")}`:"—"}</td>
+                    <td style={{ padding:"11px 14px", color:"#4a5568" }}>
+                      {(() => { const c = costoArticulo(ins, materiasMP); return c ? $ar(c) : "—"; })()}
+                      {ins.materiaId && <div style={{ fontSize:10, color:"#1565c0", fontWeight:600 }} title="El costo sale de una materia prima">🧱 {materiasMP.find(m => m.fireId === ins.materiaId)?.nombre || "materia prima"}</div>}
+                    </td>
                     <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>
                       {ins.precioVenta?`$${parseFloat(ins.precioVenta).toLocaleString("es-AR")}`:"—"}
                       {escalasDe(ins).length>0 && <div title={textoEscalas(ins)} style={{ fontSize:10, color:"#2e7d32", fontWeight:700, marginTop:2 }}>🔻 {escalasDe(ins).length} escala{escalasDe(ins).length>1?"s":""}</div>}
+                    </td>
+                    <td style={{ padding:"11px 14px", whiteSpace:"nowrap" }}>
+                      {(() => { const g = gananciaPct(costoArticulo(ins, materiasMP), parseFloat(ins.precioVenta)||0);
+                        return g === null ? <span style={{ color:"#c0b0a0" }}>—</span> : <b style={{ color: g < 20 ? "#c62828" : g < 40 ? "#e65100" : "#2e7d32" }}>{g}%</b>; })()}
+                      {ins.precioAuto && <div style={{ fontSize:10, color:"#a09080" }}>auto {ins.margen}%</div>}
                     </td>
                     <td style={{ padding:"11px 14px", fontWeight:600, color:"var(--c-pri)" }}>{ins.precioGremio?`$${parseFloat(ins.precioGremio).toLocaleString("es-AR")}`:"—"}</td>
                     <td style={{ padding:"11px 14px" }}>
@@ -9372,9 +9580,12 @@ function InsumosView({ setView, showToast }) {
       {editModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={() => setEditModal(null)}>
           <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:"100%", maxWidth:540, maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>✏️ Editar Insumo</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>✏️ Editar producto / servicio</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-              {[["Nombre","nombre","1 / -1"],["Código","codigo"],["Categoría","categoria"],["Precio Compra","precioCompra"],["Precio Venta","precioVenta"],["Precio Gremio","precioGremio"],["Stock Mínimo","stockMinimo"]].map(([label,key,col]) => (
+              <div style={{ gridColumn:"1 / -1" }}>
+                <EditorCostoArticulo form={editModal} setForm={setEditModal} materias={materiasMP}/>
+              </div>
+              {[["Nombre","nombre","1 / -1"],["Código","codigo"],["Categoría","categoria"],["Precio Venta","precioVenta"],["Precio Gremio","precioGremio"],["Stock Mínimo","stockMinimo"]].map(([label,key,col]) => (
                 <div key={key} style={{ gridColumn:col||"auto" }}>
                   <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:4 }}>{label}</label>
                   <input value={editModal[key]||""} onChange={e=>setEditModal(m=>({...m,[key]:e.target.value}))}
@@ -9491,7 +9702,9 @@ function MateriasPrimasView({ showToast }) {
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
         <p style={{ fontSize:14, color:"#a09080" }}>{materias.length} materia{materias.length!==1?"s":""} prima{materias.length!==1?"s":""}</p>
-        <div style={{ display:"flex", gap:10 }}>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+          <button onClick={() => traerMateriasDeCompras(showToast)} title="Crea acá las materias primas que cargaste en Compras/Ventas → Compras"
+            style={{ background:"#fff", border:"1.5px solid #5d4037", color:"#5d4037", padding:"9px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>🛒 Traer de Compras</button>
           <label style={{ background:"#fff", border:"1.5px solid #1a2340", color:"#1a2340", padding:"9px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             📥 Importar Excel
             <input type="file" accept=".xlsx,.xls" onChange={handleExcelMP} style={{ display:"none" }}/>
@@ -9527,7 +9740,7 @@ function MateriasPrimasView({ showToast }) {
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
             <thead><tr style={{ background:"#f0f3f9" }}>
-              {["Nombre","Descripción","Unidad","Precio costo","Proveedor","Stock",""].map(h=>(
+              {["Nombre","Descripción","Unidad","Precio costo","Rinde","Costo por unidad de uso","Proveedor","Stock",""].map(h=>(
                 <th key={h} style={{ padding:"11px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#4a5568", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"2px solid #e8eaf0" }}>{h}</th>
               ))}
             </tr></thead>
@@ -9543,9 +9756,13 @@ function MateriasPrimasView({ showToast }) {
                     <td style={{ padding:"12px 14px" }}>
                       <span style={{ background:"#e8eaf6", color:"#3949ab", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{m.unidad||"unidad"}</span>
                     </td>
-                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1a2340" }}>${parseFloat(m.precioCosto||0).toLocaleString("es-AR")}</td>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1a2340" }}>${parseFloat(m.precioCosto||0).toLocaleString("es-AR")}
+                      {m.costoFecha && <div style={{ fontSize:10, color:"#a09080", fontWeight:400 }}>{m.origenCosto === "compra" || m.origen === "compra" ? "🛒 " : ""}{fmtFecha(m.costoFecha)}</div>}
+                    </td>
+                    <td style={{ padding:"12px 14px", color:"#4a5568", whiteSpace:"nowrap" }}>{parseFloat(m.rendimiento) > 0 ? `${m.rendimiento} ${unidadUsoMateria(m)}` : <span style={{ color:"#c0b0a0" }}>—</span>}</td>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1565c0", whiteSpace:"nowrap" }}>{parseFloat(m.rendimiento) > 0 ? `${$ar(costoUsoMateria(m))} / ${unidadUsoMateria(m).replace(/s$/,"")}` : <span style={{ color:"#c0b0a0", fontWeight:400 }}>—</span>}</td>
                     <td style={{ padding:"12px 14px" }}>
-                      {prov
+                      {m.proveedor && !prov ? <span style={{ background:"var(--c-tint)", color:"var(--c-pri)", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{m.proveedor}</span> : prov
                         ? <span style={{ background:"var(--c-tint)", color:"var(--c-pri)", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{prov.empresa||prov.titular}</span>
                         : <span style={{ color:"#a09080", fontSize:12 }}>Sin asignar</span>}
                     </td>
@@ -9651,14 +9868,17 @@ function ModalMateriaPrima({ materia, proveedores, unidades, onClose, showToast 
   const handleSave = async () => {
     if (!form.nombre.trim()) { showToast("El nombre es obligatorio","error"); return; }
     setSaving(true);
-    const data = { ...form, precioCosto: parseFloat(form.precioCosto)||0, stock: parseFloat(form.stock)||0, rendimiento: parseFloat(form.rendimiento)||0 };
+    const data = { ...form, precioCosto: parseFloat(form.precioCosto)||0, stock: parseFloat(form.stock)||0, rendimiento: parseFloat(form.rendimiento)||0,
+      unidadUso: form.unidadUso || (necesitaRendimiento ? (form.categoriaKey === "filamento_pla" ? "g" : "m²") : "hojas"),
+      ...(materia && parseFloat(form.precioCosto) !== parseFloat(materia.precioCosto) ? { costoFecha: hoyISO(), origenCosto:"manual" } : {}) };
     if (materia?.fireId) {
       await updateDoc(doc(db,"materiasPrimas",materia.fireId), data);
       showToast("Materia prima actualizada ✅");
     } else {
-      await addDoc(collection(db,"materiasPrimas"), data);
+      await addDoc(collection(db,"materiasPrimas"), { ...data, costoFecha: hoyISO() });
       showToast("Materia prima creada ✅");
     }
+    recalcularArticulos().catch(() => {});
     setSaving(false);
     onClose();
   };
@@ -9725,11 +9945,25 @@ function ModalMateriaPrima({ materia, proveedores, unidades, onClose, showToast 
           <div>
             <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Unidad de compra</label>
             <select value={form.unidad} onChange={e=>setForm(f=>({...f,unidad:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
-              {unidades.map(u=><option key={u} value={u}>{u}</option>)}
+              {[...new Set([form.unidad, ...unidades].filter(Boolean))].map(u=><option key={u} value={u}>{u}</option>)}
             </select>
           </div>
 
-          {/* Rendimiento — solo para materiales con rollo/kg */}
+          {/* Rendimiento: cuántas unidades de uso trae cada unidad de compra */}
+          {!necesitaRendimiento && (
+            <div style={{ gridColumn:"1/-1", display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, background:"var(--c-softer)", border:"1px dashed var(--c-border)", borderRadius:10, padding:"10px 12px" }}>
+              <div style={{ gridColumn:"1/-1", fontSize:12, color:"#4a5568" }}>¿Cuánto rinde 1 {form.unidad || "unidad"}? <span style={{ color:"#a09080" }}>(ej: 1 resma = 500 hojas · 1 rollo = 63,5 m² · 1 botella = 1000 ml)</span></div>
+              <input type="number" step="0.01" value={form.rendimiento||""} onChange={e=>setForm(f=>({...f,rendimiento:e.target.value}))} placeholder="Ej: 500" style={inp}/>
+              <select value={form.unidadUso||"hojas"} onChange={e=>setForm(f=>({...f,unidadUso:e.target.value}))} style={{ ...inp, cursor:"pointer" }}>
+                {UNIDADES_USO.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+              {parseFloat(form.rendimiento) > 0 && parseFloat(form.precioCosto) > 0 && (
+                <div style={{ gridColumn:"1/-1", fontSize:12, color:"var(--c-pri)", fontWeight:700 }}>
+                  💡 {$ar(parseFloat(form.precioCosto) / parseFloat(form.rendimiento))} por {(form.unidadUso||"hojas").replace(/s$/,"")}
+                </div>
+              )}
+            </div>
+          )}
           {necesitaRendimiento && (
             <div style={{ gridColumn:"1/-1" }}>
               <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>
