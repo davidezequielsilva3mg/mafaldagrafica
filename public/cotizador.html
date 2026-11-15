@@ -1,0 +1,2094 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cotizador de Vinilos</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #17191b;
+    color: #F2F0EC;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .oswald { font-family: 'Oswald', sans-serif; }
+  .mono { font-family: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', monospace; }
+
+  #app { max-width: 920px; margin: 0 auto; }
+
+  .header {
+    padding: 28px 20px 20px;
+    border-bottom: 1px solid #2a2e31;
+  }
+  .eyebrow { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .eyebrow .dot { width:10px; height:10px; background:#FF6A2B; }
+  .eyebrow span { font-size:11px; letter-spacing:2px; color:#9BA1A4; }
+  h1 { font-size:28px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; margin:0; }
+  .subtitle { color:#9BA1A4; font-size:14px; margin-top:4px; }
+
+  /* ---- layout con pestañas a la izquierda ---- */
+  .layout { display:flex; align-items:flex-start; }
+
+  .sidebar {
+    width: 208px; flex-shrink:0;
+    border-right: 1px solid #2a2e31;
+    padding: 20px 12px;
+    position: sticky; top: 0;
+    display:flex; flex-direction:column; gap:4px;
+  }
+  .tab-btn {
+    display:flex; align-items:center; gap:10px;
+    width:100%; text-align:left;
+    padding:11px 12px; border-radius:8px;
+    font-size:13px; font-weight:500; color:#9BA1A4;
+    border-left:3px solid transparent;
+  }
+  .tab-btn svg { flex-shrink:0; color:#9BA1A4; }
+  .tab-btn:hover { background:#1c1f21; color:#F2F0EC; }
+  .tab-btn.active { background:#212426; color:#F2F0EC; border-left-color:#FF6A2B; }
+  .tab-btn.active svg { color:#FF6A2B; }
+
+  .content { flex:1; min-width:0; padding-bottom:64px; }
+
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+
+  @media (max-width: 720px) {
+    .layout { flex-direction:column; }
+    .sidebar {
+      width:100%; flex-direction:row; overflow-x:auto;
+      border-right:none; border-bottom:1px solid #2a2e31;
+      position:static; padding:12px;
+    }
+    .tab-btn { width:auto; white-space:nowrap; border-left:none; border-bottom:3px solid transparent; }
+    .tab-btn.active { border-left-color:transparent; border-bottom-color:#FF6A2B; }
+  }
+
+  section { padding: 0 20px; margin-top: 24px; }
+  .tab-panel > section:first-child { margin-top: 20px; }
+  .section-title { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .section-title h2 { font-size:15px; letter-spacing:1px; text-transform:uppercase; font-weight:600; margin:0; }
+  .icon { width:16px; height:16px; flex-shrink:0; color:#FF6A2B; }
+
+  .card { background:#212426; border:1px solid #2a2e31; border-radius:10px; }
+  .dashed { background:#1c1f21; border:1px dashed #33383b; border-radius:10px; }
+
+  .field {
+    background:#212426; border:1px solid #33383b; color:#F2F0EC;
+    border-radius:6px; padding:8px 10px; font-family:inherit; font-size:14px;
+    width:100%;
+  }
+  .field:focus { outline:none; border-color:#FF6A2B; }
+  select.field { appearance:none; -webkit-appearance:none; }
+  .select-wrap { position:relative; }
+  .select-wrap svg { position:absolute; right:12px; top:12px; pointer-events:none; color:#9BA1A4; }
+
+  .label { font-size:11px; color:#9BA1A4; display:block; margin-bottom:4px; }
+
+  .row { display:flex; align-items:center; gap:8px; }
+  .row-between { display:flex; align-items:center; justify-content:space-between; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+  button { font-family:inherit; cursor:pointer; border:none; background:none; color:inherit; }
+  .btn-accent {
+    background:#FF6A2B; color:#17191b; font-weight:600; font-size:13px;
+    text-transform:uppercase; letter-spacing:0.5px; border-radius:6px;
+    padding:8px 14px; display:flex; align-items:center; justify-content:center; gap:6px;
+  }
+  .btn-icon { padding:6px; border-radius:6px; color:#F87171; display:flex; align-items:center; }
+  .unit-btn {
+    font-family:inherit; font-size:12px; border-radius:6px; padding:5px 12px;
+    border:1px solid #33383b; background:#1c1f21; color:#9BA1A4;
+  }
+  .unit-btn.active { background:#FF6A2B; color:#17191b; border-color:#FF6A2B; }
+
+  .prep-row, .add-row { padding:12px; margin-bottom:8px; }
+  .prep-row input.name { flex:1; }
+  .prep-row input.price, .add-row input.price { width:84px; }
+
+  .prep-check-row {
+    display:flex; align-items:center; gap:10px; padding:10px 12px;
+    border-radius:8px; cursor:pointer;
+  }
+  .prep-check-row input[type=checkbox] { width:16px; height:16px; accent-color:#FF6A2B; flex-shrink:0; }
+  .prep-check-row .pname { flex:1; font-size:13px; }
+  .prep-check-row .pprice { font-size:13px; color:#9BA1A4; }
+
+  .product-card { margin-bottom:12px; overflow:hidden; }
+  .product-card-inner { display:flex; }
+  .margin-stripe { width:5px; flex-shrink:0; }
+  .product-header {
+    width:100%; display:flex; align-items:center; justify-content:space-between;
+    padding:16px; background:none; text-align:left;
+  }
+  .product-header .name { font-size:15px; text-transform:uppercase; }
+  .badge { font-size:12px; font-weight:600; color:#17191b; border-radius:4px; padding:2px 8px; }
+  .product-body { padding: 0 16px 16px; display:none; }
+  .product-body.open { display:block; }
+  .product-body input.pname { margin-bottom:12px; text-transform:uppercase; font-family:'Oswald',sans-serif; font-size:14px; }
+  .delete-link { color:#F87171; font-size:12px; display:flex; align-items:center; gap:4px; margin-top:12px; }
+
+  .quote-out-row { display:flex; align-items:center; justify-content:space-between; font-size:13px; padding:2px 0; }
+  .quote-out-row.strong { font-size:14px; }
+  .quote-out-row .l { color:#9BA1A4; }
+  .quote-out-row .l.strong-l { color:#F2F0EC; font-weight:600; }
+  .quote-out-row .v { color:#F2F0EC; font-family:ui-monospace, monospace; }
+  .quote-out-row .v.strong-v { color:#FF6A2B; font-weight:700; }
+  .note-tag { color:#FF6A2B; font-size:10px; margin-left:6px; }
+  .divider { border-top:1px solid #2a2e31; padding-top:16px; margin-top:4px; }
+  .spacer { height:6px; }
+
+  .final-box {
+    background:#1c1f21; border:1px solid #FF6A2B; border-radius:10px;
+    margin-top:12px; padding:16px; display:flex; align-items:center; justify-content:space-between;
+  }
+  .final-box .label2 { font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#9BA1A4; font-family:'Oswald',sans-serif; }
+  .final-box .value { font-size:26px; font-weight:700; color:#FF6A2B; font-family:ui-monospace, monospace; }
+
+  .empty-hint { font-size:13px; color:#9BA1A4; }
+
+  /* Panel de dos columnas: form izq + resultado der */
+  .panel-2col {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 0;
+    align-items: start;
+    padding: 0 20px;
+    margin-top: 20px;
+  }
+  .panel-2col-left { padding-right: 20px; }
+  .panel-2col-right {
+    position: sticky;
+    top: 20px;
+    padding-left: 20px;
+    border-left: 1px solid #2a2e31;
+  }
+  @media (max-width: 720px) {
+    .panel-2col { grid-template-columns: 1fr; }
+    .panel-2col-right { position:static; border-left:none; padding-left:0; border-top:1px solid #2a2e31; padding-top:16px; margin-top:16px; }
+  }
+</style>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="layout">
+    <nav class="sidebar">
+      <button class="tab-btn active" data-tab="impresos">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="10" x2="8" y2="10"></line><line x1="12" y1="10" x2="12" y2="10"></line><line x1="16" y1="10" x2="16" y2="10"></line><line x1="8" y1="14" x2="8" y2="14"></line><line x1="12" y1="14" x2="12" y2="14"></line><line x1="16" y1="14" x2="16" y2="14"></line><line x1="8" y1="18" x2="8" y2="18"></line><line x1="12" y1="18" x2="12" y2="18"></line></svg>
+        Impresos
+      </button>
+      <button class="tab-btn" data-tab="carteleria">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path></svg>
+        Cartelería
+      </button>
+      <button class="tab-btn" data-tab="rotulados">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+        Rotulados
+      </button>
+      <button class="tab-btn" data-tab="polyfan">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18"></path></svg>
+        Polyfan
+      </button>
+      <button class="tab-btn" data-tab="productos">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        Materiales
+      </button>
+      <button class="tab-btn" data-tab="bases">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+        Bases
+      </button>
+      <button class="tab-btn" data-tab="tintas">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
+        Tintas
+      </button>
+      <button class="tab-btn" data-tab="prep">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        Preparación
+      </button>
+    </nav>
+
+    <div class="content">
+      <!-- Cotizador -->
+      <div class="tab-panel active" data-panel="impresos">
+        <div class="panel-2col">
+        <div class="panel-2col-left">
+        <div class="card" style="padding:16px;">
+            <span class="label">Producto</span>
+            <div class="select-wrap" style="margin-bottom:12px;">
+              <select id="quoteProduct" class="field oswald" style="text-transform:uppercase;"></select>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <span class="label">Modo de cálculo</span>
+            <div class="row" style="margin-bottom:16px;">
+              <button class="unit-btn mono" data-mode="simple" id="modeSimpleBtn" style="flex:1; text-transform:none; font-size:13px;">Pieza única</button>
+              <button class="unit-btn mono" data-mode="matrix" id="modeMatrixBtn" style="flex:1; text-transform:none; font-size:13px;">Matriz (varias copias)</button>
+            </div>
+
+            <!-- Modo: pieza única -->
+            <div id="modeSimplePanel">
+              <div class="grid2" style="margin-bottom:8px;">
+                <div>
+                  <span class="label">Ancho</span>
+                  <input id="quoteWidth" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+                </div>
+                <div>
+                  <span class="label">Alto</span>
+                  <input id="quoteHeight" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Modo: matriz -->
+            <div id="modeMatrixPanel" style="display:none;">
+              <div class="grid2" style="margin-bottom:8px;">
+                <div>
+                  <span class="label">Ancho de copia</span>
+                  <input id="matrixCopyWidth" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+                </div>
+                <div>
+                  <span class="label">Alto de copia</span>
+                  <input id="matrixCopyHeight" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+                </div>
+              </div>
+              <div class="grid2" style="margin-bottom:8px;">
+                <div>
+                  <span class="label">Separación entre copias</span>
+                  <input id="matrixSpacing" type="number" inputmode="decimal" class="field mono" placeholder="0" value="0.5" />
+                </div>
+                <div>
+                  <span class="label">Cantidad de copias</span>
+                  <input id="matrixQty" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+                </div>
+              </div>
+              <p style="font-size:11px; color:#9BA1A4; margin:4px 0 0;" id="matrixRollNote">Ancho de rollo del producto: — cm</p>
+            </div>
+
+            <div class="row" style="margin:12px 0 16px;">
+              <button class="unit-btn mono" data-unit="cm" id="unitCmBtn">cm</button>
+              <button class="unit-btn mono" data-unit="m" id="unitMBtn">m</button>
+            </div>
+
+            <span class="label">Cargos de preparación (podés elegir varios)</span>
+            <div id="quotePrepList" style="margin-bottom:16px; display:flex; flex-direction:column; gap:6px;"></div>
+
+            </div>
+          </div><!-- end left -->
+          <div class="panel-2col-right">
+            <div id="quoteOutput"></div>
+          </div><!-- end right -->
+        </div><!-- end panel-2col -->
+      </div>
+
+      <!-- Cartelería -->
+      <div class="tab-panel" data-panel="carteleria">
+        <div class="panel-2col">
+        <div class="panel-2col-left">
+        <div class="section-title" style="margin-top:20px;">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path></svg>
+            <h2>Cartelería</h2>
+          </div>
+          <div class="card" style="padding:16px; margin-bottom:12px;">
+            <!-- Medidas -->
+            <span class="label">Medidas del cartel</span>
+            <div class="grid2" style="margin-bottom:8px;">
+              <div>
+                <span class="label">Ancho</span>
+                <input id="cartWidth" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+              </div>
+              <div>
+                <span class="label">Alto</span>
+                <input id="cartHeight" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+              </div>
+            </div>
+            <div class="row" style="margin-bottom:16px;">
+              <button class="unit-btn mono active" data-cart-unit="cm" id="cartUnitCm">cm</button>
+              <button class="unit-btn mono" data-cart-unit="m" id="cartUnitM">m</button>
+            </div>
+            <div id="cartAreaRow" style="display:none; margin-bottom:12px;">
+              <div class="quote-out-row">
+                <span class="l">Superficie</span>
+                <span class="v mono" id="cartAreaOut">0 m²</span>
+              </div>
+            </div>
+
+            <!-- Material -->
+            <span class="label">Material (vinilo, lona, etc.)</span>
+            <div class="select-wrap" style="margin-bottom:12px;">
+              <select id="cartMaterial" class="field oswald" style="text-transform:uppercase;"></select>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <!-- Base -->
+            <span class="label">Base rígida</span>
+            <div class="select-wrap" style="margin-bottom:16px;">
+              <select id="cartBase" class="field oswald" style="text-transform:uppercase;"></select>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <!-- Preparaciones -->
+            <span class="label">Preparación (podés elegir varios)</span>
+            <div id="cartPrepList" style="margin-bottom:16px; display:flex; flex-direction:column; gap:6px;"></div>
+
+            <!-- Mínimo -->
+            <div class="row" style="align-items:center; margin-bottom:4px;">
+              <span class="label" style="margin:0; flex:1;">Precio mínimo de trabajo</span>
+              <input id="cartMinPrice" type="number" inputmode="decimal" class="field mono" placeholder="0" style="width:120px;" />
+            </div>
+          </div>
+
+        </div><!-- end left -->
+          <div class="panel-2col-right">
+            <!-- Resultado -->
+            <div id="cartOutput"></div>
+          </div><!-- end right -->
+        </div><!-- end panel-2col -->
+      </div>
+
+      <!-- Rotulados -->
+      <div class="tab-panel" data-panel="rotulados">
+        <!-- Sub-tabs rotulados -->
+        <div style="display:flex; gap:8px; padding:20px 20px 0;">
+          <button class="unit-btn active" id="rotSubCotizar" style="text-transform:none; padding:9px 20px; border-radius:20px;">Cotizar trabajo</button>
+          <button class="unit-btn"        id="rotSubInsumos" style="text-transform:none; padding:9px 20px; border-radius:20px;">Insumos</button>
+        </div>
+        <div id="rotPanelCotizar" class="panel-2col">
+        <div class="panel-2col-left">
+
+          <!-- Vinilos de rotulado -->
+          <div class="section-title" style="margin-top:20px;">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+            <h2>Rotulados</h2>
+          </div>
+
+          <!-- Calculadora de cotización -->
+          <div class="card" style="padding:14px; margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px;">Cotizar trabajo</div>
+
+            <span class="label">Vinilo</span>
+            <div class="select-wrap" style="margin-bottom:12px;">
+              <select id="rotViniloSel" class="field oswald" style="text-transform:uppercase;"></select>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <div class="grid2" style="margin-bottom:12px;">
+              <div>
+                <span class="label">Ancho (cm)</span>
+                <input id="rotAncho" type="number" inputmode="decimal" step="0.1" class="field mono" placeholder="0" />
+              </div>
+              <div>
+                <span class="label">Alto (cm)</span>
+                <input id="rotAlto" type="number" inputmode="decimal" step="0.1" class="field mono" placeholder="0" />
+              </div>
+            </div>
+
+            <span class="label">Complejidad</span>
+            <div class="row" style="margin-bottom:12px; gap:6px;">
+              <button class="unit-btn rot-comp active" data-rot-comp="baja"  style="flex:1; text-transform:none;">Baja</button>
+              <button class="unit-btn rot-comp"        data-rot-comp="media" style="flex:1; text-transform:none;">Media</button>
+              <button class="unit-btn rot-comp"        data-rot-comp="alta"  style="flex:1; text-transform:none;">Alta</button>
+            </div>
+
+            <span class="label">Tiempo</span>
+            <div class="row" style="margin-bottom:4px; gap:6px;">
+              <button class="unit-btn rot-tiempo active" data-rot-tiempo="rapido" style="flex:1; text-transform:none;">Rápido</button>
+              <button class="unit-btn rot-tiempo"        data-rot-tiempo="medio"  style="flex:1; text-transform:none;">Medio</button>
+              <button class="unit-btn rot-tiempo"        data-rot-tiempo="lento"  style="flex:1; text-transform:none;">Lento</button>
+            </div>
+          </div>
+
+        </div><!-- end left -->
+        <div class="panel-2col-right">
+          <div id="rotOutput"></div>
+        </div><!-- end right -->
+        </div><!-- end panel-2col -->
+
+        <!-- Insumos de rotulado -->
+        <div id="rotPanelInsumos" style="display:none;">
+          <section>
+            <div class="section-title">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+              <h2>Insumos de rotulado</h2>
+            </div>
+          <!-- Vinilos -->
+          <div class="card" style="padding:14px; margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Vinilos de rotulado <span style="color:#555;font-weight:400;">(ancho fijo: 60 cm)</span></div>
+            <div id="rotVinilosList"></div>
+            <div class="dashed row" style="padding:10px; margin-top:8px; gap:8px;">
+              <input id="newRotVinilo" class="field" placeholder="Nombre del vinilo (ej: Vinilo blanco brillante)" style="flex:2;" />
+              <button class="btn-accent" id="addRotViniloBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                Agregar
+              </button>
+            </div>
+          </div>
+
+            <!-- Posicionador -->
+            <div class="card" style="padding:14px; margin-bottom:10px;">
+              <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Posicionador <span style="color:#555;font-weight:400;">(30 cm × 40 m)</span></div>
+              <div class="grid2">
+                <div>
+                  <span class="label">Precio del rollo ($)</span>
+                  <input id="rotPosicionadorPrecio" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+                </div>
+                <div>
+                  <span class="label">Costo / m²</span>
+                  <div id="rotPosicionadorM2" class="field mono" style="background:#1a1e21; color:#9BA1A4; display:flex; align-items:center;">—</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Complejidad -->
+            <div class="card" style="padding:14px; margin-bottom:10px;">
+              <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Complejidad ($/m²)</div>
+              <div class="grid2">
+                <div><span class="label">Baja</span><input id="rotCompBaja"  type="number" inputmode="decimal" class="field mono rot-config" data-rot-config="complejidad.baja"  placeholder="0" /></div>
+                <div><span class="label">Media</span><input id="rotCompMedia" type="number" inputmode="decimal" class="field mono rot-config" data-rot-config="complejidad.media" placeholder="0" /></div>
+                <div><span class="label">Alta</span><input id="rotCompAlta"  type="number" inputmode="decimal" class="field mono rot-config" data-rot-config="complejidad.alta"  placeholder="0" /></div>
+              </div>
+            </div>
+
+            <!-- Tiempo -->
+            <div class="card" style="padding:14px; margin-bottom:10px;">
+              <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Tiempo ($/m²)</div>
+              <div class="grid2">
+                <div><span class="label">Rápido</span><input id="rotTiempoRapido" type="number" inputmode="decimal" class="field mono rot-config" data-rot-config="tiempo.rapido" placeholder="0" /></div>
+                <div><span class="label">Medio</span><input id="rotTiempoMedio"  type="number" inputmode="decimal" class="field mono rot-config" data-rot-config="tiempo.medio"  placeholder="0" /></div>
+                <div><span class="label">Lento</span><input id="rotTiempoLento"  type="number" inputmode="decimal" class="field mono rot-config" data-rot-config="tiempo.lento"  placeholder="0" /></div>
+              </div>
+            </div>
+
+            <!-- Margen -->
+            <div class="card" style="padding:14px;">
+              <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Margen de ganancia (%)</div>
+              <input id="rotMargenPct" type="number" inputmode="decimal" class="field mono rot-config" data-rot-config="margenPct" placeholder="30" style="max-width:120px;" />
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Polyfan -->
+      <div class="tab-panel" data-panel="polyfan">
+        <div class="panel-2col">
+        <div class="panel-2col-left">
+          <div class="section-title" style="margin-top:20px;">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18"></path></svg>
+            <h2>Polyfan</h2>
+          </div>
+          <p style="font-size:12px; color:#9BA1A4; margin:0 0 16px;">Placa estándar: 1,20 × 0,60 m = 0,72 m²</p>
+
+          <!-- Config precios placa -->
+          <div class="card" style="padding:14px; margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px;">Precio de la placa</div>
+            <div class="grid2">
+              <div>
+                <span class="label">Costo (precio de compra)</span>
+                <input id="pfCosto" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+              </div>
+              <div>
+                <span class="label">Precio de venta (placa entera)</span>
+                <input id="pfVenta" type="number" inputmode="decimal" class="field mono" placeholder="0" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Config adicionales -->
+          <div class="card" style="padding:14px; margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px;">Adicionales (precio fijo por placa)</div>
+            <div class="grid2">
+              <div>
+                <span class="label">Pintado 1 color</span>
+                <input id="pfPin1" type="number" inputmode="decimal" class="field mono pf-config" data-pf="pin1" placeholder="0" />
+              </div>
+              <div>
+                <span class="label">Pintado 2 colores</span>
+                <input id="pfPin2" type="number" inputmode="decimal" class="field mono pf-config" data-pf="pin2" placeholder="0" />
+              </div>
+              <div>
+                <span class="label">Pintado más colores</span>
+                <input id="pfPinM" type="number" inputmode="decimal" class="field mono pf-config" data-pf="pinM" placeholder="0" />
+              </div>
+              <div>
+                <span class="label">Colocación</span>
+                <input id="pfCol" type="number" inputmode="decimal" class="field mono pf-config" data-pf="col" placeholder="0" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Cotizador -->
+          <div class="card" style="padding:14px; margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px;">Cotizar</div>
+
+            <span class="label">Cantidad de placa</span>
+            <div class="row" style="margin-bottom:14px; gap:6px; flex-wrap:wrap;">
+              <button class="unit-btn pf-cant active" data-pf-cant="1"   style="flex:1; min-width:70px; text-transform:none;">1 placa</button>
+              <button class="unit-btn pf-cant"        data-pf-cant="0.5" style="flex:1; min-width:70px; text-transform:none;">½ placa</button>
+              <button class="unit-btn pf-cant"        data-pf-cant="0.33" style="flex:1; min-width:70px; text-transform:none;">⅓ placa</button>
+              <button class="unit-btn pf-cant"        data-pf-cant="custom" style="flex:1; min-width:70px; text-transform:none;">Otra cant.</button>
+            </div>
+            <div id="pfCantCustom" style="display:none; margin-bottom:14px;">
+              <span class="label">Cantidad de placas</span>
+              <input id="pfCantVal" type="number" inputmode="decimal" step="0.5" class="field mono" placeholder="Ej: 2.5" />
+            </div>
+
+            <span class="label">Adicionales (podés elegir varios)</span>
+            <div id="pfAdicionalesList" style="display:flex; flex-direction:column; gap:6px; margin-bottom:4px;"></div>
+          </div>
+        </div><!-- end left -->
+
+        <div class="panel-2col-right">
+          <div id="pfOutput"></div>
+        </div><!-- end right -->
+        </div><!-- end panel-2col -->
+      </div>
+
+      <!-- Productos -->
+      <div class="tab-panel" data-panel="productos">
+        <section>
+          <div class="section-title">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+            <h2>Materiales</h2>
+          </div>
+          <div id="productsList"></div>
+          <div class="dashed row" style="padding:16px; margin-top:12px;">
+            <input id="newProductName" class="field" placeholder="Nombre del nuevo producto" style="flex:1;" />
+            <button class="btn-accent" id="addProductBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Agregar
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Tintas -->
+      <div class="tab-panel" data-panel="tintas">
+        <section>
+          <div class="section-title">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
+            <h2>Tintas</h2>
+          </div>
+          <div class="card" style="padding:16px;">
+            <p style="font-size:12px; color:#9BA1A4; margin:0 0 16px;">
+              Este costo se calcula una sola vez acá y se aplica automáticamente al costo de tinta de todos los productos.
+            </p>
+            <div class="grid2" style="margin-bottom:4px;">
+              <div>
+                <span class="label">Precio por botella</span>
+                <input type="number" inputmode="decimal" class="field mono" data-ink-field="pricePerBottle" />
+              </div>
+              <div>
+                <span class="label">Volumen por botella (ml)</span>
+                <input type="number" inputmode="decimal" class="field mono" data-ink-field="bottleVolumeMl" />
+              </div>
+              <div>
+                <span class="label">Botellas por set (referencia)</span>
+                <input type="number" inputmode="decimal" class="field mono" data-ink-field="bottleCount" />
+              </div>
+              <div>
+                <span class="label">Rendimiento cabezal (ml/m²)</span>
+                <input type="number" inputmode="decimal" class="field mono" data-ink-field="yieldMlM2" />
+              </div>
+            </div>
+            <p style="font-size:11px; color:#9BA1A4; margin:8px 0 0;">Cabezal i3200: referencia de fábrica 12–16 ml/m² según cobertura.</p>
+
+            <div class="divider">
+              <div class="quote-out-row"><span class="l">Precio del set (botellas × precio)</span><span class="v" id="inkSetTotal">$0</span></div>
+              <div class="quote-out-row"><span class="l">Costo por ml</span><span class="v" id="inkCostPerMlOut">$0</span></div>
+            </div>
+            <div class="final-box">
+              <span class="label2">Costo de tinta / m²</span>
+              <span class="value" id="inkCostPerM2Out">$0</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Cargos de preparación -->
+      <div class="tab-panel" data-panel="prep">
+
+        <!-- Panel: Cargos de producción -->
+        <div id="prepPanelCargos">
+          <section>
+            <div class="section-title">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              <h2>Cargos de producción</h2>
+            </div>
+            <div id="prepRows"></div>
+            <div class="dashed row add-row">
+              <input id="newPrepName" class="field name" placeholder="Nuevo cargo (ej: Retoque de foto)" />
+              <input id="newPrepPrice" type="number" inputmode="decimal" class="field price mono" placeholder="$" />
+              <button class="btn-accent" id="addPrepBtn" style="padding:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></button>
+            </div>
+          </section>
+        </div>
+
+      </div>
+      <!-- Bases -->
+      <div class="tab-panel" data-panel="bases">
+        <section>
+          <div class="section-title">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            <h2>Bases rígidas</h2>
+          </div>
+          <p style="font-size:12px; color:#9BA1A4; margin:0 0 16px;">
+            Materiales rígidos. Ingresá las dimensiones de la plancha y los precios — el costo y precio por m² se calculan automáticamente.
+          </p>
+          <div id="basesList"></div>
+          <div class="dashed row" style="padding:16px; margin-top:12px; gap:8px; flex-wrap:wrap;">
+            <input id="newBaseName" class="field" placeholder="Tipo de material (ej: Corrugado 3mm)" style="flex:2; min-width:160px;" />
+            <button class="btn-accent" id="addBaseBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Agregar base
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var STORAGE_KEY = "vinilos:data:v2";
+
+  var DEFAULT_DATA = {
+    ink: { pricePerBottle: 48000, bottleVolumeMl: 1000, bottleCount: 4, yieldMlM2: 16 },
+    bases: [
+      { id: "b1", name: "Corrugado 3mm", ancho: 100, alto: 70, gramaje: "", costoPlancha: 0, ventaPlancha: 0 },
+      { id: "b2", name: "Bicapa 3mm",    ancho: 200, alto: 100, gramaje: "", costoPlancha: 0, ventaPlancha: 0 }
+    ],
+    rotulados: {
+      vinilos: [
+        { id: "rv1", name: "Vinilo blanco brillante", precioMetro: 0, anchoM: 60 },
+        { id: "rv2", name: "Vinilo transparente",     precioMetro: 0, anchoM: 60 }
+      ],
+      posicionadorPrecio: 0,
+      complejidad: { baja: 0, media: 0, alta: 0 },
+      tiempo:      { rapido: 0, medio: 0, lento: 0 },
+      margenPct:   30
+    },
+    polyfan: {
+      costo: 0, venta: 0,
+      adicionales: { pin1: 0, pin2: 0, pinM: 0, col: 0 }
+    },
+    prepCharges: [
+      { id: "p0", name: "Archivo listo para imprimir", price: 0 },
+      { id: "p1", name: "Acomodar archivo", price: 1000 },
+      { id: "p2", name: "Vectorización simple", price: 2000 },
+      { id: "p3", name: "Diseño", price: 3500 }
+    ],
+    products: [
+      { id: "1", name: "Vinilo", materialCost: 1500, salePriceM2: 3200, minBillableArea: 0, minPrice: 3500, wastePct: 5, rollWidth: 118, rollPrice: 0, rollLengthM: 0, rollWidthM: 0 },
+      { id: "2", name: "Lona", materialCost: 1200, salePriceM2: 2500, minBillableArea: 0, minPrice: 3000, wastePct: 5, rollWidth: 118, rollPrice: 0, rollLengthM: 0, rollWidthM: 0 },
+      { id: "3", name: "Microperforado", materialCost: 1800, salePriceM2: 3800, minBillableArea: 0, minPrice: 4000, wastePct: 8, rollWidth: 118, rollPrice: 0, rollLengthM: 0, rollWidthM: 0 }
+    ]
+  };
+
+  var FIELD_META = [
+    ["salePriceM2", "Precio venta / m²"],
+    ["wastePct", "Desperdicio (%)"],
+    ["minBillableArea", "Superficie mín. facturable (m²)"],
+    ["minPrice", "Precio mínimo de trabajo"]
+  ];
+
+  function inkCostPerM2() {
+    var vol = num(data.ink.bottleVolumeMl);
+    if (vol <= 0) return 0;
+    var costPerMl = num(data.ink.pricePerBottle) / vol;
+    return costPerMl * num(data.ink.yieldMlM2);
+  }
+
+  function rollCostPerM2(p) {
+    var price = num(p.rollPrice);
+    var len   = num(p.rollLengthM);
+    var wid   = num(p.rollWidthM);
+    if (price <= 0 || len <= 0 || wid <= 0) return null;
+    var area = len * wid;
+    return price / area;
+  }
+
+  var data = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  var expanded = new Set();
+  var expandedBases = new Set();
+  var quote = {
+    productId: "1", prepIds: [], unit: "cm", mode: "simple",
+    width: "", height: "",
+    matrixCopyWidth: "", matrixCopyHeight: "", matrixSpacing: "0.5", matrixQty: ""
+  };
+
+  function fmt(n) {
+    if (n === null || n === undefined || isNaN(n)) return "0";
+    return Number(n).toLocaleString("es-AR", { maximumFractionDigits: 2 });
+  }
+  function num(v) {
+    var n = parseFloat(v);
+    return isNaN(n) ? 0 : n;
+  }
+  function marginColor(margin) {
+    if (margin >= 30) return "#4ADE80";
+    if (margin >= 15) return "#F5C24B";
+    return "#F87171";
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // ── Firebase ──────────────────────────────────────────────────────────────
+  var firebaseConfig = {
+    apiKey: "AIzaSyCbNFlEVmq5JLEowiX4_dJmco05t-1uRwM",
+    authDomain: "mafalda-grafica.firebaseapp.com",
+    projectId: "mafalda-grafica",
+    storageBucket: "mafalda-grafica.firebasestorage.app",
+    messagingSenderId: "1036113368691",
+    appId: "1:1036113368691:web:ed09d55b4e2806e5ee7c06"
+  };
+  var fbApp = firebase.initializeApp(firebaseConfig);
+  var db = firebase.firestore(fbApp);
+  var DOC_REF = db.collection("cotizadorConfig").doc("data");
+
+  async function loadData() {
+    try {
+      var snap = await DOC_REF.get();
+      if (snap.exists) {
+        var parsed = snap.data();
+        if (parsed && parsed.products && parsed.prepCharges) {
+          data = parsed;
+          if (!data.ink) data.ink = JSON.parse(JSON.stringify(DEFAULT_DATA.ink));
+          data.products.forEach(function (p) {
+            if (p.rollWidth === undefined) p.rollWidth = 118;
+            if (p.rollPrice === undefined) p.rollPrice = 0;
+            if (p.rollLengthM === undefined) p.rollLengthM = 0;
+            if (p.rollWidthM === undefined) p.rollWidthM = 0;
+          });
+          if (!data.bases) data.bases = JSON.parse(JSON.stringify(DEFAULT_DATA.bases));
+          data.prepCharges.forEach(function(p) { if (p.porM2 === undefined) p.porM2 = false; });
+          quote.productId = data.products[0] ? data.products[0].id : "1";
+          quote.prepIds = [];
+        }
+      }
+    } catch (e) {
+      console.error("Error cargando datos:", e);
+    }
+  }
+
+  var saveTimer = null;
+  async function saveData() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async function() {
+      try {
+        await DOC_REF.set(data);
+      } catch (e) {
+        console.error("No se pudo guardar", e);
+      }
+    }, 800);
+  }
+
+  // ---------- render: tintas ----------
+  function renderInkTab() {
+    document.querySelectorAll('[data-ink-field]').forEach(function (input) {
+      var field = input.getAttribute("data-ink-field");
+      if (document.activeElement !== input) input.value = data.ink[field];
+    });
+    var setTotal = num(data.ink.pricePerBottle) * num(data.ink.bottleCount);
+    var vol = num(data.ink.bottleVolumeMl);
+    var costPerMl = vol > 0 ? num(data.ink.pricePerBottle) / vol : 0;
+    document.getElementById("inkSetTotal").textContent = "$" + fmt(setTotal);
+    document.getElementById("inkCostPerMlOut").textContent = "$" + fmt(costPerMl);
+    document.getElementById("inkCostPerM2Out").textContent = "$" + fmt(inkCostPerM2());
+  }
+
+  // ---------- render: cargos de preparación ----------
+  function renderPrepRows() {
+    var el = document.getElementById("prepRows");
+    el.innerHTML = data.prepCharges.map(function (p) {
+      var isPorM2 = p.porM2 === true;
+      return (
+        '<div class="card row prep-row" data-prep-id="' + p.id + '">' +
+          '<input class="field name" data-prep-field="name" data-prep-id="' + p.id + '" value="' + esc(p.name) + '" />' +
+          '<span class="mono" style="color:#9BA1A4; font-size:13px;">$</span>' +
+          '<input type="number" inputmode="decimal" class="field price mono" data-prep-field="price" data-prep-id="' + p.id + '" value="' + p.price + '" />' +
+          '<button data-prep-toggle-m2="' + p.id + '" title="' + (isPorM2 ? "Por m² — clic para cambiar a fijo" : "Precio fijo — clic para cambiar a por m²") + '" ' +
+            'style="padding:3px 8px;border-radius:6px;border:1.5px solid ' + (isPorM2 ? "#FF6A2B" : "#3a3f42") + ';background:' + (isPorM2 ? "#2a1800" : "transparent") + ';color:' + (isPorM2 ? "#FF6A2B" : "#555") + ';font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">' +
+            (isPorM2 ? "$/m²" : "fijo") +
+          '</button>' +
+          '<button class="btn-icon" data-prep-delete="' + p.id + '">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>' +
+          '</button>' +
+        '</div>'
+      );
+    }).join("");
+  }
+
+  function renderQuotePrepChecklist() {
+    // sacar de la selección los cargos que ya no existen
+    quote.prepIds = quote.prepIds.filter(function (id) {
+      return data.prepCharges.some(function (p) { return p.id === id; });
+    });
+    var el = document.getElementById("quotePrepList");
+    el.innerHTML = data.prepCharges.map(function (p) {
+      var checked = quote.prepIds.indexOf(p.id) !== -1;
+      return (
+        '<label class="card prep-check-row">' +
+          '<input type="checkbox" data-prep-check="' + p.id + '"' + (checked ? " checked" : "") + ' />' +
+          '<span class="pname">' + esc(p.name) + '</span>' +
+          '<span class="pprice mono">$' + fmt(p.price) + (p.porM2 ? '/m²' : '') + '</span>' +
+        '</label>'
+      );
+    }).join("");
+  }
+
+  // ---------- render: bases ----------
+  function baseCostoM2(b) {
+    var a = num(b.ancho) / 100;
+    var h = num(b.alto) / 100;
+    var area = a * h;
+    if (area <= 0) return { area: 0, costoM2: 0, ventaM2: 0 };
+    return {
+      area: area,
+      costoM2: num(b.costoPlancha) / area,
+      ventaM2: num(b.ventaPlancha) / area
+    };
+  }
+
+  function baseCardHTML(b) {
+    var calc = baseCostoM2(b);
+    var isOpen = expandedBases.has(b.id);
+    var chevronDown = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9BA1A4" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+    var chevronUp   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9BA1A4" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>';
+
+    // Header: nombre + m² costo y venta + chevron
+    var headerInfo = calc.area > 0
+      ? '<span class="row base-header-info" style="gap:8px;">' +
+          '<span class="mono" style="font-size:12px; color:#F5C24B;">$' + fmt(calc.costoM2) + '/m² costo</span>' +
+          '<span class="mono" style="font-size:12px; color:#4ADE80;">$' + fmt(calc.ventaM2) + '/m² venta</span>' +
+          (isOpen ? chevronUp : chevronDown) +
+        '</span>'
+      : '<span class="row base-header-info" style="gap:8px;">' +
+          '<span style="font-size:11px; color:#555;">sin datos</span>' +
+          (isOpen ? chevronUp : chevronDown) +
+        '</span>';
+
+    var bodyHTML = isOpen ? (
+      '<div class="product-body open" style="padding-top:12px;">' +
+        '<div class="grid2" style="margin-bottom:10px;">' +
+          '<div><span class="label">Ancho plancha (cm)</span>' +
+            '<input type="number" inputmode="decimal" step="0.01" class="field mono" data-base-field="ancho" data-base-id="' + b.id + '" value="' + (b.ancho||"") + '" placeholder="100" /></div>' +
+          '<div><span class="label">Alto plancha (cm)</span>' +
+            '<input type="number" inputmode="decimal" step="0.01" class="field mono" data-base-field="alto" data-base-id="' + b.id + '" value="' + (b.alto||"") + '" placeholder="70" /></div>' +
+          '<div><span class="label">Gramaje (g/m²) <span style="font-size:10px;color:#555;">(opcional)</span></span>' +
+            '<input type="number" inputmode="decimal" class="field mono" data-base-field="gramaje" data-base-id="' + b.id + '" value="' + (b.gramaje||"") + '" placeholder="—" /></div>' +
+          '<div><span class="label">Área plancha</span>' +
+            '<div class="field mono base-area-display" style="background:#1a1e21; display:flex; align-items:center; color:#9BA1A4;">' + fmt(calc.area) + ' m²</div></div>' +
+          '<div><span class="label">Costo por plancha ($)</span>' +
+            '<input type="number" inputmode="decimal" class="field mono" data-base-field="costoPlancha" data-base-id="' + b.id + '" value="' + (b.costoPlancha||"") + '" placeholder="0" /></div>' +
+          '<div><span class="label">Precio venta por plancha ($)</span>' +
+            '<input type="number" inputmode="decimal" class="field mono" data-base-field="ventaPlancha" data-base-id="' + b.id + '" value="' + (b.ventaPlancha||"") + '" placeholder="0" /></div>' +
+        '</div>' +
+        '<div class="base-result-display" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px;">' +
+          (calc.area > 0 ? (
+            '<div class="final-box" style="margin:0;">' +
+              '<span class="label2">Costo / m²</span>' +
+              '<span class="value" style="color:#F5C24B;">$' + fmt(calc.costoM2) + '</span>' +
+            '</div>' +
+            '<div class="final-box" style="margin:0;">' +
+              '<span class="label2">Precio venta / m²</span>' +
+              '<span class="value" style="color:#4ADE80;">$' + fmt(calc.ventaM2) + '</span>' +
+            '</div>'
+          ) : "") +
+        '</div>' +
+        '<button class="delete-link" data-base-delete="' + b.id + '" style="margin-top:12px;">' +
+          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>' +
+          'Eliminar base' +
+        '</button>' +
+      '</div>'
+    ) : "";
+
+    return (
+      '<div class="card product-card" style="margin-bottom:8px;" data-base-card="' + b.id + '">' +
+        '<div class="product-card-inner">' +
+          '<div style="flex:1;">' +
+            '<button class="product-header oswald" data-base-toggle="' + b.id + '">' +
+              '<span class="name">' + esc(b.name) + '</span>' +
+              headerInfo +
+            '</button>' +
+            bodyHTML +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderBasesList() {
+    var el = document.getElementById("basesList");
+    if (!el) return;
+    if (!data.bases) data.bases = [];
+    el.innerHTML = data.bases.map(baseCardHTML).join("");
+  }
+
+  // Aviso: el costo vino de una compra registrada en la app (Producción → Insumos)
+  function compraHTML(item, valorActual) {
+    var c = item && item.ultimaCompra;
+    if (!c || !c.fecha) return "";
+    var f = c.fecha.split("-").reverse().join("/");
+    var antes = num(c.antes), pct = antes > 0 ? Math.round((num(valorActual) - antes) / antes * 100) : 0;
+    return '<div style="background:#13233a;border:1px solid #2b4a70;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#9cc4f0;">' +
+      '🛒 Costo actualizado desde la compra del <b>' + f + '</b>' + (c.proveedor ? ' (' + esc(c.proveedor) + ')' : '') +
+      (antes > 0 && pct !== 0 ? ' · antes $' + fmt(antes) + ' <b style="color:' + (pct > 0 ? '#ff8a80' : '#4ADE80') + '">' + (pct > 0 ? '▲ ' : '▼ ') + Math.abs(pct) + '%</b>' : '') +
+      (pct > 0 ? '<div style="color:#ffcc80;margin-top:3px;">Revisá el precio de venta: el margen de abajo ya está calculado con el costo nuevo.</div>' : '') +
+    '</div>';
+  }
+
+  // ---------- render: productos ----------
+  function productCardHTML(p) {
+    var wasteFactor = 1 + num(p.wastePct) / 100;
+    var inkM2 = inkCostPerM2();
+    var baseCostM2 = num(p.materialCost) * wasteFactor + inkM2;
+    var price = num(p.salePriceM2);
+    var margin = price > 0 ? ((price - baseCostM2) / price) * 100 : 0;
+    var isOpen = expanded.has(p.id);
+
+    var rollCost = rollCostPerM2(p);
+    var fieldsHTML = FIELD_META.map(function (fm) {
+      var field = fm[0], label = fm[1];
+      // materialCost shows calculated value if roll data is set
+      if (field === "materialCost") {
+        // Si hay datos de rollo, mostrar como calculado automáticamente
+        if (rollCost !== null) {
+          return (
+            '<div>' +
+              '<span class="label">Costo material / m² <span class="note-tag" style="margin-left:4px; background:#4ADE8033; color:#4ADE80; border:1px solid #4ADE8066;">✓ AUTO</span></span>' +
+              '<div class="field mono" style="background:#1a2520; color:#4ADE80; display:flex; align-items:center; border-color:#4ADE8033;">$' + fmt(rollCost) + '</div>' +
+            '</div>'
+          );
+        }
+        return (
+          '<div>' +
+            '<span class="label">Costo material / m² <span style="font-size:10px; color:#555; margin-left:4px;">(o completá el rollo arriba)</span></span>' +
+            '<input type="number" inputmode="decimal" class="field mono" data-product-field="' + field + '" data-product-id="' + p.id + '" value="' + p[field] + '" />' +
+          '</div>'
+        );
+      }
+      return (
+        '<div>' +
+          '<span class="label">' + label + '</span>' +
+          '<input type="number" inputmode="decimal" class="field mono" data-product-field="' + field + '" data-product-id="' + p.id + '" value="' + p[field] + '" />' +
+        '</div>'
+      );
+    }).join("");
+
+    // Roll calculator HTML
+    var rollAreaM2 = num(p.rollLengthM) * num(p.rollWidthM);
+    var rollCalcHTML = (
+      '<div style="background:#1a1e21;border-radius:8px;padding:12px;margin-bottom:10px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">📦 Calcular costo desde rollo</div>' +
+        '<div class="grid2" style="margin-bottom:8px;">' +
+          '<div>' +
+            '<span class="label">Precio del rollo ($)</span>' +
+            '<input type="number" inputmode="decimal" class="field mono" data-product-field="rollPrice" data-product-id="' + p.id + '" value="' + (p.rollPrice||"") + '" placeholder="0" />' +
+          '</div>' +
+          '<div>' +
+            '<span class="label">Largo del rollo (m)</span>' +
+            '<input type="number" inputmode="decimal" step="0.01" class="field mono" data-product-field="rollLengthM" data-product-id="' + p.id + '" value="' + (p.rollLengthM||"") + '" placeholder="0" />' +
+          '</div>' +
+          '<div>' +
+            '<span class="label">Ancho del rollo (m)</span>' +
+            '<input type="number" inputmode="decimal" step="0.01" class="field mono" data-product-field="rollWidthM" data-product-id="' + p.id + '" value="' + (p.rollWidthM||"") + '" placeholder="0" />' +
+          '</div>' +
+          '<div style="display:flex;flex-direction:column;justify-content:flex-end;">' +
+            (rollCost !== null
+              ? '<div class="roll-result-display" style="background:#222629;border-radius:6px;padding:8px 10px;">' +
+                  '<div style="font-size:10px;color:#9BA1A4;margin-bottom:2px;">Área: ' + fmt(rollAreaM2) + ' m²</div>' +
+                  '<div style="font-size:15px;font-weight:700;color:#4ADE80;">$' + fmt(rollCost) + '/m²</div>' +
+                  '<div style="font-size:10px;color:#4ADE80;">→ aplicado a Costo material</div>' +
+                '</div>'
+              : '<div class="roll-result-display" style="font-size:11px;color:#9BA1A4;padding:8px 0;">Completá precio, largo y ancho para calcular automáticamente</div>'
+            ) +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+
+    return (
+      '<div class="card product-card" data-product-card="' + p.id + '">' +
+        '<div class="product-card-inner">' +
+          '<div class="margin-stripe" style="background:' + marginColor(margin) + '"></div>' +
+          '<div style="flex:1;">' +
+            '<button class="product-header oswald" data-product-toggle="' + p.id + '">' +
+              '<span class="name">' + esc(p.name) + '</span>' +
+              '<span class="row" style="gap:8px;">' +
+                '<span class="mono" style="font-size:12px; color:#9BA1A4;">$' + fmt(price) + '/m²</span>' +
+                '<span class="badge mono" style="background:' + marginColor(margin) + '">' + (margin >= 0 ? "+" : "") + fmt(margin) + '%</span>' +
+                (isOpen
+                  ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9BA1A4" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>'
+                  : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9BA1A4" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>') +
+              '</span>' +
+            '</button>' +
+            '<div class="product-body' + (isOpen ? ' open' : '') + '">' +
+              '<input class="field pname" data-product-field="name" data-product-id="' + p.id + '" value="' + esc(p.name) + '" />' +
+              compraHTML(p, p.rollPrice) + rollCalcHTML + '<div class="grid2">' + fieldsHTML + '</div>' +
+              '<div class="quote-out-row" style="margin-top:10px; padding-top:10px; border-top:1px solid #2a2e31;">' +
+                '<span class="l">Costo tinta / m² <span class="note-tag">DESDE TINTAS</span></span>' +
+                '<span class="v">$' + fmt(inkM2) + '</span>' +
+              '</div>' +
+              '<button class="delete-link" data-product-delete="' + p.id + '">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>' +
+                'Eliminar producto' +
+              '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderProductsList() {
+    var el = document.getElementById("productsList");
+    el.innerHTML = data.products.map(productCardHTML).join("");
+  }
+
+  function refreshProductCard(id) {
+    var p = data.products.find(function (x) { return x.id === id; });
+    if (!p) return;
+    var cardEl = document.querySelector('[data-product-card="' + id + '"]');
+    if (cardEl) cardEl.outerHTML = productCardHTML(p);
+  }
+
+  function renderQuoteProductOptions() {
+    var sel = document.getElementById("quoteProduct");
+    var current = quote.productId;
+    sel.innerHTML = data.products.map(function (p) {
+      return '<option value="' + p.id + '">' + esc(p.name) + '</option>';
+    }).join("");
+    if (data.products.some(function (p) { return p.id === current; })) {
+      sel.value = current;
+    } else if (data.products[0]) {
+      quote.productId = data.products[0].id;
+      sel.value = quote.productId;
+    }
+  }
+
+  // ---------- cotizador: cálculo y render ----------
+  function computeMatrix(product) {
+    var copyWNum = num(quote.matrixCopyWidth), copyHNum = num(quote.matrixCopyHeight), spacingNum = num(quote.matrixSpacing);
+    var copyWM = quote.unit === "cm" ? copyWNum / 100 : copyWNum;
+    var copyHM = quote.unit === "cm" ? copyHNum / 100 : copyHNum;
+    var spacingM = quote.unit === "cm" ? spacingNum / 100 : spacingNum;
+    var qtyNum = num(quote.matrixQty);
+    var rollWidthM = num(product.rollWidth) / 100;
+
+    var result = { valid: false, qty: qtyNum, columns: 0, rows: 0, usedWidthM: 0, usedLengthM: 0, rollWidthM: rollWidthM, area: 0 };
+    if (copyWM <= 0 || copyHM <= 0 || qtyNum <= 0 || rollWidthM <= 0) return result;
+
+    var columnsFit = Math.floor((rollWidthM + spacingM) / (copyWM + spacingM));
+    if (columnsFit < 1) columnsFit = 1;
+    var columns = Math.min(columnsFit, qtyNum);
+    var rows = Math.ceil(qtyNum / columns);
+
+    result.valid = true;
+    result.columns = columns;
+    result.rows = rows;
+    result.usedWidthM = columns * copyWM + (columns - 1) * spacingM;
+    result.usedLengthM = rows * copyHM + (rows - 1) * spacingM;
+    result.area = rollWidthM * result.usedLengthM;
+    return result;
+  }
+
+  function renderQuoteOutput() {
+    var product = data.products.find(function (p) { return p.id === quote.productId; }) || data.products[0];
+    var selectedPreps = data.prepCharges.filter(function (p) { return quote.prepIds.indexOf(p.id) !== -1; });
+    var out = document.getElementById("quoteOutput");
+    if (!product) { out.innerHTML = ""; return; }
+
+    var matrix = null;
+    var realArea = 0;
+
+    if (quote.mode === "matrix") {
+      matrix = computeMatrix(product);
+      realArea = matrix.valid ? matrix.area : 0;
+    } else {
+      var wNum = num(quote.width), hNum = num(quote.height);
+      var wM = quote.unit === "cm" ? wNum / 100 : wNum;
+      var hM = quote.unit === "cm" ? hNum / 100 : hNum;
+      realArea = wM * hM;
+    }
+    var hasArea = realArea > 0;
+
+    var billableArea = 0, materialCostTotal = 0, inkCostTotal = 0, costTotal = 0, priceBySurface = 0, priceBaseM2 = 0;
+    if (hasArea) {
+      billableArea = Math.max(realArea, num(product.minBillableArea));
+      var wasteFactor = 1 + num(product.wastePct) / 100;
+      materialCostTotal = billableArea * num(product.materialCost) * wasteFactor;
+      inkCostTotal = billableArea * inkCostPerM2();
+      costTotal = materialCostTotal + inkCostTotal;
+      priceBySurface = billableArea * num(product.salePriceM2);
+      priceBaseM2 = Math.max(priceBySurface, num(product.minPrice));
+    }
+
+    // Separar cargos fijos de cargos por m²
+    var prepFixed = selectedPreps.filter(function(p) { return !p.porM2; })
+                                 .reduce(function(sum, p) { return sum + num(p.price); }, 0);
+    var prepPerM2 = selectedPreps.filter(function(p) { return p.porM2; })
+                                 .reduce(function(sum, p) { return sum + num(p.price); }, 0);
+    var prepValue = prepFixed + prepPerM2 * billableArea;
+    var recommended = hasArea ? priceBaseM2 + prepValue : 0;
+    var profit = recommended - costTotal;
+    var margin = recommended > 0 ? (profit / recommended) * 100 : 0;
+
+    if (!hasArea) {
+      var hint = quote.mode === "matrix"
+        ? "Cargá ancho, alto, separación y cantidad de copias para ver la cotización."
+        : "Cargá ancho y alto para ver la cotización.";
+      out.innerHTML = '<div class="divider"><span class="empty-hint">' + hint + '</span></div>';
+      return;
+    }
+
+    function row(label, value, opts) {
+      opts = opts || {};
+      var lClass = "l" + (opts.strong ? " strong-l" : "");
+      var vClass = "v" + (opts.strong ? " strong-v" : "");
+      var vColor = opts.color ? ' style="color:' + opts.color + '"' : "";
+      var note = opts.note ? '<span class="note-tag">' + opts.note.toUpperCase() + '</span>' : "";
+      return '<div class="quote-out-row' + (opts.strong ? " strong" : "") + '"><span class="' + lClass + '">' + label + note + '</span><span class="' + vClass + '"' + vColor + '>' + value + '</span></div>';
+    }
+
+    var html = '<div class="divider">';
+
+    if (quote.mode === "matrix" && matrix && matrix.valid) {
+      html += row("Copias por fila (columnas)", fmt(matrix.columns));
+      html += row("Filas necesarias", fmt(matrix.rows));
+      html += row("Tamaño ocupado por el diseño", fmt(matrix.usedWidthM * 100) + " × " + fmt(matrix.usedLengthM * 100) + " cm");
+      html += row("Ancho de rollo", fmt(matrix.rollWidthM * 100) + " cm");
+      html += row("Largo de rollo utilizado", fmt(matrix.usedLengthM) + " m");
+      html += '<div class="spacer"></div>';
+    }
+
+    html += row("Superficie real", fmt(realArea) + " m²");
+    html += row("Superficie facturable", fmt(billableArea) + " m²", { note: billableArea > realArea ? "mínimo aplicado" : null });
+    html += row("Costo material", "$" + fmt(materialCostTotal));
+    html += row("Costo tinta", "$" + fmt(inkCostTotal));
+    html += row("Costo total", "$" + fmt(costTotal));
+    html += '<div class="spacer"></div>';
+    html += row("Precio por superficie", "$" + fmt(priceBySurface));
+    html += row("Precio mínimo de trabajo", "$" + fmt(num(product.minPrice)));
+    html += row("→ Precio base (m²)", "$" + fmt(priceBaseM2), { strong: true });
+
+    html += '<div class="spacer"></div>';
+    if (selectedPreps.length > 0) {
+      selectedPreps.forEach(function (p) {
+        var amount = p.porM2 ? num(p.price) * billableArea : num(p.price);
+        var label = esc(p.name) + (p.porM2 ? ' <span class="note-tag">×' + fmt(billableArea) + 'm²</span>' : '');
+        html += row(label, "$" + fmt(amount));
+      });
+      html += row("→ Total cargos de preparación", "$" + fmt(prepValue), { strong: true });
+    } else {
+      html += row("Cargos de preparación", "Ninguno seleccionado");
+    }
+    html += row("Ganancia estimada", "$" + fmt(profit) + " (" + fmt(margin) + "%)", { color: profit >= 0 ? "#4ADE80" : "#F87171" });
+
+    html += '</div>';
+    html += '<div class="final-box"><span class="label2">Precio recomendado</span><span class="value">$' + fmt(recommended) + '</span></div>';
+
+    out.innerHTML = html;
+  }
+
+  function renderUnitButtons() {
+    document.getElementById("unitCmBtn").classList.toggle("active", quote.unit === "cm");
+    document.getElementById("unitMBtn").classList.toggle("active", quote.unit === "m");
+  }
+
+  // ---------- pestañas ----------
+  function setActiveTab(name) {
+    document.querySelectorAll(".tab-btn").forEach(function (btn) {
+      btn.classList.toggle("active", btn.getAttribute("data-tab") === name);
+    });
+    document.querySelectorAll(".tab-panel").forEach(function (panel) {
+      panel.classList.toggle("active", panel.getAttribute("data-panel") === name);
+    });
+  }
+
+  // ---------- listeners ----------
+  function attachListeners() {
+    document.querySelectorAll(".tab-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        setActiveTab(btn.getAttribute("data-tab"));
+      });
+    });
+    // tintas: edición inline, recalcula todo lo que depende del costo de tinta
+    document.querySelectorAll('[data-ink-field]').forEach(function (input) {
+      input.addEventListener("input", function (e) {
+        var field = e.target.getAttribute("data-ink-field");
+        data.ink[field] = num(e.target.value);
+        renderInkTab();
+        renderProductsList();
+        renderQuoteOutput();
+        saveData();
+      });
+    });
+
+    // cargos de preparación: edición inline
+    document.getElementById("prepRows").addEventListener("input", function (e) {
+      var t = e.target;
+      var id = t.getAttribute("data-prep-id");
+      var field = t.getAttribute("data-prep-field");
+      if (!id || !field) return;
+      var item = data.prepCharges.find(function (p) { return p.id === id; });
+      if (!item) return;
+      item[field] = field === "price" ? num(t.value) : t.value;
+      renderQuotePrepChecklist();
+      renderQuoteOutput();
+      saveData();
+    });
+    document.getElementById("prepRows").addEventListener("click", function (e) {
+      // Toggle porM2
+      var toggleBtn = e.target.closest("[data-prep-toggle-m2]");
+      if (toggleBtn) {
+        var tid = toggleBtn.getAttribute("data-prep-toggle-m2");
+        var pr = data.prepCharges.find(function(x) { return x.id === tid; });
+        if (pr) {
+          pr.porM2 = !pr.porM2;
+          renderPrepRows();
+          renderQuotePrepChecklist();
+          renderCartPrepList();
+          renderQuoteOutput();
+          saveData();
+        }
+        return;
+      }
+      var btn = e.target.closest("[data-prep-delete]");
+      if (!btn) return;
+      var id = btn.getAttribute("data-prep-delete");
+      data.prepCharges = data.prepCharges.filter(function (p) { return p.id !== id; });
+      renderPrepRows();
+      renderQuotePrepChecklist();
+      renderQuoteOutput();
+      saveData();
+    });
+    document.getElementById("addPrepBtn").addEventListener("click", function () {
+      var nameEl = document.getElementById("newPrepName");
+      var priceEl = document.getElementById("newPrepPrice");
+      if (!nameEl.value.trim()) return;
+      var id = Date.now().toString();
+      data.prepCharges.push({ id: id, name: nameEl.value.trim(), price: num(priceEl.value), porM2: false });
+      nameEl.value = "";
+      priceEl.value = "";
+      renderPrepRows();
+      renderQuotePrepChecklist();
+      saveData();
+    });
+
+    // productos: edición inline, expandir, borrar
+    document.getElementById("productsList").addEventListener("input", function (e) {
+      var t = e.target;
+      var id = t.getAttribute("data-product-id");
+      var field = t.getAttribute("data-product-field");
+      if (!id || !field) return;
+      var item = data.products.find(function (p) { return p.id === id; });
+      if (!item) return;
+      item[field] = field === "name" ? t.value : num(t.value);
+      // Si cambia algún campo del rollo, recalcular materialCost y rollWidth
+      if (field === "rollPrice" || field === "rollLengthM" || field === "rollWidthM") {
+        var rc = rollCostPerM2(item);
+        if (rc !== null) {
+          item.materialCost = Math.round(rc);
+        }
+        if (item.rollWidthM > 0) {
+          item.rollWidth = item.rollWidthM * 100;
+        }
+        // En lugar de re-renderizar el card (que pierde el foco),
+        // solo actualizamos el display del resultado calculado
+        var cardEl = document.querySelector('[data-product-card="' + id + '"]');
+        if (cardEl) {
+          // Actualizar el display del costo calculado dentro del card
+          var rollArea = num(item.rollLengthM) * num(item.rollWidthM);
+          var resultDiv = cardEl.querySelector('.roll-result-display');
+          if (resultDiv) {
+            if (rc !== null) {
+              resultDiv.innerHTML =
+                '<div style="font-size:10px;color:#9BA1A4;margin-bottom:2px;">Área: ' + fmt(rollArea) + ' m²</div>' +
+                '<div style="font-size:15px;font-weight:700;color:#4ADE80;">$' + fmt(rc) + '/m²</div>' +
+                '<div style="font-size:10px;color:#4ADE80;">→ aplicado a Costo material</div>';
+            } else {
+              resultDiv.innerHTML = '<div style="font-size:11px;color:#9BA1A4;padding:8px 0;">Completá precio, largo y ancho para calcular automáticamente</div>';
+            }
+          }
+          // Actualizar el badge del header
+          updateProductHeaderBadge(id);
+        }
+      } else if (field !== "name") {
+        updateProductHeaderBadge(id);
+      }
+      renderQuoteProductOptions();
+      if (id === quote.productId) renderQuoteOutput();
+      saveData();
+    });
+    document.getElementById("productsList").addEventListener("click", function (e) {
+      var toggleBtn = e.target.closest("[data-product-toggle]");
+      if (toggleBtn) {
+        var id = toggleBtn.getAttribute("data-product-toggle");
+        if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+        refreshProductCard(id);
+        return;
+      }
+      var delBtn = e.target.closest("[data-product-delete]");
+      if (delBtn) {
+        var did = delBtn.getAttribute("data-product-delete");
+        data.products = data.products.filter(function (p) { return p.id !== did; });
+        renderProductsList();
+        renderQuoteProductOptions();
+        renderQuoteOutput();
+        saveData();
+      }
+    });
+    // bases
+    document.getElementById("basesList").addEventListener("input", function (e) {
+      var inp = e.target.closest("[data-base-field]");
+      if (!inp) return;
+      var bid = inp.getAttribute("data-base-id");
+      var field = inp.getAttribute("data-base-field");
+      var b = data.bases.find(function (x) { return x.id === bid; });
+      if (!b) return;
+      b[field] = field === "name" ? inp.value : num(inp.value);
+      // Solo actualizar el display del resultado sin re-renderizar el card
+      var calc = baseCostoM2(b);
+      var cardEl = document.querySelector("[data-base-card=\"" + bid + "\"]");
+      if (cardEl) {
+        // Actualizar área
+        var areaEl = cardEl.querySelector(".base-area-display");
+        if (areaEl) areaEl.textContent = fmt(calc.area) + " m²";
+        // Actualizar resultado m²
+        var resEl = cardEl.querySelector(".base-result-display");
+        if (resEl) {
+          if (calc.area > 0) {
+            resEl.innerHTML =
+              '<div class="final-box" style="margin:0;">' +
+                '<span class="label2">Costo / m²</span>' +
+                '<span class="value" style="color:#F5C24B;">$' + fmt(calc.costoM2) + '</span>' +
+              '</div>' +
+              '<div class="final-box" style="margin:0; margin-top:8px;">' +
+                '<span class="label2">Precio venta / m²</span>' +
+                '<span class="value" style="color:#4ADE80;">$' + fmt(calc.ventaM2) + '</span>' +
+              '</div>';
+          } else {
+            resEl.innerHTML = "";
+          }
+        }
+        // Actualizar header (chevron info)
+        var headerInfo = cardEl.querySelector(".base-header-info");
+        if (headerInfo) {
+          if (calc.area > 0) {
+            headerInfo.innerHTML =
+              '<span class="mono" style="font-size:12px; color:#F5C24B;">$' + fmt(calc.costoM2) + '/m² costo</span>' +
+              '<span class="mono" style="font-size:12px; color:#4ADE80;">$' + fmt(calc.ventaM2) + '/m² venta</span>';
+          } else {
+            headerInfo.innerHTML = '<span style="font-size:11px; color:#555;">sin datos</span>';
+          }
+        }
+      }
+      saveData();
+    });
+    document.getElementById("basesList").addEventListener("click", function (e) {
+      var toggleBtn = e.target.closest("[data-base-toggle]");
+      if (toggleBtn) {
+        var tid = toggleBtn.getAttribute("data-base-toggle");
+        if (expandedBases.has(tid)) expandedBases.delete(tid); else expandedBases.add(tid);
+        var b = data.bases.find(function (x) { return x.id === tid; });
+        var cardEl = document.querySelector("[data-base-card=\"" + tid + "\"]");
+        if (cardEl && b) cardEl.outerHTML = baseCardHTML(b);
+        return;
+      }
+      var delBtn = e.target.closest("[data-base-delete]");
+      if (delBtn) {
+        var did = delBtn.getAttribute("data-base-delete");
+        data.bases = data.bases.filter(function (b) { return b.id !== did; });
+        renderBasesList();
+        saveData();
+      }
+    });
+    document.getElementById("addBaseBtn").addEventListener("click", function () {
+      var nameEl = document.getElementById("newBaseName");
+      if (!nameEl.value.trim()) return;
+      if (!data.bases) data.bases = [];
+      var id = "b" + Date.now().toString();
+      data.bases.push({ id: id, name: nameEl.value.trim(), ancho: 0, alto: 0, gramaje: "", costoPlancha: 0, ventaPlancha: 0 });
+      expandedBases.add(id);
+      nameEl.value = "";
+      renderBasesList();
+      saveData();
+    });
+
+    document.getElementById("addProductBtn").addEventListener("click", function () {
+      var nameEl = document.getElementById("newProductName");
+      if (!nameEl.value.trim()) return;
+      var id = Date.now().toString();
+      data.products.push({
+        id: id, name: nameEl.value.trim(),
+        materialCost: 0, salePriceM2: 0,
+        minBillableArea: 0, minPrice: 0, wastePct: 0,
+        rollWidth: 118
+      });
+      expanded.add(id);
+      nameEl.value = "";
+      renderProductsList();
+      renderQuoteProductOptions();
+      saveData();
+    });
+
+    // cotizador
+    document.getElementById("quoteProduct").addEventListener("change", function (e) {
+      quote.productId = e.target.value;
+      renderMatrixRollNote();
+      renderQuoteOutput();
+    });
+    document.getElementById("quotePrepList").addEventListener("change", function (e) {
+      var t = e.target.closest("[data-prep-check]");
+      if (!t) return;
+      var id = t.getAttribute("data-prep-check");
+      var idx = quote.prepIds.indexOf(id);
+      if (t.checked && idx === -1) quote.prepIds.push(id);
+      if (!t.checked && idx !== -1) quote.prepIds.splice(idx, 1);
+      renderQuoteOutput();
+    });
+    document.getElementById("quoteWidth").addEventListener("input", function (e) {
+      quote.width = e.target.value;
+      renderQuoteOutput();
+    });
+    document.getElementById("quoteHeight").addEventListener("input", function (e) {
+      quote.height = e.target.value;
+      renderQuoteOutput();
+    });
+    document.getElementById("matrixCopyWidth").addEventListener("input", function (e) {
+      quote.matrixCopyWidth = e.target.value;
+      renderQuoteOutput();
+    });
+    document.getElementById("matrixCopyHeight").addEventListener("input", function (e) {
+      quote.matrixCopyHeight = e.target.value;
+      renderQuoteOutput();
+    });
+    document.getElementById("matrixSpacing").addEventListener("input", function (e) {
+      quote.matrixSpacing = e.target.value;
+      renderQuoteOutput();
+    });
+    document.getElementById("matrixQty").addEventListener("input", function (e) {
+      quote.matrixQty = e.target.value;
+      renderQuoteOutput();
+    });
+    document.getElementById("unitCmBtn").addEventListener("click", function () {
+      quote.unit = "cm"; renderUnitButtons(); renderQuoteOutput();
+    });
+    document.getElementById("unitMBtn").addEventListener("click", function () {
+      quote.unit = "m"; renderUnitButtons(); renderQuoteOutput();
+    });
+    document.getElementById("modeSimpleBtn").addEventListener("click", function () {
+      quote.mode = "simple"; renderModeButtons(); renderQuoteOutput();
+    });
+    document.getElementById("modeMatrixBtn").addEventListener("click", function () {
+      quote.mode = "matrix"; renderModeButtons(); renderQuoteOutput();
+    });
+  }
+
+  function renderModeButtons() {
+    document.getElementById("modeSimpleBtn").classList.toggle("active", quote.mode === "simple");
+    document.getElementById("modeMatrixBtn").classList.toggle("active", quote.mode === "matrix");
+    document.getElementById("modeSimplePanel").style.display = quote.mode === "simple" ? "block" : "none";
+    document.getElementById("modeMatrixPanel").style.display = quote.mode === "matrix" ? "block" : "none";
+  }
+
+  function renderMatrixRollNote() {
+    var product = data.products.find(function (p) { return p.id === quote.productId; }) || data.products[0];
+    var el = document.getElementById("matrixRollNote");
+    if (el) el.textContent = "Ancho de rollo del producto: " + (product ? fmt(product.rollWidth) : "—") + " cm";
+  }
+
+  function updateProductHeaderBadge(id) {
+    var p = data.products.find(function (x) { return x.id === id; });
+    if (!p) return;
+    var cardEl = document.querySelector('[data-product-card="' + id + '"]');
+    if (!cardEl) return;
+    var wasteFactor = 1 + num(p.wastePct) / 100;
+    var baseCostM2 = num(p.materialCost) * wasteFactor + inkCostPerM2();
+    var price = num(p.salePriceM2);
+    var margin = price > 0 ? ((price - baseCostM2) / price) * 100 : 0;
+    var stripe = cardEl.querySelector(".margin-stripe");
+    if (stripe) stripe.style.background = marginColor(margin);
+    var priceSpan = cardEl.querySelector(".product-header .mono");
+    if (priceSpan) priceSpan.textContent = "$" + fmt(price) + "/m²";
+    var badge = cardEl.querySelector(".badge");
+    if (badge) {
+      badge.textContent = (margin >= 0 ? "+" : "") + fmt(margin) + "%";
+      badge.style.background = marginColor(margin);
+    }
+  }
+
+  // ── ROTULADOS ──────────────────────────────────────────────────────────
+  var rot = { viniloId: "", ancho: "", alto: "", complejidad: "baja", tiempo: "rapido" };
+
+  // Posicionador: 30cm × 40m = 12m²
+  var ROT_POS_ANCHO_M = 0.30;
+  var ROT_POS_LARGO_M = 40;
+
+  function rotViniloCostoM2(v) {
+    // Precio por metro lineal, ancho en cm
+    var anchoM = num(v.anchoM || 60) / 100;
+    if (!v || !v.precioMetro || anchoM <= 0) return 0;
+    return num(v.precioMetro) / anchoM;
+  }
+
+  function rotPosicionadorCostoM2() {
+    var area = ROT_POS_ANCHO_M * ROT_POS_LARGO_M;
+    var precio = num(data.rotulados.posicionadorPrecio);
+    if (!precio || area <= 0) return 0;
+    return precio / area;
+  }
+
+  function renderRotVinilosList() {
+    var el = document.getElementById("rotVinilosList");
+    if (!el) return;
+    var vinilos = data.rotulados.vinilos || [];
+    if (!vinilos.length) { el.innerHTML = '<p class="empty-hint">Sin vinilos cargados</p>'; return; }
+    el.innerHTML = vinilos.map(function(v) {
+      var costoM2 = rotViniloCostoM2(v);
+      var ancho = v.anchoM || 60;
+      return (
+        '<div class="card" style="padding:12px; margin-bottom:8px;">' +
+          '<div style="display:grid; grid-template-columns:1fr auto; gap:8px; margin-bottom:10px; align-items:center;">' +
+            '<input class="field pname" style="font-size:13px;" data-rot-vinilo-field="name" data-rot-vinilo-id="' + v.id + '" value="' + esc(v.name) + '" />' +
+            '<button data-rot-vinilo-delete="' + v.id + '" class="btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg></button>' +
+          '</div>' +
+          compraHTML(v, v.precioMetro) +
+          '<div class="grid2">' +
+            '<div>' +
+              '<span class="label">Ancho del material</span>' +
+              '<div class="row" style="gap:6px;">' +
+                '<button class="unit-btn rot-vinilo-ancho ' + (ancho==60?"active":"") + '" data-rot-vinilo-id="' + v.id + '" data-rot-vinilo-ancho="60">60 cm</button>' +
+                '<button class="unit-btn rot-vinilo-ancho ' + (ancho==120?"active":"") + '" data-rot-vinilo-id="' + v.id + '" data-rot-vinilo-ancho="120">120 cm</button>' +
+              '</div>' +
+            '</div>' +
+            '<div>' +
+              '<span class="label">Precio por metro lineal ($)</span>' +
+              '<input type="number" inputmode="decimal" class="field mono" data-rot-vinilo-field="precioMetro" data-rot-vinilo-id="' + v.id + '" value="' + (v.precioMetro||"") + '" placeholder="0" />' +
+            '</div>' +
+          '</div>' +
+          (costoM2 > 0 ? (
+            '<div style="margin-top:8px; padding:8px 10px; background:#1a2520; border-radius:6px; display:flex; justify-content:space-between; align-items:center;">' +
+              '<span style="font-size:11px;color:#9BA1A4;">Costo por m² calculado</span>' +
+              '<span style="font-size:15px;font-weight:700;color:#4ADE80;">$' + fmt(costoM2) + '/m²</span>' +
+            '</div>'
+          ) : '') +
+        '</div>'
+      );
+    }).join("");
+
+    // Actualizar select del cotizador
+    renderRotViniloSel();
+  }
+
+  function renderRotViniloSel() {
+    var sel = document.getElementById("rotViniloSel");
+    if (!sel) return;
+    var vinilos = data.rotulados.vinilos || [];
+    sel.innerHTML = vinilos.map(function(v) {
+      return '<option value="' + v.id + '">' + esc(v.name) + '</option>';
+    }).join("");
+    if (!rot.viniloId && vinilos[0]) rot.viniloId = vinilos[0].id;
+    sel.value = rot.viniloId;
+  }
+
+  function renderRotPosicionador() {
+    var el = document.getElementById("rotPosicionadorM2");
+    if (!el) return;
+    var c = rotPosicionadorCostoM2();
+    el.textContent = c > 0 ? "$" + fmt(c) + "/m²" : "—";
+    el.style.color  = c > 0 ? "#4ADE80" : "#9BA1A4";
+  }
+
+  function renderRotOutput() {
+    var out = document.getElementById("rotOutput");
+    if (!out) return;
+    var ancho = num(rot.ancho) / 100;
+    var alto  = num(rot.alto)  / 100;
+    var m2    = ancho * alto;
+    if (m2 <= 0) { out.innerHTML = ""; return; }
+
+    var vinilo   = (data.rotulados.vinilos||[]).find(function(v) { return v.id === rot.viniloId; });
+    var vCostoM2 = rotViniloCostoM2(vinilo);
+    var pCostoM2 = rotPosicionadorCostoM2();
+    var compM2   = num((data.rotulados.complejidad||{})[rot.complejidad] || 0);
+    var tiempoM2 = num((data.rotulados.tiempo||{})[rot.tiempo]          || 0);
+    var margenPct= num(data.rotulados.margenPct || 30);
+
+    var costoM2Total  = vCostoM2 + pCostoM2 + compM2 + tiempoM2;
+    var costoTotal    = costoM2Total * m2;
+    var ventaTotal    = margenPct < 100 ? costoTotal / (1 - margenPct / 100) : costoTotal;
+    var margenReal    = ventaTotal > 0 ? ((ventaTotal - costoTotal) / ventaTotal) * 100 : 0;
+    var mColor        = margenReal >= 30 ? "#4ADE80" : margenReal >= 15 ? "#F5C24B" : "#F87171";
+
+    function row(l, v) { return '<div class="quote-out-row"><span class="l">' + l + '</span><span class="v">' + v + '</span></div>'; }
+
+    var html = '<div class="card" style="padding:16px;">';
+    html += '<div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Desglose</div>';
+    html += row('Superficie', fmt(m2) + ' m²');
+    html += '<div style="border-top:1px solid #2a2e31;margin:8px 0;"></div>';
+    if (vinilo) html += row(esc(vinilo.name), '$' + fmt(vCostoM2 * m2));
+    html += row('Posicionador', '$' + fmt(pCostoM2 * m2));
+    if (compM2 > 0) html += row('Complejidad ' + rot.complejidad, '$' + fmt(compM2 * m2));
+    if (tiempoM2 > 0) html += row('Tiempo ' + rot.tiempo, '$' + fmt(tiempoM2 * m2));
+    html += '<div style="border-top:1px solid #2a2e31;margin:8px 0;"></div>';
+    html += row('Costo total', '<strong>$' + fmt(costoTotal) + '</strong>');
+    html += row('Margen (' + fmt(margenPct) + '%)', '<span style="color:' + mColor + ';">+$' + fmt(ventaTotal - costoTotal) + '</span>');
+    html += '<div class="final-box" style="margin-top:12px;">';
+    html += '<span class="label2">Precio de venta</span>';
+    html += '<span class="value" style="color:#4ADE80;">$' + fmt(ventaTotal) + '</span>';
+    html += '</div></div>';
+    out.innerHTML = html;
+  }
+
+  function attachRotListeners() {
+    // Vinilos list
+    var vl = document.getElementById("rotVinilosList");
+    if (!vl) return;
+    vl.addEventListener("input", function(e) {
+      var inp = e.target.closest("[data-rot-vinilo-field]");
+      if (!inp) return;
+      var id    = inp.getAttribute("data-rot-vinilo-id");
+      var field = inp.getAttribute("data-rot-vinilo-field");
+      var v = (data.rotulados.vinilos||[]).find(function(x) { return x.id === id; });
+      if (!v) return;
+      v[field] = field === "name" ? inp.value : num(inp.value);
+      // Update inline cost display without re-rendering
+      var card = inp.closest(".card");
+      if (card && field === "precioRollo") {
+        var c = rotViniloCostoM2(v);
+        var hint = card.querySelector("[data-rot-cost-hint]");
+        if (!hint) {
+          var wrap = inp.parentElement;
+          hint = document.createElement("div");
+          hint.setAttribute("data-rot-cost-hint","1");
+          hint.style.cssText = "font-size:11px;color:#4ADE80;text-align:right;";
+          wrap.appendChild(hint);
+        }
+        hint.textContent = c > 0 ? "→ $" + fmt(c) + "/m²" : "";
+        renderRotViniloSel();
+      }
+      renderRotOutput();
+      saveData();
+    });
+    vl.addEventListener("click", function(e) {
+      var del = e.target.closest("[data-rot-vinilo-delete]");
+      if (del) {
+        var id = del.getAttribute("data-rot-vinilo-delete");
+        data.rotulados.vinilos = data.rotulados.vinilos.filter(function(v) { return v.id !== id; });
+        renderRotVinilosList();
+        renderRotOutput();
+        saveData();
+      }
+    });
+    document.getElementById("addRotViniloBtn").addEventListener("click", function() {
+      var inp = document.getElementById("newRotVinilo");
+      if (!inp.value.trim()) return;
+      var id = "rv" + Date.now();
+      data.rotulados.vinilos.push({ id:id, name:inp.value.trim(), precioRollo:0 });
+      inp.value = "";
+      renderRotVinilosList();
+      saveData();
+    });
+    // Posicionador
+    document.getElementById("rotPosicionadorPrecio").addEventListener("input", function(e) {
+      data.rotulados.posicionadorPrecio = num(e.target.value);
+      renderRotPosicionador();
+      renderRotOutput();
+      saveData();
+    });
+    // Cotizador
+    document.getElementById("rotViniloSel").addEventListener("change", function(e) { rot.viniloId = e.target.value; renderRotOutput(); });
+    document.getElementById("rotAncho").addEventListener("input", function(e) { rot.ancho = e.target.value; renderRotOutput(); });
+    document.getElementById("rotAlto").addEventListener("input",  function(e) { rot.alto  = e.target.value; renderRotOutput(); });
+    document.querySelectorAll(".rot-comp").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        rot.complejidad = this.getAttribute("data-rot-comp");
+        document.querySelectorAll(".rot-comp").forEach(function(b) { b.classList.remove("active"); });
+        this.classList.add("active");
+        renderRotOutput();
+      });
+    });
+    document.querySelectorAll(".rot-tiempo").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        rot.tiempo = this.getAttribute("data-rot-tiempo");
+        document.querySelectorAll(".rot-tiempo").forEach(function(b) { b.classList.remove("active"); });
+        this.classList.add("active");
+        renderRotOutput();
+      });
+    });
+
+    // Rotulados sub-tabs
+    document.getElementById("rotSubCotizar").addEventListener("click", function() {
+      document.getElementById("rotPanelCotizar").style.display = "";
+      document.getElementById("rotPanelInsumos").style.display = "none";
+      this.classList.add("active");
+      document.getElementById("rotSubInsumos").classList.remove("active");
+      renderRotViniloSel(); renderRotOutput();
+    });
+    document.getElementById("rotSubInsumos").addEventListener("click", function() {
+      document.getElementById("rotPanelCotizar").style.display = "none";
+      document.getElementById("rotPanelInsumos").style.display = "block";
+      this.classList.add("active");
+      document.getElementById("rotSubCotizar").classList.remove("active");
+    });
+
+    // Vinilo ancho buttons
+    document.getElementById("rotVinilosList").addEventListener("click", function(e) {
+      var anchoBtn = e.target.closest("[data-rot-vinilo-ancho]");
+      if (anchoBtn) {
+        var id    = anchoBtn.getAttribute("data-rot-vinilo-id");
+        var ancho = parseInt(anchoBtn.getAttribute("data-rot-vinilo-ancho"));
+        var v = (data.rotulados.vinilos||[]).find(function(x) { return x.id === id; });
+        if (!v) return;
+        v.anchoM = ancho;
+        renderRotVinilosList();
+        renderRotOutput();
+        saveData();
+        return;
+      }
+    });
+
+    // Config fields in Preparación
+    document.querySelectorAll(".rot-config").forEach(function(inp) {
+      var key = inp.getAttribute("data-rot-config");
+      var keys = key.split(".");
+      var val = keys.length === 2 ? (data.rotulados[keys[0]]||{})[keys[1]] : data.rotulados[key];
+      if (val !== undefined && val !== 0) inp.value = val;
+      inp.addEventListener("input", function() {
+        var v = num(this.value);
+        if (keys.length === 2) {
+          if (!data.rotulados[keys[0]]) data.rotulados[keys[0]] = {};
+          data.rotulados[keys[0]][keys[1]] = v;
+        } else {
+          data.rotulados[key] = v;
+        }
+        renderRotOutput();
+        saveData();
+      });
+    });
+  }
+
+  // ── FIN ROTULADOS ──────────────────────────────────────────────────────
+  var cart = {
+    unit: "cm", width: "", height: "",
+    materialId: "", baseId: "", prepIds: [], minPrice: 0
+  };
+
+  function cartAreaM2() {
+    var w = num(cart.width), h = num(cart.height);
+    var wm = cart.unit === "cm" ? w/100 : w;
+    var hm = cart.unit === "cm" ? h/100 : h;
+    return wm * hm;
+  }
+
+  function renderCartSelects() {
+    var matSel = document.getElementById("cartMaterial");
+    if (!matSel) return;
+    matSel.innerHTML = data.products.map(function(p) {
+      return '<option value="' + p.id + '">' + esc(p.name) + '</option>';
+    }).join("");
+    if (!cart.materialId && data.products[0]) cart.materialId = data.products[0].id;
+    matSel.value = cart.materialId;
+
+    var baseSel = document.getElementById("cartBase");
+    var bases = data.bases || [];
+    baseSel.innerHTML = '<option value="">— Sin base —</option>' + bases.map(function(b) {
+      return '<option value="' + b.id + '">' + esc(b.name) + '</option>';
+    }).join("");
+    baseSel.value = cart.baseId;
+  }
+
+  function renderCartPrepList() {
+    var el = document.getElementById("cartPrepList");
+    if (!el) return;
+    cart.prepIds = cart.prepIds.filter(function(id) {
+      return data.prepCharges.some(function(p) { return p.id === id; });
+    });
+    el.innerHTML = data.prepCharges.map(function(p) {
+      var checked = cart.prepIds.indexOf(p.id) !== -1;
+      return (
+        '<label class="card prep-check-row">' +
+          '<input type="checkbox" data-cart-prep="' + p.id + '"' + (checked ? " checked" : "") + ' />' +
+          '<span class="pname">' + esc(p.name) + '</span>' +
+          '<span class="pprice mono">$' + fmt(p.price) + '/m²</span>' +
+        '</label>'
+      );
+    }).join("");
+  }
+
+  function renderCartOutput() {
+    var out = document.getElementById("cartOutput");
+    if (!out) return;
+    var m2 = cartAreaM2();
+    var areaRow = document.getElementById("cartAreaRow");
+    var areaOut = document.getElementById("cartAreaOut");
+    if (areaRow) areaRow.style.display = m2 > 0 ? "block" : "none";
+    if (areaOut) areaOut.textContent = fmt(m2) + " m²";
+    if (m2 <= 0) { out.innerHTML = ""; return; }
+
+    var mat      = data.products.find(function(p) { return p.id === cart.materialId; });
+    var matCosto = mat ? num(mat.materialCost) : 0;
+    var matVenta = mat ? num(mat.salePriceM2)  : 0;
+
+    var base      = (data.bases||[]).find(function(b) { return b.id === cart.baseId; });
+    var baseCalc  = base ? baseCostoM2(base) : null;
+    var baseCosto = baseCalc ? baseCalc.costoM2 : 0;
+    var baseVenta = baseCalc ? baseCalc.ventaM2 : 0;
+
+    var selPreps  = data.prepCharges.filter(function(p) { return cart.prepIds.indexOf(p.id) !== -1; });
+    var prepTotal = selPreps.reduce(function(s,p) { return s + num(p.price); }, 0);
+
+    var costoM2   = matCosto + baseCosto + prepTotal;
+    var ventaM2   = matVenta + baseVenta + prepTotal;
+    var costoTotal= costoM2 * m2;
+    var ventaRaw  = ventaM2 * m2;
+    var ventaTotal= Math.max(ventaRaw, num(cart.minPrice));
+    var margen    = ventaTotal > 0 ? ((ventaTotal - costoTotal) / ventaTotal) * 100 : 0;
+    var mColor    = margen >= 30 ? "#4ADE80" : margen >= 15 ? "#F5C24B" : "#F87171";
+    var minAplied = num(cart.minPrice) > 0 && ventaRaw < num(cart.minPrice);
+
+    function row(l, v) { return '<div class="quote-out-row"><span class="l">' + l + '</span><span class="v">' + v + '</span></div>'; }
+
+    var html = '<div class="card" style="padding:16px;">';
+    html += '<div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Desglose</div>';
+    if (mat)  html += row(esc(mat.name) + ' — material', '$' + fmt(matCosto*m2) + ' costo · $' + fmt(matVenta*m2) + ' venta');
+    if (base) html += row(esc(base.name) + ' — base',    '$' + fmt(baseCosto*m2) + ' costo · $' + fmt(baseVenta*m2) + ' venta');
+    selPreps.forEach(function(p) { html += row(esc(p.name), '$' + fmt(num(p.price)*m2)); });
+
+    html += '<div style="border-top:1px solid #2a2e31;margin:10px 0;"></div>';
+    html += row('Costo total', '<strong>$' + fmt(costoTotal) + '</strong>');
+    html += row('Margen' + (minAplied ? ' <span class="note-tag">MÍNIMO</span>' : ''), '<strong style="color:' + mColor + ';">' + (margen >= 0 ? "+" : "") + fmt(margen) + '%</strong>');
+    html += '<div class="final-box" style="margin-top:12px;">';
+    html += '<span class="label2">Precio de venta</span>';
+    html += '<span class="value" style="color:#4ADE80;">$' + fmt(ventaTotal) + '</span>';
+    html += '</div></div>';
+    out.innerHTML = html;
+  }
+
+  function attachCartListeners() {
+    var cw = document.getElementById("cartWidth");
+    var ch = document.getElementById("cartHeight");
+    if (!cw) return;
+    cw.addEventListener("input", function(e) { cart.width  = e.target.value; renderCartOutput(); });
+    ch.addEventListener("input", function(e) { cart.height = e.target.value; renderCartOutput(); });
+    document.querySelectorAll("[data-cart-unit]").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        cart.unit = this.getAttribute("data-cart-unit");
+        document.getElementById("cartUnitCm").classList.toggle("active", cart.unit==="cm");
+        document.getElementById("cartUnitM").classList.toggle("active",  cart.unit==="m");
+        renderCartOutput();
+      });
+    });
+    document.getElementById("cartMaterial").addEventListener("change", function(e) { cart.materialId = e.target.value; renderCartOutput(); });
+    document.getElementById("cartBase").addEventListener("change",     function(e) { cart.baseId     = e.target.value; renderCartOutput(); });
+    document.getElementById("cartMinPrice").addEventListener("input",  function(e) { cart.minPrice   = num(e.target.value); renderCartOutput(); });
+    document.getElementById("cartPrepList").addEventListener("change", function(e) {
+      var t = e.target.closest("[data-cart-prep]");
+      if (!t) return;
+      var id = t.getAttribute("data-cart-prep");
+      var idx = cart.prepIds.indexOf(id);
+      if (t.checked && idx === -1) cart.prepIds.push(id);
+      if (!t.checked && idx !== -1) cart.prepIds.splice(idx, 1);
+      renderCartOutput();
+    });
+  }
+
+  // ── POLYFAN ────────────────────────────────────────────────────────────
+  var PF_ANCHO  = 1.20;
+  var PF_ALTO   = 0.60;
+  var PF_AREA   = PF_ANCHO * PF_ALTO; // 0.72 m²
+
+  var pf = { cant: 1, adicionales: [] };
+
+  var PF_ADICIONALES = [
+    { id:"pin1", label:"Pintado 1 color" },
+    { id:"pin2", label:"Pintado 2 colores" },
+    { id:"pinM", label:"Pintado más colores" },
+    { id:"col",  label:"Colocación" },
+  ];
+
+  function renderPfAdicionalesList() {
+    var el = document.getElementById("pfAdicionalesList");
+    if (!el) return;
+    el.innerHTML = PF_ADICIONALES.map(function(a) {
+      var precio = num((data.polyfan.adicionales||{})[a.id]||0);
+      var checked = pf.adicionales.indexOf(a.id) !== -1;
+      return (
+        '<label class="card prep-check-row">' +
+          '<input type="checkbox" data-pf-adicional="' + a.id + '"' + (checked?" checked":"") + ' />' +
+          '<span class="pname">' + a.label + '</span>' +
+          '<span class="pprice mono">' + (precio > 0 ? "$" + fmt(precio) : "sin precio") + '</span>' +
+        '</label>'
+      );
+    }).join("");
+  }
+
+  function renderPfOutput() {
+    var out = document.getElementById("pfOutput");
+    if (!out) return;
+
+    var costo   = num(data.polyfan.costo);
+    var venta   = num(data.polyfan.venta);
+    var cant    = num(pf.cant);
+
+    if (cant <= 0) { out.innerHTML = ""; return; }
+
+    // Descripción de cantidad
+    var cantLabel = cant === 1 ? "1 placa" : cant === 0.5 ? "½ placa" : cant === 0.33 ? "⅓ placa" : cant + " placas";
+    var areaTotal = PF_AREA * cant;
+
+    // Adicionales
+    var adicTotal = 0;
+    var adicLines = [];
+    PF_ADICIONALES.forEach(function(a) {
+      if (pf.adicionales.indexOf(a.id) !== -1) {
+        var p = num((data.polyfan.adicionales||{})[a.id]||0);
+        var subtotal = p * cant;
+        adicTotal += subtotal;
+        adicLines.push({ label: a.label, subtotal: subtotal });
+      }
+    });
+
+    var costoTotal  = costo * cant;
+    var ventaBase   = venta * cant;
+    var ventaTotal  = ventaBase + adicTotal;
+    var margen      = ventaTotal > 0 ? ((ventaTotal - costoTotal - adicTotal) / ventaTotal) * 100 : 0;
+    var mColor      = margen >= 30 ? "#4ADE80" : margen >= 15 ? "#F5C24B" : "#F87171";
+
+    function row(l, v) { return '<div class="quote-out-row"><span class="l">' + l + '</span><span class="v">' + v + '</span></div>'; }
+
+    var html = '<div class="card" style="padding:16px;">';
+    html += '<div style="font-size:11px;font-weight:700;color:#9BA1A4;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;">Desglose</div>';
+    html += row('Cantidad', cantLabel);
+    html += row('Área total', fmt(areaTotal) + ' m²');
+    html += '<div style="border-top:1px solid #2a2e31;margin:8px 0;"></div>';
+    html += row('Placa × ' + cant, '$' + fmt(costoTotal) + ' costo');
+    adicLines.forEach(function(a) { html += row(a.label, '$' + fmt(a.subtotal)); });
+    html += '<div style="border-top:1px solid #2a2e31;margin:8px 0;"></div>';
+    html += row('Costo total', '<strong>$' + fmt(costoTotal) + '</strong>');
+    if (adicLines.length > 0) html += row('Adicionales', '<strong>$' + fmt(adicTotal) + '</strong>');
+    html += row('Margen placa (' + fmt(margen) + '%)', '<span style="color:' + mColor + ';">+$' + fmt(ventaBase - costoTotal) + '</span>');
+    html += '<div class="final-box" style="margin-top:12px;">';
+    html += '<span class="label2">Precio de venta</span>';
+    html += '<span class="value" style="color:#4ADE80;">$' + fmt(ventaTotal) + '</span>';
+    html += '</div>';
+
+    // Desglose fracciones útil
+    if (cant === 1) {
+      html += '<div style="margin-top:10px;padding:10px;background:#1a1e21;border-radius:8px;font-size:11px;color:#9BA1A4;">';
+      html += '<div style="margin-bottom:4px;font-weight:700;">Referencia fracciones:</div>';
+      html += '<div>½ placa: $' + fmt(ventaTotal / 2) + ' · ⅓ placa: $' + fmt(ventaTotal / 3) + '</div>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    out.innerHTML = html;
+  }
+
+  function attachPfListeners() {
+    // Config precios
+    var pfCostoEl = document.getElementById("pfCosto");
+    var pfVentaEl = document.getElementById("pfVenta");
+    if (!pfCostoEl) return;
+
+    // Populate from data
+    pfCostoEl.value = data.polyfan.costo || "";
+    pfVentaEl.value = data.polyfan.venta || "";
+
+    pfCostoEl.addEventListener("input", function() { data.polyfan.costo = num(this.value); renderPfOutput(); saveData(); });
+    pfVentaEl.addEventListener("input", function() { data.polyfan.venta = num(this.value); renderPfOutput(); saveData(); });
+
+    // Adicionales config
+    document.querySelectorAll(".pf-config").forEach(function(inp) {
+      var key = inp.getAttribute("data-pf");
+      inp.value = (data.polyfan.adicionales||{})[key] || "";
+      inp.addEventListener("input", function() {
+        if (!data.polyfan.adicionales) data.polyfan.adicionales = {};
+        data.polyfan.adicionales[key] = num(this.value);
+        renderPfAdicionalesList();
+        renderPfOutput();
+        saveData();
+      });
+    });
+
+    // Cantidad buttons
+    document.querySelectorAll(".pf-cant").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        var val = this.getAttribute("data-pf-cant");
+        document.querySelectorAll(".pf-cant").forEach(function(b) { b.classList.remove("active"); });
+        this.classList.add("active");
+        var customDiv = document.getElementById("pfCantCustom");
+        if (val === "custom") {
+          customDiv.style.display = "block";
+          pf.cant = num(document.getElementById("pfCantVal").value) || 1;
+        } else {
+          customDiv.style.display = "none";
+          pf.cant = parseFloat(val);
+        }
+        renderPfOutput();
+      });
+    });
+
+    document.getElementById("pfCantVal").addEventListener("input", function() {
+      pf.cant = num(this.value) || 1;
+      renderPfOutput();
+    });
+
+    // Adicionales checkboxes
+    document.getElementById("pfAdicionalesList").addEventListener("change", function(e) {
+      var t = e.target.closest("[data-pf-adicional]");
+      if (!t) return;
+      var id = t.getAttribute("data-pf-adicional");
+      var idx = pf.adicionales.indexOf(id);
+      if (t.checked && idx === -1) pf.adicionales.push(id);
+      if (!t.checked && idx !== -1) pf.adicionales.splice(idx, 1);
+      renderPfOutput();
+    });
+  }
+
+  // ── FIN POLYFAN ────────────────────────────────────────────────────────
+
+  async function init() {
+    await loadData();
+    if (!data.rotulados) data.rotulados = {
+      vinilos: [], posicionadorPrecio: 0,
+      complejidad: { baja: 0, media: 0, alta: 0 },
+      tiempo: { rapido: 0, medio: 0, lento: 0 },
+      margenPct: 30
+    };
+    if (!data.polyfan) data.polyfan = { costo: 0, venta: 0, adicionales: { pin1:0, pin2:0, pinM:0, col:0 } };
+    renderInkTab();
+    renderPrepRows();
+    renderProductsList();
+    renderBasesList();
+    renderRotVinilosList();
+    renderRotPosicionador();
+    renderPfAdicionalesList();
+    renderQuoteProductOptions();
+    renderQuotePrepChecklist();
+    renderCartSelects();
+    renderCartPrepList();
+    renderUnitButtons();
+    renderModeButtons();
+    renderMatrixRollNote();
+    renderQuoteOutput();
+    attachListeners();
+    attachCartListeners();
+    attachRotListeners();
+    attachPfListeners();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
