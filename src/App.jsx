@@ -7892,6 +7892,32 @@ function EditorEscalas({ escalas, onChange, compacto }) {
   );
 }
 
+// ── Cotizador integrado ──────────────────────────────────────────────────
+// El cotizador vive en el mismo sitio (public/cotizador.html) y se muestra adentro de la app.
+// Si ese archivo no está en este sitio, se usa la dirección configurada en los accesos.
+const esAccesoCotizador = (a) => /cotizador/i.test(`${a?.url||""} ${a?.nombre||""}`);
+function CotizadorView({ urlExterna }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    fetch("/cotizador.html", { cache:"no-store" })
+      .then(r => r.ok ? r.text() : "")
+      .then(t => { if (vivo) setSrc(t.includes("cotizadorConfig") ? "/cotizador.html" : (urlExterna || "")); })
+      .catch(() => { if (vivo) setSrc(urlExterna || ""); });
+    return () => { vivo = false; };
+  }, [urlExterna]);
+  if (src === null) return <div style={{ padding:40, textAlign:"center", color:"#a09080" }}>Cargando cotizador…</div>;
+  if (!src) return <div style={{ padding:40, textAlign:"center", color:"#a09080" }}>No encontré el cotizador en este sitio.</div>;
+  return (
+    <div className="cotizador-wrap">
+      <iframe title="Cotizador" src={src} className="cotizador-frame"/>
+      <div style={{ textAlign:"right", marginTop:6 }}>
+        <a href={src} target="_blank" rel="noreferrer" style={{ fontSize:12, color:"#a09080" }}>↗ Abrir el cotizador en otra pestaña</a>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente: Nueva Venta ───────────────────────────────────────────────
 function NuevaVentaView({ setView, showToast, clientes, empresa, configCargada }) {
   const cajaCfg = useCajaCfg();
@@ -14090,6 +14116,7 @@ export default function App() {
         .mobile-menu-btn{display:none;background:transparent;border:1.5px solid var(--c-border);color:var(--c-pri);font-size:20px;cursor:pointer;padding:5px 10px;border-radius:8px;font-weight:700;line-height:1}
         .ctx-btn{background:rgba(var(--c-pri-rgb),.1);color:var(--c-pri);border:1.5px solid rgba(var(--c-pri-rgb),.3);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:"DM Sans",sans-serif;transition:all .18s}
         .ctx-btn:hover{background:var(--c-pri);color:#fff}
+        .cotizador-frame{width:100%;height:calc(100vh - 150px);min-height:520px;border:none;border-radius:14px;background:#17191b;display:block;box-shadow:0 2px 14px rgba(0,0,0,.12)}
         @media(max-width:900px){
           .sidebar{position:fixed;top:0;left:0;height:100vh;z-index:200;transform:translateX(0);transition:width .25s cubic-bezier(.4,0,.2,1)}
           .sidebar.collapsed{width:0;overflow:hidden}
@@ -14128,6 +14155,7 @@ export default function App() {
           .card[style*="padding: 32px"],.card[style*="padding: 28px"],.card[style*="padding: 36px"]{padding:18px 14px!important}
           .modal-ov>div,div[style*="position: fixed"][style*="inset: 0"]>div{max-width:calc(100vw - 20px)!important;max-height:calc(100vh - 40px)!important;overflow-y:auto;padding-left:18px!important;padding-right:18px!important}
           .busq-global-box{top:calc(12px + env(safe-area-inset-top))}
+          .cotizador-frame{height:calc(100dvh - 54px - env(safe-area-inset-top) - 120px);min-height:420px;border-radius:10px}
           .compra-fila{grid-template-columns:1fr 1fr 1fr!important}
           .compra-fila>div:first-child{grid-column:1 / -1}
           .compra-fila label{display:block!important}
@@ -14199,7 +14227,8 @@ export default function App() {
               <span className="sidebar-label">Presupuestos</span>
             </button>
             {(APP_CFG.accesos||[]).filter(a => a && a.url).map((a, i) => (
-              <button key={"acc"+i} className="sidebar-item" onClick={()=>window.open(a.url,"_blank")} title={a.url}>
+              <button key={"acc"+i} className={`sidebar-item ${esAccesoCotizador(a) && view==="cotizador" ? "act" : ""}`}
+                onClick={()=> esAccesoCotizador(a) ? setView("cotizador") : window.open(a.url,"_blank")} title={a.url}>
                 <span className="sidebar-icon">{a.icono||"🔗"}</span>
                 <span className="sidebar-label">{a.nombre||a.url}</span>
               </button>
@@ -14264,6 +14293,7 @@ export default function App() {
           view==="ventas" ? "💰 Compras/Ventas" :
           view==="nuevaVenta" ? "💰 Ventas" :
           view==="presupuestos" ? "📋 Presupuestos" :
+          view==="cotizador" ? "💲 Cotizador" :
           view==="agenda" ? "📅 Agenda" :
           view==="proveedores" ? "💰 Compras/Ventas · Proveedores" :
           view==="nuevoProveedor" ? "🏭 Proveedores" :
@@ -14995,6 +15025,7 @@ export default function App() {
 
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
+        {view==="cotizador" && <CotizadorView urlExterna={(APP_CFG.accesos||[]).find(esAccesoCotizador)?.url}/>}
         {view==="produccion"   && <ProduccionView showToast={showToast} pedidos={pedidos}/>}
         {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido} clientes={clientes}/>}
 
@@ -15046,7 +15077,7 @@ export default function App() {
                 ["✅","Listos",() => irA("listos")], ["💰","Compras/Ventas",() => irA("ventas")], ["📋","Presupuestos",() => irA("presupuestos")],
                 ["👥","Clientes",() => irA("clientes")], ["🏷️","Productos",() => irA("insumos")], 
                 ["📊","Producción",() => irA("produccion")], ["⚙️","Configuración",() => irA("config")],
-                ...(APP_CFG.accesos||[]).filter(a => a && a.url).map(a => [a.icono||"🔗", a.nombre||"Acceso", () => { setMasAbierto(false); window.open(a.url,"_blank"); }]),
+                ...(APP_CFG.accesos||[]).filter(a => a && a.url).map(a => [a.icono||"🔗", a.nombre||"Acceso", () => { setMasAbierto(false); if (esAccesoCotizador(a)) irA("cotizador"); else window.open(a.url,"_blank"); }]),
                 ["🔒","Salir",() => { setMasAbierto(false); handleLogout(); }],
               ].map(([ico, lbl, fn]) => <button key={lbl} onClick={fn}><span>{ico}</span>{lbl}</button>)}
             </div>
