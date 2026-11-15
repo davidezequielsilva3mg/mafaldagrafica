@@ -3613,7 +3613,7 @@ function ModalCompraInsumo({ inicial, compras, proveedores, cotizador, onClose, 
   const unit = (parseFloat(f.precio)||0) / (parseFloat(f.cantidad)||1);
   const esRollo = f.unidad === "rollos";
   const areaRollo = (parseFloat(f.anchoM)||0) * (parseFloat(f.largoM)||0);
-  const materiales = materialesCotizador(cotizador);
+  const materiales = cotizador?.migradoMaterias ? [] : materialesCotizador(cotizador);
   const grupos = [...new Set(materiales.map(m => m.grupo))];
   const cambio = f.cotizadorRef ? cambioCotizador(cotizador, f.cotizadorRef, f) : null;
   const guardar = async () => {
@@ -7892,28 +7892,570 @@ function EditorEscalas({ escalas, onChange, compacto }) {
   );
 }
 
-// ── Cotizador integrado ──────────────────────────────────────────────────
-// El cotizador vive en el mismo sitio (public/cotizador.html) y se muestra adentro de la app.
-// Si ese archivo no está en este sitio, se usa la dirección configurada en los accesos.
+// ══ Cotizador (dentro de la app) ═════════════════════════════════════════
+// Los materiales salen de Servicios y Productos → Materias primas (campo `cotizador` = para qué se usa acá).
+// Lo que es propio del cotizador (precios de venta por m², cargos, ajustes) queda en cotizadorConfig/data.
+const USOS_COTIZADOR = [
+  { id:"impresion",    label:"🖨️ Material de impresión (rollo)" },
+  { id:"tinta",        label:"🎨 Tinta" },
+  { id:"base",         label:"🪧 Base rígida (plancha)" },
+  { id:"rotulado",     label:"✂️ Vinilo de rotulado (por metro)" },
+  { id:"posicionador", label:"📏 Posicionador (rollo)" },
+  { id:"polyfan",      label:"🟡 Polyfan (placa)" },
+];
+const PF_AREA = 1.2 * 0.6;
 const esAccesoCotizador = (a) => /cotizador/i.test(`${a?.url||""} ${a?.nombre||""}`);
-function CotizadorView({ urlExterna }) {
-  const [src, setSrc] = useState(null);
-  useEffect(() => {
-    let vivo = true;
-    fetch("/cotizador.html", { cache:"no-store" })
-      .then(r => r.ok ? r.text() : "")
-      .then(t => { if (vivo) setSrc(t.includes("cotizadorConfig") ? "/cotizador.html" : (urlExterna || "")); })
-      .catch(() => { if (vivo) setSrc(urlExterna || ""); });
-    return () => { vivo = false; };
-  }, [urlExterna]);
-  if (src === null) return <div style={{ padding:40, textAlign:"center", color:"#a09080" }}>Cargando cotizador…</div>;
-  if (!src) return <div style={{ padding:40, textAlign:"center", color:"#a09080" }}>No encontré el cotizador en este sitio.</div>;
+const PF_ADICIONALES = [
+  { id:"pin1", label:"Pintado 1 color" }, { id:"pin2", label:"Pintado 2 colores" },
+  { id:"pinM", label:"Pintado más colores" }, { id:"col", label:"Colocación" },
+];
+const fmtN = (n) => (Number(n)||0).toLocaleString("es-AR", { maximumFractionDigits: 2 });
+const $n = (n) => "$" + fmtN(Math.round((Number(n)||0) * 100) / 100);
+const nv = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const colorMargen = (m) => m >= 30 ? "#2e7d32" : m >= 15 ? "#e65100" : "#c62828";
+// Medidas que se piden en Materias primas según el uso en el cotizador
+function rendimientoPorMedidas(f) {
+  if (f.cotizador === "impresion" || f.cotizador === "posicionador") return nv(f.anchoRollo) * nv(f.largoRollo);
+  if (f.cotizador === "base") return nv(f.planchaAncho) * nv(f.planchaAlto) / 10000;
+  if (f.cotizador === "rotulado") return nv(f.anchoCm) / 100;
+  return null;
+}
+
+// Pasa los materiales del cotizador viejo (rollos, bases, tinta, vinilos, posicionador, polyfan) a Materias primas
+async function migrarCotizadorAMaterias(cz, materias) {
+  const nuevos = { products: (cz.products||[]).map(p => ({ ...p })), basesVenta: { ...(cz.basesVenta||{}) } };
+  const buscar = (nombre) => materias.find(m => normTxt(m.nombre) === normTxt(nombre));
+  const crear = async (datos) => {
+    const ex = buscar(datos.nombre);
+    if (ex) { await updateDoc(doc(db, "materiasPrimas", ex.fireId), { cotizador: datos.cotizador, ...(ex.rendimiento ? {} : { rendimiento: datos.rendimiento, unidadUso: datos.unidadUso }) }); return ex.fireId; }
+    const ref = await addDoc(collection(db, "materiasPrimas"), { descripcion:"", proveedorId:"", proveedor:"", stock:0, categoria:"Cotizador", categoriaKey:"", costoFecha: hoyISO(), origen:"cotizador", ...datos });
+    return ref.id;
+  };
+  let n = 0;
+  for (const p of nuevos.products) {
+    if (p.materiaId) continue;
+    const w = nv(p.rollWidthM) || nv(p.rollWidth) / 100, l = nv(p.rollLengthM);
+    const precio = nv(p.rollPrice) || (w && l ? nv(p.materialCost) * w * l : nv(p.materialCost));
+    p.materiaId = await crear({ nombre: p.name, cotizador:"impresion", unidad:"rollo", precioCosto: Math.round(precio),
+      anchoRollo: w || 0, largoRollo: l || 0, rendimiento: w && l ? w * l : (nv(p.rollPrice) ? 0 : 1), unidadUso:"m²" });
+    n++;
+  }
+  for (const b of (cz.bases||[])) {
+    const id = await crear({ nombre: b.name, cotizador:"base", unidad:"plancha", precioCosto: nv(b.costoPlancha),
+      planchaAncho: nv(b.ancho), planchaAlto: nv(b.alto), rendimiento: nv(b.ancho) * nv(b.alto) / 10000, unidadUso:"m²" });
+    if (nv(b.ventaPlancha)) nuevos.basesVenta[id] = nv(b.ventaPlancha);
+    n++;
+  }
+  let tintaId = cz.tintaId || "";
+  if (cz.ink && !tintaId) {
+    tintaId = await crear({ nombre:"Tinta plotter", cotizador:"tinta", unidad:"botella", precioCosto: nv(cz.ink.pricePerBottle), rendimiento: nv(cz.ink.bottleVolumeMl) || 1000, unidadUso:"ml" });
+    n++;
+  }
+  for (const v of (cz.rotulados?.vinilos||[])) {
+    const ancho = nv(v.anchoM) || 60;
+    await crear({ nombre: v.name, cotizador:"rotulado", unidad:"metro", precioCosto: nv(v.precioMetro), anchoCm: ancho, rendimiento: ancho / 100, unidadUso:"m²" });
+    n++;
+  }
+  if (nv(cz.rotulados?.posicionadorPrecio)) {
+    await crear({ nombre:"Cinta posicionadora", cotizador:"posicionador", unidad:"rollo", precioCosto: nv(cz.rotulados.posicionadorPrecio), anchoRollo:0.3, largoRollo:40, rendimiento:12, unidadUso:"m²" });
+    n++;
+  }
+  if (cz.polyfan && (nv(cz.polyfan.costo) || nv(cz.polyfan.venta))) {
+    await crear({ nombre:"Polyfan placa 1,20 × 0,60", cotizador:"polyfan", unidad:"placa", precioCosto: nv(cz.polyfan.costo), rendimiento:0, unidadUso:"" });
+    n++;
+  }
+  await setDoc(doc(db, "cotizadorConfig", "data"), { products: nuevos.products, basesVenta: nuevos.basesVenta, tintaId, migradoMaterias: hoyISO() }, { merge: true });
+  return n;
+}
+
+function CotizadorView({ showToast }) {
+  const [cz, setCz] = useState(null);
+  const [materias] = useColeccion("materiasPrimas");
+  const [tab, setTab] = useState("impresos");
+  const [migrando, setMigrando] = useState(false);
+  const pendiente = useRef({});
+  const timer = useRef(null);
+  useEffect(() => onSnapshot(doc(db, "cotizadorConfig", "data"),
+    s => setCz(prev => ({ ...(s.exists() ? s.data() : {}), ...pendiente.current })), () => setCz({})), []);
+  // Guardado con pausa (para no escribir en cada tecla)
+  const guardar = (campos) => {
+    pendiente.current = { ...pendiente.current, ...campos };
+    setCz(c => ({ ...c, ...campos }));
+    clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      const datos = pendiente.current; pendiente.current = {};
+      try { await setDoc(doc(db, "cotizadorConfig", "data"), datos, { merge: true }); } catch(e) { console.error(e); showToast("No se pudo guardar el ajuste","error"); }
+    }, 700);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  if (!cz) return <div style={{ padding:40, textAlign:"center", color:"#a09080" }}>Cargando cotizador…</div>;
+
+  const deUso = (u) => materias.filter(m => m.cotizador === u).sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""));
+  const tinta = materias.find(m => m.fireId === cz.tintaId) || deUso("tinta")[0];
+  // Si todavía no hay tinta en Materias primas, se usa la tinta cargada en el cotizador viejo
+  const tintaM2 = (tinta ? costoUsoMateria(tinta) : (nv(cz.ink?.bottleVolumeMl) ? nv(cz.ink?.pricePerBottle) / nv(cz.ink.bottleVolumeMl) : 0)) * nv(cz.ink?.yieldMlM2 ?? 16);
+  const productos = (cz.products||[]).map(p => {
+    const m = materias.find(x => x.fireId === p.materiaId);
+    return { ...p, materia: m, costoMat: m ? costoUsoMateria(m) : nv(p.materialCost), anchoRolloM: m ? nv(m.anchoRollo) : nv(p.rollWidth) / 100 };
+  });
+  const prep = cz.prepCharges || [];
+  const faltaMigrar = !cz.migradoMaterias && ((cz.products||[]).some(p => !p.materiaId) || (cz.bases||[]).length || (cz.rotulados?.vinilos||[]).length);
+  const migrar = async () => {
+    if (!window.confirm("Se van a crear en Materias primas los rollos, bases, tinta, vinilos de rotulado, posicionador y polyfan del cotizador, con sus precios actuales. ¿Seguimos?")) return;
+    setMigrando(true);
+    try { const n = await migrarCotizadorAMaterias(cz, materias); showToast(`Listo: ${n} materiales pasados a Materias primas ✅`); }
+    catch(e) { console.error(e); showToast("Error al pasar los materiales","error"); }
+    setMigrando(false);
+  };
+
+  const TABS = [["impresos","🖨️ Impresos"],["carteleria","🪧 Cartelería"],["rotulados","✂️ Rotulados"],["polyfan","🟡 Polyfan"],["ajustes","⚙️ Precios y ajustes"]];
+  const props = { cz, guardar, materias, deUso, productos, tintaM2, tinta, prep, showToast };
   return (
-    <div className="cotizador-wrap">
-      <iframe title="Cotizador" src={src} className="cotizador-frame"/>
-      <div style={{ textAlign:"right", marginTop:6 }}>
-        <a href={src} target="_blank" rel="noreferrer" style={{ fontSize:12, color:"#a09080" }}>↗ Abrir el cotizador en otra pestaña</a>
+    <div>
+      {faltaMigrar && (
+        <div style={{ ...prodCard, padding:"14px 18px", marginBottom:14, borderLeft:"5px solid #e65100", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+          <div style={{ flex:"1 1 260px", fontSize:13, color:"#1a2340" }}>
+            <b>📦 Pasá los materiales del cotizador a Materias primas.</b>
+            <div style={{ fontSize:12, color:"#a09080" }}>Rollos, bases, tinta, vinilos de rotulado, posicionador y polyfan quedan en un solo lugar y se actualizan con las compras. Se hace una sola vez.</div>
+          </div>
+          <button onClick={migrar} disabled={migrando} style={btnPri("#e65100")}>{migrando ? "Pasando…" : "📦 Pasarlos ahora"}</button>
+        </div>
+      )}
+      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+        {TABS.map(([id, l]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ padding:"9px 18px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background: tab===id ? (id === "ajustes" ? "#1a2340" : "var(--c-pri)") : "#fff", color: tab===id ? "#fff" : "#4a5568",
+              boxShadow: tab===id ? "0 3px 10px rgba(var(--c-pri-rgb),.2)" : "0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>{l}</button>
+        ))}
       </div>
+      {tab === "impresos"   && <CotImpresos {...props}/>}
+      {tab === "carteleria" && <CotCarteleria {...props}/>}
+      {tab === "rotulados"  && <CotRotulados {...props}/>}
+      {tab === "polyfan"    && <CotPolyfan {...props}/>}
+      {tab === "ajustes"    && <CotAjustes {...props}/>}
+    </div>
+  );
+}
+
+// ── piezas visuales compartidas ──
+const cotLbl = { display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:5 };
+function CotDosColumnas({ izq, der }) {
+  return (
+    <div className="cot-2col">
+      <div style={{ ...prodCard, padding:"18px 20px" }}>{izq}</div>
+      <div className="cot-res">{der}</div>
+    </div>
+  );
+}
+function CotBotones({ opciones, valor, onChange }) {
+  return (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+      {opciones.map(([v, l]) => (
+        <button key={v} type="button" onClick={() => onChange(v)}
+          style={{ flex:"1 1 0", padding:"8px 10px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap",
+            border:`1.5px solid ${valor===v ? "var(--c-pri)" : "var(--c-border)"}`, background: valor===v ? "var(--c-tint)" : "#fff", color: valor===v ? "var(--c-pri)" : "#4a5568" }}>{l}</button>
+      ))}
+    </div>
+  );
+}
+function CotCampo({ label, value, onChange, placeholder = "0", sufijo }) {
+  return (
+    <div>
+      <label style={cotLbl}>{label}</label>
+      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+        <input type="number" inputMode="decimal" value={value ?? ""} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={prodInp}/>
+        {sufijo && <span style={{ fontSize:12, color:"#a09080", whiteSpace:"nowrap" }}>{sufijo}</span>}
+      </div>
+    </div>
+  );
+}
+function CotFila({ l, v, fuerte, color, nota }) {
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", gap:10, padding:"6px 0", fontSize: fuerte ? 14 : 13, borderBottom:"1px solid var(--c-row)" }}>
+      <span style={{ color: fuerte ? "#1a2340" : "#4a5568", fontWeight: fuerte ? 700 : 400 }}>{l}{nota && <span style={{ marginLeft:6, fontSize:10, fontWeight:700, background:"var(--c-tint)", color:"var(--c-pri)", borderRadius:10, padding:"1px 6px" }}>{nota}</span>}</span>
+      <span style={{ fontWeight: fuerte ? 800 : 600, color: color || "#1a2340", whiteSpace:"nowrap" }}>{v}</span>
+    </div>
+  );
+}
+function CotResultado({ filas, total, etiqueta = "Precio recomendado", vacio, extra }) {
+  return (
+    <div style={{ ...prodCard, padding:"18px 20px" }}>
+      {vacio ? <div style={{ color:"#a09080", fontSize:13, textAlign:"center", padding:"30px 0" }}>{vacio}</div> : (
+        <>
+          <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", marginBottom:6 }}>Desglose</div>
+          {filas}
+          <div style={{ marginTop:14, background:"linear-gradient(135deg, var(--c-pri), #ff8a50)", borderRadius:12, padding:"14px 18px", color:"#fff" }}>
+            <div style={{ fontSize:11, fontWeight:700, textTransform:"uppercase", opacity:.9 }}>{etiqueta}</div>
+            <div style={{ fontSize:30, fontWeight:800 }}>{$n(total)}</div>
+          </div>
+          {extra}
+        </>
+      )}
+    </div>
+  );
+}
+function CotChecks({ items, elegidos, onChange, precio }) {
+  if (!items.length) return <div style={{ fontSize:12, color:"#a09080" }}>No hay cargos cargados (se agregan en ⚙️ Precios y ajustes).</div>;
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+      {items.map(p => (
+        <label key={p.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", borderRadius:8, border:`1.5px solid ${elegidos.includes(p.id) ? "var(--c-pri)" : "var(--c-border)"}`, background: elegidos.includes(p.id) ? "var(--c-tint)" : "#fff", cursor:"pointer", fontSize:13 }}>
+          <input type="checkbox" checked={elegidos.includes(p.id)} onChange={e => onChange(e.target.checked ? [...elegidos, p.id] : elegidos.filter(x => x !== p.id))} style={{ accentColor:"var(--c-pri)" }}/>
+          <span style={{ flex:1, color:"#1a2340" }}>{p.name || p.label}</span>
+          <span style={{ fontWeight:700, color:"#4a5568" }}>{precio(p)}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+const aMetros = (v, unidad) => unidad === "cm" ? nv(v) / 100 : nv(v);
+function SinMateriales({ que, uso }) {
+  return <div style={{ fontSize:12, color:"#e65100", background:"#fff3e0", borderRadius:8, padding:"8px 10px" }}>
+    No hay {que}. Cargalos en <b>Servicios y Productos → Materias primas</b> con "Uso en el cotizador: {USOS_COTIZADOR.find(u => u.id === uso)?.label}".
+  </div>;
+}
+
+// ── Impresos ──
+function CotImpresos({ productos, tintaM2, prep }) {
+  const [q, setQ] = useState({ productId:"", modo:"simple", unidad:"cm", w:"", h:"", cw:"", ch:"", sep:"0.5", cant:"", prepIds:[] });
+  const set = (k, v) => setQ(x => ({ ...x, [k]: v }));
+  const p = productos.find(x => x.id === q.productId) || productos[0];
+  if (!productos.length) return <div style={{ ...prodCard, padding:30, textAlign:"center", color:"#a09080" }}>No hay productos de impresión. Agregalos en ⚙️ Precios y ajustes.</div>;
+  let area = 0, matriz = null;
+  if (q.modo === "matriz") {
+    const cw = aMetros(q.cw, q.unidad), ch = aMetros(q.ch, q.unidad), sp = aMetros(q.sep, q.unidad), n = nv(q.cant), rw = p.anchoRolloM;
+    if (cw > 0 && ch > 0 && n > 0 && rw > 0) {
+      const columnas = Math.min(Math.max(1, Math.floor((rw + sp) / (cw + sp))), n), filas = Math.ceil(n / columnas);
+      const usadoAncho = columnas * cw + (columnas - 1) * sp, usadoLargo = filas * ch + (filas - 1) * sp;
+      matriz = { columnas, filas, usadoAncho, usadoLargo, rw }; area = rw * usadoLargo;
+    }
+  } else area = aMetros(q.w, q.unidad) * aMetros(q.h, q.unidad);
+  const facturable = Math.max(area, nv(p.minBillableArea));
+  const costoMat = facturable * p.costoMat * (1 + nv(p.wastePct) / 100);
+  const costoTinta = facturable * tintaM2;
+  const costo = costoMat + costoTinta;
+  const porSup = facturable * nv(p.salePriceM2);
+  const base = Math.max(porSup, nv(p.minPrice));
+  const elegidos = prep.filter(c => q.prepIds.includes(c.id));
+  const prepTotal = elegidos.reduce((s, c) => s + (c.porM2 ? nv(c.price) * facturable : nv(c.price)), 0);
+  const total = area > 0 ? base + prepTotal : 0;
+  const ganancia = total - costo, margen = total > 0 ? ganancia / total * 100 : 0;
+  return (
+    <CotDosColumnas
+      izq={<div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div><label style={cotLbl}>Producto</label>
+          <select value={p.id} onChange={e => set("productId", e.target.value)} style={{ ...prodInp, cursor:"pointer", fontWeight:700 }}>
+            {productos.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select></div>
+        <div><label style={cotLbl}>Modo de cálculo</label><CotBotones opciones={[["simple","Pieza única"],["matriz","Matriz (varias copias)"]]} valor={q.modo} onChange={v => set("modo", v)}/></div>
+        {q.modo === "simple" ? (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <CotCampo label="Ancho" value={q.w} onChange={v => set("w", v)} sufijo={q.unidad}/>
+            <CotCampo label="Alto" value={q.h} onChange={v => set("h", v)} sufijo={q.unidad}/>
+          </div>
+        ) : (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <CotCampo label="Ancho de copia" value={q.cw} onChange={v => set("cw", v)} sufijo={q.unidad}/>
+            <CotCampo label="Alto de copia" value={q.ch} onChange={v => set("ch", v)} sufijo={q.unidad}/>
+            <CotCampo label="Separación" value={q.sep} onChange={v => set("sep", v)} sufijo={q.unidad}/>
+            <CotCampo label="Cantidad de copias" value={q.cant} onChange={v => set("cant", v)}/>
+            <div style={{ gridColumn:"1 / -1", fontSize:12, color:"#a09080" }}>Ancho del rollo: {p.anchoRolloM ? `${fmtN(p.anchoRolloM * 100)} cm` : "— (cargalo en la materia prima)"}</div>
+          </div>
+        )}
+        <div><label style={cotLbl}>Medidas en</label><CotBotones opciones={[["cm","cm"],["m","m"]]} valor={q.unidad} onChange={v => set("unidad", v)}/></div>
+        <div><label style={cotLbl}>Cargos de preparación</label>
+          <CotChecks items={prep} elegidos={q.prepIds} onChange={v => set("prepIds", v)} precio={c => `${$n(c.price)}${c.porM2 ? "/m²" : ""}`}/></div>
+      </div>}
+      der={<CotResultado vacio={area > 0 ? null : (q.modo === "matriz" ? "Cargá medidas de la copia, separación y cantidad." : "Cargá ancho y alto para ver la cotización.")} total={total}
+        filas={<>
+          {matriz && <>
+            <CotFila l="Copias por fila" v={matriz.columnas}/><CotFila l="Filas" v={matriz.filas}/>
+            <CotFila l="Tamaño ocupado" v={`${fmtN(matriz.usadoAncho * 100)} × ${fmtN(matriz.usadoLargo * 100)} cm`}/>
+            <CotFila l="Largo de rollo usado" v={`${fmtN(matriz.usadoLargo)} m`}/>
+          </>}
+          <CotFila l="Superficie real" v={`${fmtN(area)} m²`}/>
+          <CotFila l="Superficie facturable" v={`${fmtN(facturable)} m²`} nota={facturable > area ? "mínimo" : null}/>
+          <CotFila l={`Material${p.materia ? ` (${p.materia.nombre})` : ""}`} v={$n(costoMat)}/>
+          <CotFila l="Tinta" v={$n(costoTinta)}/>
+          <CotFila l="Costo total" v={$n(costo)} fuerte/>
+          <CotFila l="Precio por superficie" v={$n(porSup)}/>
+          <CotFila l="Precio mínimo de trabajo" v={$n(p.minPrice)}/>
+          <CotFila l="→ Precio base" v={$n(base)} fuerte/>
+          {elegidos.map(c => <CotFila key={c.id} l={c.name} v={$n(c.porM2 ? nv(c.price) * facturable : c.price)} nota={c.porM2 ? `×${fmtN(facturable)} m²` : null}/>)}
+          {elegidos.length > 0 && <CotFila l="→ Cargos de preparación" v={$n(prepTotal)} fuerte/>}
+          <CotFila l="Ganancia estimada" v={`${$n(ganancia)} (${fmtN(Math.round(margen * 10) / 10)}%)`} color={colorMargen(margen)}/>
+        </>}/>}
+    />
+  );
+}
+
+// ── Cartelería ──
+function CotCarteleria({ productos, deUso, cz, prep }) {
+  const bases = deUso("base");
+  const [q, setQ] = useState({ unidad:"cm", w:"", h:"", materialId:"", baseId:"", prepIds:[], minimo:"" });
+  const set = (k, v) => setQ(x => ({ ...x, [k]: v }));
+  const m2 = aMetros(q.w, q.unidad) * aMetros(q.h, q.unidad);
+  const mat = productos.find(x => x.id === q.materialId) || productos[0];
+  const base = bases.find(b => b.fireId === q.baseId);
+  const baseCosto = base ? costoUsoMateria(base) : 0;
+  const baseVenta = base && nv(base.rendimiento) > 0 ? nv((cz.basesVenta||{})[base.fireId]) / nv(base.rendimiento) : 0;
+  const elegidos = prep.filter(c => q.prepIds.includes(c.id));
+  const prepM2 = elegidos.reduce((s, c) => s + nv(c.price), 0);
+  const costoM2 = (mat ? mat.costoMat : 0) + baseCosto + prepM2;
+  const ventaM2 = (mat ? nv(mat.salePriceM2) : 0) + baseVenta + prepM2;
+  const costo = costoM2 * m2, ventaRaw = ventaM2 * m2, total = Math.max(ventaRaw, nv(q.minimo));
+  const margen = total > 0 ? (total - costo) / total * 100 : 0;
+  return (
+    <CotDosColumnas
+      izq={<div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+          <CotCampo label="Ancho" value={q.w} onChange={v => set("w", v)} sufijo={q.unidad}/>
+          <CotCampo label="Alto" value={q.h} onChange={v => set("h", v)} sufijo={q.unidad}/>
+        </div>
+        <div><label style={cotLbl}>Medidas en</label><CotBotones opciones={[["cm","cm"],["m","m"]]} valor={q.unidad} onChange={v => set("unidad", v)}/></div>
+        <div><label style={cotLbl}>Material (vinilo, lona…)</label>
+          <select value={mat?.id || ""} onChange={e => set("materialId", e.target.value)} style={{ ...prodInp, cursor:"pointer" }}>
+            {productos.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select></div>
+        <div><label style={cotLbl}>Base rígida</label>
+          {bases.length ? (
+            <select value={q.baseId} onChange={e => set("baseId", e.target.value)} style={{ ...prodInp, cursor:"pointer" }}>
+              <option value="">— Sin base —</option>
+              {bases.map(b => <option key={b.fireId} value={b.fireId}>{b.nombre}</option>)}
+            </select>
+          ) : <SinMateriales que="bases rígidas" uso="base"/>}</div>
+        <div><label style={cotLbl}>Preparación (por m²)</label>
+          <CotChecks items={prep} elegidos={q.prepIds} onChange={v => set("prepIds", v)} precio={c => `${$n(c.price)}/m²`}/></div>
+        <CotCampo label="Precio mínimo de trabajo" value={q.minimo} onChange={v => set("minimo", v)}/>
+      </div>}
+      der={<CotResultado vacio={m2 > 0 ? null : "Cargá las medidas del cartel."} total={total} etiqueta="Precio de venta"
+        filas={<>
+          <CotFila l="Superficie" v={`${fmtN(m2)} m²`}/>
+          {mat && <CotFila l={`${mat.name} — material`} v={`${$n(mat.costoMat * m2)} costo · ${$n(nv(mat.salePriceM2) * m2)} venta`}/>}
+          {base && <CotFila l={`${base.nombre} — base`} v={`${$n(baseCosto * m2)} costo · ${$n(baseVenta * m2)} venta`}/>}
+          {elegidos.map(c => <CotFila key={c.id} l={c.name} v={$n(nv(c.price) * m2)}/>)}
+          <CotFila l="Costo total" v={$n(costo)} fuerte/>
+          <CotFila l="Margen" v={`${fmtN(Math.round(margen * 10) / 10)}%`} color={colorMargen(margen)} nota={nv(q.minimo) > ventaRaw ? "mínimo" : null}/>
+        </>}/>}
+    />
+  );
+}
+
+// ── Rotulados ──
+function CotRotulados({ deUso, cz }) {
+  const vinilos = deUso("rotulado"), pos = deUso("posicionador")[0];
+  const r = cz.rotulados || {};
+  const [q, setQ] = useState({ viniloId:"", w:"", h:"", comp:"baja", tiempo:"rapido" });
+  const set = (k, v) => setQ(x => ({ ...x, [k]: v }));
+  const vin = vinilos.find(v => v.fireId === q.viniloId) || vinilos[0];
+  const m2 = nv(q.w) / 100 * nv(q.h) / 100;
+  const vM2 = vin ? costoUsoMateria(vin) : 0, pM2 = pos ? costoUsoMateria(pos) : 0;
+  const cM2 = nv((r.complejidad||{})[q.comp]), tM2 = nv((r.tiempo||{})[q.tiempo]);
+  const margenPct = nv(r.margenPct ?? 30);
+  const costo = (vM2 + pM2 + cM2 + tM2) * m2;
+  const venta = margenPct < 100 ? costo / (1 - margenPct / 100) : costo;
+  return (
+    <CotDosColumnas
+      izq={<div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div><label style={cotLbl}>Vinilo</label>
+          {vinilos.length ? (
+            <select value={vin?.fireId || ""} onChange={e => set("viniloId", e.target.value)} style={{ ...prodInp, cursor:"pointer" }}>
+              {vinilos.map(v => <option key={v.fireId} value={v.fireId}>{v.nombre}</option>)}
+            </select>
+          ) : <SinMateriales que="vinilos de rotulado" uso="rotulado"/>}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+          <CotCampo label="Ancho" value={q.w} onChange={v => set("w", v)} sufijo="cm"/>
+          <CotCampo label="Alto" value={q.h} onChange={v => set("h", v)} sufijo="cm"/>
+        </div>
+        <div><label style={cotLbl}>Complejidad</label><CotBotones opciones={[["baja","Baja"],["media","Media"],["alta","Alta"]]} valor={q.comp} onChange={v => set("comp", v)}/></div>
+        <div><label style={cotLbl}>Tiempo</label><CotBotones opciones={[["rapido","Rápido"],["medio","Medio"],["lento","Lento"]]} valor={q.tiempo} onChange={v => set("tiempo", v)}/></div>
+        {!pos && <div style={{ fontSize:12, color:"#a09080" }}>Sin posicionador cargado (Materias primas → Uso: Posicionador).</div>}
+      </div>}
+      der={<CotResultado vacio={m2 > 0 ? null : "Cargá ancho y alto."} total={venta} etiqueta="Precio de venta"
+        filas={<>
+          <CotFila l="Superficie" v={`${fmtN(m2)} m²`}/>
+          {vin && <CotFila l={vin.nombre} v={$n(vM2 * m2)}/>}
+          <CotFila l="Posicionador" v={$n(pM2 * m2)}/>
+          {cM2 > 0 && <CotFila l={`Complejidad ${q.comp}`} v={$n(cM2 * m2)}/>}
+          {tM2 > 0 && <CotFila l={`Tiempo ${q.tiempo}`} v={$n(tM2 * m2)}/>}
+          <CotFila l="Costo total" v={$n(costo)} fuerte/>
+          <CotFila l={`Margen (${fmtN(margenPct)}%)`} v={`+${$n(venta - costo)}`} color={colorMargen(margenPct)}/>
+        </>}/>}
+    />
+  );
+}
+
+// ── Polyfan ──
+function CotPolyfan({ deUso, cz }) {
+  const placa = deUso("polyfan")[0];
+  const pf = cz.polyfan || {};
+  const [cantSel, setCantSel] = useState("1");
+  const [cantLibre, setCantLibre] = useState("");
+  const [adic, setAdic] = useState([]);
+  const cant = cantSel === "otra" ? (nv(cantLibre) || 1) : nv(cantSel);
+  const costo = (placa ? nv(placa.precioCosto) : nv(pf.costo)) * cant;
+  const ventaBase = nv(pf.venta) * cant;
+  const lineas = PF_ADICIONALES.filter(a => adic.includes(a.id)).map(a => ({ ...a, sub: nv((pf.adicionales||{})[a.id]) * cant }));
+  const adicTotal = lineas.reduce((s, a) => s + a.sub, 0);
+  const total = ventaBase + adicTotal;
+  const margen = total > 0 ? (total - costo - adicTotal) / total * 100 : 0;
+  const etiqueta = cant === 1 ? "1 placa" : cant === 0.5 ? "½ placa" : Math.abs(cant - 0.33) < 0.01 ? "⅓ placa" : `${fmtN(cant)} placas`;
+  return (
+    <CotDosColumnas
+      izq={<div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ fontSize:12, color:"#a09080" }}>Placa estándar: 1,20 × 0,60 m = 0,72 m²{placa ? ` · costo ${$n(placa.precioCosto)} (${placa.nombre})` : ""}</div>
+        <div><label style={cotLbl}>Cantidad</label>
+          <CotBotones opciones={[["0.33","⅓"],["0.5","½"],["1","1"],["2","2"],["otra","Otra"]]} valor={cantSel} onChange={setCantSel}/>
+          {cantSel === "otra" && <input type="number" value={cantLibre} onChange={e => setCantLibre(e.target.value)} placeholder="Cantidad de placas" style={{ ...prodInp, marginTop:8 }}/>}
+        </div>
+        <div><label style={cotLbl}>Adicionales</label>
+          <CotChecks items={PF_ADICIONALES} elegidos={adic} onChange={setAdic} precio={a => nv((pf.adicionales||{})[a.id]) ? $n((pf.adicionales||{})[a.id]) : "sin precio"}/></div>
+      </div>}
+      der={<CotResultado total={total} etiqueta="Precio de venta"
+        filas={<>
+          <CotFila l="Cantidad" v={etiqueta}/>
+          <CotFila l="Área total" v={`${fmtN(PF_AREA * cant)} m²`}/>
+          <CotFila l={`Placa × ${fmtN(cant)}`} v={`${$n(costo)} costo`}/>
+          {lineas.map(a => <CotFila key={a.id} l={a.label} v={$n(a.sub)}/>)}
+          <CotFila l="Costo total" v={$n(costo)} fuerte/>
+          {lineas.length > 0 && <CotFila l="Adicionales" v={$n(adicTotal)} fuerte/>}
+          <CotFila l={`Margen placa (${fmtN(Math.round(margen * 10) / 10)}%)`} v={`+${$n(ventaBase - costo)}`} color={colorMargen(margen)}/>
+        </>}
+        extra={cant === 1 && total > 0 ? <div style={{ marginTop:10, fontSize:12, color:"#a09080" }}>Referencia: ½ placa {$n(total / 2)} · ⅓ placa {$n(total / 3)}</div> : null}/>}
+    />
+  );
+}
+
+// ── Precios y ajustes ──
+function CotAjustes({ cz, guardar, materias, deUso, productos, tintaM2, tinta, prep }) {
+  const [abierto, setAbierto] = useState(null);
+  const [nuevoProd, setNuevoProd] = useState("");
+  const [nuevoCargo, setNuevoCargo] = useState({ name:"", price:"" });
+  const setProd = (id, campo, val) => guardar({ products: (cz.products||[]).map(p => p.id === id ? { ...p, [campo]: campo === "name" || campo === "materiaId" ? val : nv(val) } : p) });
+  const setPrep = (id, campo, val) => guardar({ prepCharges: prep.map(c => c.id === id ? { ...c, [campo]: val } : c) });
+  const r = cz.rotulados || {}, pf = cz.polyfan || {};
+  const setRot = (grupo, k, v) => guardar({ rotulados: { ...r, ...(grupo ? { [grupo]: { ...(r[grupo]||{}), [k]: nv(v) } } : { [k]: nv(v) }) } });
+  const setPf = (grupo, k, v) => guardar({ polyfan: { ...pf, ...(grupo ? { [grupo]: { ...(pf[grupo]||{}), [k]: nv(v) } } : { [k]: nv(v) }) } });
+  const rollos = deUso("impresion"), tintas = deUso("tinta"), bases = deUso("base");
+  const seccion = (titulo, sub, cuerpo) => (
+    <div style={{ ...prodCard, padding:"16px 20px", marginBottom:14 }}>
+      <div style={{ fontSize:15, fontWeight:700, color:"#1a2340" }}>{titulo}</div>
+      {sub && <div style={{ fontSize:12, color:"#a09080", margin:"2px 0 12px" }}>{sub}</div>}
+      {cuerpo}
+    </div>
+  );
+  const grid = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:10 };
+  return (
+    <div>
+      <div style={{ fontSize:12, color:"#a09080", marginBottom:12 }}>🧱 Los costos de los materiales se cargan en <b>Servicios y Productos → Materias primas</b> (y se actualizan solos con cada compra). Acá van los precios de venta y los ajustes del cotizador.</div>
+
+      {seccion("🖨️ Productos de impresión", "Precio de venta por m² de cada producto y de qué material se imprime.", <>
+        {productos.map(p => {
+          const costoM2 = p.costoMat * (1 + nv(p.wastePct) / 100) + tintaM2;
+          const margen = nv(p.salePriceM2) > 0 ? (nv(p.salePriceM2) - costoM2) / nv(p.salePriceM2) * 100 : 0;
+          const ab = abierto === p.id;
+          return (
+            <div key={p.id} style={{ border:"1px solid var(--c-border)", borderLeft:`4px solid ${colorMargen(margen)}`, borderRadius:10, marginBottom:8, background:"#fff" }}>
+              <div onClick={() => setAbierto(ab ? null : p.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", cursor:"pointer", flexWrap:"wrap" }}>
+                <b style={{ flex:"1 1 160px", color:"#1a2340" }}>{p.name}</b>
+                <span style={{ fontSize:12, color:"#a09080" }}>costo {$n(costoM2)}/m²</span>
+                <span style={{ fontSize:13, fontWeight:700 }}>{$n(p.salePriceM2)}/m²</span>
+                <span style={{ fontSize:12, fontWeight:800, color:"#fff", background:colorMargen(margen), borderRadius:20, padding:"2px 9px" }}>{margen >= 0 ? "+" : ""}{fmtN(Math.round(margen))}%</span>
+                <span style={{ color:"#a09080" }}>{ab ? "▴" : "▾"}</span>
+              </div>
+              {ab && (
+                <div style={{ padding:"0 14px 14px", display:"flex", flexDirection:"column", gap:10 }}>
+                  <div><label style={cotLbl}>Nombre</label><input value={p.name||""} onChange={e => setProd(p.id, "name", e.target.value)} style={prodInp}/></div>
+                  <div><label style={cotLbl}>Material (materia prima)</label>
+                    <select value={p.materiaId||""} onChange={e => setProd(p.id, "materiaId", e.target.value)} style={{ ...prodInp, cursor:"pointer" }}>
+                      <option value="">— Elegí el rollo —</option>
+                      {(rollos.length ? rollos : materias).map(m => <option key={m.fireId} value={m.fireId}>{m.nombre}</option>)}
+                    </select>
+                    {p.materia ? <div style={{ fontSize:12, color:"#1565c0", marginTop:4 }}>{$n(p.materia.precioCosto)} por {p.materia.unidad || "rollo"} ÷ {fmtN(p.materia.rendimiento)} m² = <b>{$n(p.costoMat)}/m²</b>{p.anchoRolloM ? ` · ancho ${fmtN(p.anchoRolloM * 100)} cm` : ""}</div>
+                      : <div style={{ fontSize:12, color:"#e65100", marginTop:4 }}>Sin materia prima: usa el costo viejo {$n(p.materialCost)}/m²</div>}
+                  </div>
+                  <div style={grid}>
+                    <CotCampo label="Precio venta / m²" value={p.salePriceM2} onChange={v => setProd(p.id, "salePriceM2", v)}/>
+                    <CotCampo label="Desperdicio %" value={p.wastePct} onChange={v => setProd(p.id, "wastePct", v)}/>
+                    <CotCampo label="Superficie mín. (m²)" value={p.minBillableArea} onChange={v => setProd(p.id, "minBillableArea", v)}/>
+                    <CotCampo label="Precio mínimo $" value={p.minPrice} onChange={v => setProd(p.id, "minPrice", v)}/>
+                  </div>
+                  <div style={{ fontSize:12, color:"#4a5568" }}>Costo por m²: material {$n(p.costoMat)}{nv(p.wastePct) ? ` + ${p.wastePct}% desperdicio` : ""} + tinta {$n(tintaM2)} = <b>{$n(costoM2)}</b></div>
+                  <button onClick={() => { if (window.confirm(`¿Borrar "${p.name}" del cotizador?`)) guardar({ products: (cz.products||[]).filter(x => x.id !== p.id) }); }} style={{ ...btnDel, alignSelf:"flex-start" }}>🗑 Borrar producto</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ display:"flex", gap:8, marginTop:6 }}>
+          <input value={nuevoProd} onChange={e => setNuevoProd(e.target.value)} placeholder="Nuevo producto (ej: Vinilo microperforado)" style={prodInp}/>
+          <button onClick={() => { if (!nuevoProd.trim()) return; const id = String(Date.now());
+            guardar({ products: [...(cz.products||[]), { id, name:nuevoProd.trim(), materiaId:"", materialCost:0, salePriceM2:0, wastePct:0, minBillableArea:0, minPrice:0 }] }); setNuevoProd(""); setAbierto(id); }}
+            style={btnPri()}>➕ Agregar</button>
+        </div>
+      </>)}
+
+      {seccion("🎨 Tinta", "Qué tinta usa el plotter y cuánto gasta por m².", (
+        <div style={grid}>
+          <div><label style={cotLbl}>Tinta (materia prima)</label>
+            {tintas.length ? (
+              <select value={tinta?.fireId || ""} onChange={e => guardar({ tintaId: e.target.value })} style={{ ...prodInp, cursor:"pointer" }}>
+                {tintas.map(t => <option key={t.fireId} value={t.fireId}>{t.nombre}</option>)}
+              </select>
+            ) : <SinMateriales que="tintas" uso="tinta"/>}</div>
+          <CotCampo label="Rendimiento (ml por m²)" value={cz.ink?.yieldMlM2 ?? 16} onChange={v => guardar({ ink: { ...(cz.ink||{}), yieldMlM2: nv(v) } })}/>
+          <div style={{ alignSelf:"end", fontSize:13, color:"#1a2340", paddingBottom:10 }}>
+            {tinta ? <>{$n(costoUsoMateria(tinta))}/ml → <b>{$n(tintaM2)} por m²</b></> : "—"}
+            <div style={{ fontSize:11, color:"#a09080" }}>Cabezal i3200: 12–16 ml/m² según cobertura.</div>
+          </div>
+        </div>
+      ))}
+
+      {seccion("🪧 Bases rígidas: precio de venta", "El costo sale de Materias primas; acá ponés a cuánto vendés cada plancha.", bases.length ? bases.map(b => {
+        const venta = nv((cz.basesVenta||{})[b.fireId]), area = nv(b.rendimiento);
+        return (
+          <div key={b.fireId} style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap", padding:"8px 0", borderBottom:"1px solid var(--c-row)" }}>
+            <b style={{ flex:"1 1 160px", color:"#1a2340" }}>{b.nombre}</b>
+            <span style={{ fontSize:12, color:"#a09080" }}>{area ? `${fmtN(area)} m² · costo ${$n(costoUsoMateria(b))}/m²` : "falta la medida de la plancha"}</span>
+            <div style={{ width:150 }}><input type="number" value={venta || ""} onChange={e => guardar({ basesVenta: { ...(cz.basesVenta||{}), [b.fireId]: nv(e.target.value) } })} placeholder="Venta por plancha $" style={{ ...prodInp, padding:"7px 9px" }}/></div>
+            {venta > 0 && area > 0 && <span style={{ fontSize:12, color:"#2e7d32", fontWeight:700 }}>{$n(venta / area)}/m²</span>}
+          </div>
+        );
+      }) : <SinMateriales que="bases rígidas" uso="base"/>)}
+
+      {seccion("🧾 Cargos de preparación", "Se suman a Impresos (fijos o por m²) y a Cartelería (por m²).", <>
+        {prep.map(c => (
+          <div key={c.id} style={{ display:"flex", gap:8, alignItems:"center", marginBottom:6, flexWrap:"wrap" }}>
+            <input value={c.name||""} onChange={e => setPrep(c.id, "name", e.target.value)} style={{ ...prodInp, flex:"2 1 180px" }}/>
+            <input type="number" value={c.price ?? ""} onChange={e => setPrep(c.id, "price", nv(e.target.value))} style={{ ...prodInp, flex:"1 1 90px" }}/>
+            <button onClick={() => setPrep(c.id, "porM2", !c.porM2)} style={{ padding:"8px 10px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${c.porM2 ? "var(--c-pri)" : "var(--c-border)"}`, background: c.porM2 ? "var(--c-tint)" : "#fff", color: c.porM2 ? "var(--c-pri)" : "#4a5568" }}>{c.porM2 ? "por m²" : "fijo"}</button>
+            <button onClick={() => guardar({ prepCharges: prep.filter(x => x.id !== c.id) })} style={btnDel}>🗑</button>
+          </div>
+        ))}
+        <div style={{ display:"flex", gap:8, marginTop:8, flexWrap:"wrap" }}>
+          <input value={nuevoCargo.name} onChange={e => setNuevoCargo(x => ({ ...x, name:e.target.value }))} placeholder="Nuevo cargo (ej: Retoque de foto)" style={{ ...prodInp, flex:"2 1 180px" }}/>
+          <input type="number" value={nuevoCargo.price} onChange={e => setNuevoCargo(x => ({ ...x, price:e.target.value }))} placeholder="$" style={{ ...prodInp, flex:"1 1 90px" }}/>
+          <button onClick={() => { if (!nuevoCargo.name.trim()) return; guardar({ prepCharges: [...prep, { id:String(Date.now()), name:nuevoCargo.name.trim(), price:nv(nuevoCargo.price), porM2:false }] }); setNuevoCargo({ name:"", price:"" }); }} style={btnPri()}>➕</button>
+        </div>
+      </>)}
+
+      {seccion("✂️ Rotulados", "Los vinilos y el posicionador salen de Materias primas. Acá van los recargos por m² y el margen.", (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <div><label style={cotLbl}>Complejidad ($ por m²)</label>
+            <div style={grid}>{[["baja","Baja"],["media","Media"],["alta","Alta"]].map(([k,l]) => <CotCampo key={k} label={l} value={(r.complejidad||{})[k]} onChange={v => setRot("complejidad", k, v)}/>)}</div></div>
+          <div><label style={cotLbl}>Tiempo ($ por m²)</label>
+            <div style={grid}>{[["rapido","Rápido"],["medio","Medio"],["lento","Lento"]].map(([k,l]) => <CotCampo key={k} label={l} value={(r.tiempo||{})[k]} onChange={v => setRot("tiempo", k, v)}/>)}</div></div>
+          <div style={{ maxWidth:200 }}><CotCampo label="Margen de ganancia %" value={r.margenPct ?? 30} onChange={v => setRot(null, "margenPct", v)}/></div>
+        </div>
+      ))}
+
+      {seccion("🟡 Polyfan", "El costo de la placa sale de Materias primas.", (
+        <div style={grid}>
+          <CotCampo label="Precio de venta por placa" value={pf.venta} onChange={v => setPf(null, "venta", v)}/>
+          {PF_ADICIONALES.map(a => <CotCampo key={a.id} label={a.label} value={(pf.adicionales||{})[a.id]} onChange={v => setPf("adicionales", a.id, v)}/>)}
+        </div>
+      ))}
     </div>
   );
 }
@@ -9103,6 +9645,7 @@ const unidadUsoMateria = (m) => (parseFloat(m?.rendimiento) > 0
   ? (m?.unidadUso || (m?.categoriaKey === "filamento_pla" ? "g" : m?.categoriaKey ? "m²" : "unid."))
   : (m?.unidad || "unidad"));
 function costoArticulo(ins, materias) {
+  if (modoCosto(ins) === "receta") return costoReceta(ins, materias).total;
   if (ins?.materiaId) {
     const m = materias.find(x => x.fireId === ins.materiaId);
     if (m) return costoUsoMateria(m) * (parseFloat(ins.materiaCant)||1);
@@ -9117,17 +9660,58 @@ const precioConMargen = (costo, margen) => {
 };
 const gananciaPct = (costo, venta) => costo > 0 && venta > 0 ? Math.round((venta - costo) / costo * 100) : null;
 
-// Recalcula costo (y precio, si es automático) de todos los artículos que dependen de materias primas
+// ── Minuto de taller: lo que cuesta cada minuto de trabajo (sueldos, luz, alquiler…) ──
+// Sale del Costo fijo mensual de Finanzas ÷ (días hábiles × horas por día × 60), o de un valor puesto a mano.
+// config/costos: { diasMes, horasDia, minutoManual }
+const TALLER = { minuto: 0 };
+function calcMinutoTaller(cf, cc) {
+  if (parseFloat(cc?.minutoManual) > 0) return parseFloat(cc.minutoManual);
+  const dias = parseFloat(cc?.diasMes) || 22, horas = parseFloat(cc?.horasDia) || 8;
+  const mensual = parseFloat(cf?.mensual) || 0;
+  return mensual > 0 ? mensual / (dias * horas * 60) : 0;
+}
+function useCostosTaller() {
+  const [cf, setCf] = useState(null), [cc, setCc] = useState(null);
+  useEffect(() => {
+    const u1 = onSnapshot(doc(db, "config", "costoFijo"), s => setCf(s.exists() ? s.data() : null), () => {});
+    const u2 = onSnapshot(doc(db, "config", "costos"), s => setCc(s.exists() ? s.data() : null), () => {});
+    return () => { u1(); u2(); };
+  }, []);
+  const minuto = calcMinutoTaller(cf, cc);
+  TALLER.minuto = minuto;
+  return { minuto, mensual: parseFloat(cf?.mensual)||0, diasMes: parseFloat(cc?.diasMes)||22, horasDia: parseFloat(cc?.horasDia)||8, manual: parseFloat(cc?.minutoManual)||0 };
+}
+
+// Costo de un producto terminado por receta: materiales (+ desperdicio) + minutos de taller + otros
+function costoReceta(ins, materias, minuto = TALLER.minuto) {
+  const detalle = (ins?.receta || []).map(r => {
+    const m = materias.find(x => x.fireId === r.materiaId);
+    const cant = parseFloat(r.cantidad) || 0;
+    return { ...r, m, cant, sub: m ? costoUsoMateria(m) * cant : 0 };
+  });
+  const materiales = detalle.reduce((s, d) => s + d.sub, 0);
+  const desperdicio = materiales * (parseFloat(ins?.desperdicio) || 0) / 100;
+  const manoObra = (parseFloat(ins?.manoObraMin) || 0) * minuto;
+  const otros = parseFloat(ins?.otrosCosto) || 0;
+  return { detalle, materiales, desperdicio, manoObra, otros, total: materiales + desperdicio + manoObra + otros };
+}
+const modoCosto = (ins) => ins?.costoModo || (ins?.materiaId ? "materia" : "manual");
+
+// Recalcula costo (y precio, si es automático) de todos los artículos que dependen de materias primas o recetas
 async function recalcularArticulos() {
-  const [si, sm] = await Promise.all([getDocs(collection(db, "insumos")), getDocs(collection(db, "materiasPrimas"))]);
+  const [si, sm, scf, scc] = await Promise.all([getDocs(collection(db, "insumos")), getDocs(collection(db, "materiasPrimas")),
+    getDoc(doc(db, "config", "costoFijo")).catch(() => null), getDoc(doc(db, "config", "costos")).catch(() => null)]);
   const materias = sm.docs.map(d => ({ ...d.data(), fireId:d.id }));
+  const minuto = calcMinutoTaller(scf?.exists?.() ? scf.data() : null, scc?.exists?.() ? scc.data() : null);
+  TALLER.minuto = minuto;
   let n = 0;
   for (const d of si.docs) {
     const ins = { ...d.data(), fireId:d.id };
-    if (!ins.materiaId && !ins.precioAuto) continue;
-    const costo = Math.round(costoArticulo(ins, materias) * 100) / 100;
+    const modo = modoCosto(ins);
+    if (modo === "manual" && !ins.precioAuto) continue;
+    const costo = Math.round((modo === "receta" ? costoReceta(ins, materias, minuto).total : costoArticulo(ins, materias)) * 100) / 100;
     const cambios = {};
-    if (ins.materiaId && costo !== (parseFloat(ins.precioCompra)||0)) cambios.precioCompra = costo;
+    if (modo !== "manual" && costo !== (parseFloat(ins.precioCompra)||0)) cambios.precioCompra = costo;
     if (ins.precioAuto && parseFloat(ins.margen) > 0) {
       const p = precioConMargen(costo, ins.margen);
       if (p && p !== (parseFloat(ins.precioVenta)||0)) cambios.precioVenta = p;
@@ -9137,16 +9721,59 @@ async function recalcularArticulos() {
   return n;
 }
 
+// Tarjeta chica para ver / ajustar el minuto de taller
+function TarjetaMinutoTaller({ taller, showToast }) {
+  const [editando, setEditando] = useState(false);
+  const [f, setF] = useState({ diasMes: taller.diasMes, horasDia: taller.horasDia, minutoManual: taller.manual || "" });
+  useEffect(() => { if (!editando) setF({ diasMes: taller.diasMes, horasDia: taller.horasDia, minutoManual: taller.manual || "" }); }, [taller.diasMes, taller.horasDia, taller.manual, editando]);
+  const guardar = async () => {
+    await setDoc(doc(db, "config", "costos"), { diasMes: parseFloat(f.diasMes)||22, horasDia: parseFloat(f.horasDia)||8, minutoManual: parseFloat(f.minutoManual)||0 });
+    setEditando(false);
+    const n = await recalcularArticulos();
+    showToast(`Minuto de taller guardado ✅${n ? ` · ${n} producto${n!==1?"s":""} actualizado${n!==1?"s":""}` : ""}`);
+  };
+  const inp = { width:70, padding:"6px 8px", borderRadius:6, border:"1.5px solid var(--c-border)", fontSize:13 };
+  return (
+    <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"12px 18px", marginBottom:14, display:"flex", gap:12, alignItems:"center", flexWrap:"wrap", borderLeft:"4px solid #1565c0" }}>
+      <div style={{ fontSize:13, color:"#1a2340" }}>
+        ⏱️ <b>Minuto de taller: {taller.minuto ? $ar(taller.minuto) : "—"}</b>
+        <span style={{ color:"#a09080", fontSize:12, marginLeft:6 }}>
+          {taller.manual ? "(puesto a mano)" : taller.mensual ? `= costo fijo ${$ar(taller.mensual)} ÷ ${taller.diasMes} días ÷ ${taller.horasDia} h ÷ 60` : "(falta el Costo fijo mensual: miralo en Finanzas → Resumen)"}
+        </span>
+      </div>
+      {!editando ? (
+        <button onClick={() => setEditando(true)} style={{ marginLeft:"auto", background:"#fff", border:"1px solid var(--c-border)", borderRadius:6, padding:"4px 10px", fontSize:12, cursor:"pointer" }}>✏️ Ajustar</button>
+      ) : (
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginLeft:"auto", fontSize:12, color:"#4a5568" }}>
+          Días hábiles <input type="number" value={f.diasMes} onChange={e => setF(x => ({ ...x, diasMes:e.target.value }))} style={inp}/>
+          Horas por día <input type="number" value={f.horasDia} onChange={e => setF(x => ({ ...x, horasDia:e.target.value }))} style={inp}/>
+          o a mano $ <input type="number" value={f.minutoManual} onChange={e => setF(x => ({ ...x, minutoManual:e.target.value }))} placeholder="auto" style={inp}/>
+          <button onClick={guardar} style={{ background:"#1565c0", color:"#fff", border:"none", borderRadius:6, padding:"6px 12px", fontWeight:700, cursor:"pointer" }}>Guardar</button>
+          <button onClick={() => setEditando(false)} style={{ background:"transparent", border:"none", color:"#a09080", cursor:"pointer" }}>Cancelar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Bloque del formulario del artículo: tipo, de dónde sale el costo y % de ganancia
 function EditorCostoArticulo({ form, setForm, materias }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const desdeMateria = !!form.materiaId || form._origenCosto === "materia";
+  const modo = modoCosto(form);
   const m = materias.find(x => x.fireId === form.materiaId);
-  const costo = costoArticulo(form, materias);
+  const rec = costoReceta(form, materias);
+  const costo = modo === "receta" ? rec.total : costoArticulo(form, materias);
   const sugerido = precioConMargen(costo, form.margen);
   const actual = gananciaPct(costo, parseFloat(form.precioVenta)||0);
+  const materiasOrd = [...materias].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""));
   const inpE = { width:"100%", padding:"9px 12px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", background:"#fff" };
   const lbl = { display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:4 };
+  const botonModo = (id, txt) => (
+    <button type="button" onClick={() => setForm(f => ({ ...f, costoModo:id, ...(id !== "materia" ? { materiaId:"" } : {}),
+        ...(id === "receta" && !(f.receta||[]).length ? { receta:[{ materiaId:"", cantidad:"" }] } : {}) }))}
+      style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${modo===id ? "#1a2340" : "var(--c-border)"}`, background: modo===id ? "#1a2340" : "#fff", color: modo===id ? "#fff" : "#4a5568" }}>{txt}</button>
+  );
+  const setReceta = (i, campo, val) => setForm(f => ({ ...f, receta: (f.receta||[]).map((r, j) => j === i ? { ...r, [campo]: val } : r) }));
   return (
     <div style={{ background:"var(--c-softer)", border:"1.5px dashed var(--c-border)", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:12 }}>
       <div>
@@ -9162,16 +9789,18 @@ function EditorCostoArticulo({ form, setForm, materias }) {
       <div>
         <label style={lbl}>¿De dónde sale el costo?</label>
         <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
-          <button type="button" onClick={() => setForm(f => ({ ...f, materiaId:"", _origenCosto:"manual" }))}
-            style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${!desdeMateria ? "#1a2340" : "var(--c-border)"}`, background: !desdeMateria ? "#1a2340" : "#fff", color: !desdeMateria ? "#fff" : "#4a5568" }}>✍️ Lo pongo yo</button>
-          <button type="button" onClick={() => set("_origenCosto", "materia")}
-            style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${desdeMateria ? "#1a2340" : "var(--c-border)"}`, background: desdeMateria ? "#1a2340" : "#fff", color: desdeMateria ? "#fff" : "#4a5568" }}>🧱 De una materia prima</button>
+          {botonModo("manual", "✍️ Lo pongo yo")}
+          {botonModo("materia", "🧱 De una materia prima")}
+          {botonModo("receta", "📋 Receta (varios materiales + trabajo)")}
         </div>
-        {desdeMateria ? (
+
+        {modo === "manual" && <input type="number" value={form.precioCompra ?? ""} onChange={e => set("precioCompra", e.target.value)} placeholder="Costo ($)" style={inpE}/>}
+
+        {modo === "materia" && (
           <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:8 }}>
             <select value={form.materiaId||""} onChange={e => set("materiaId", e.target.value)} style={{ ...inpE, cursor:"pointer" }}>
               <option value="">— Elegí la materia prima —</option>
-              {[...materias].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"")).map(x => <option key={x.fireId} value={x.fireId}>{x.nombre}</option>)}
+              {materiasOrd.map(x => <option key={x.fireId} value={x.fireId}>{x.nombre}</option>)}
             </select>
             <input type="number" value={form.materiaCant ?? ""} onChange={e => set("materiaCant", e.target.value)} placeholder="1" style={inpE}
               title={`Cuántas ${m ? unidadUsoMateria(m) : "unidades"} usa`}/>
@@ -9183,8 +9812,44 @@ function EditorCostoArticulo({ form, setForm, materias }) {
               </div>
             )}
           </div>
-        ) : (
-          <input type="number" value={form.precioCompra ?? ""} onChange={e => set("precioCompra", e.target.value)} placeholder="Costo ($)" style={inpE}/>
+        )}
+
+        {modo === "receta" && (
+          <div style={{ background:"#fff", border:"1px solid var(--c-border)", borderRadius:8, padding:"10px 12px" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", marginBottom:6 }}>Materiales por unidad</div>
+            {(form.receta||[]).map((r, i) => {
+              const d = rec.detalle[i], mm = d?.m;
+              return (
+                <div key={i} style={{ display:"grid", gridTemplateColumns:"minmax(150px,2fr) minmax(70px,.8fr) minmax(60px,.7fr) 26px", gap:6, alignItems:"center", marginBottom:6 }}>
+                  <select value={r.materiaId||""} onChange={e => setReceta(i, "materiaId", e.target.value)} style={{ ...inpE, padding:"7px 8px", cursor:"pointer" }}>
+                    <option value="">— Materia prima —</option>
+                    {materiasOrd.map(x => <option key={x.fireId} value={x.fireId}>{x.nombre}</option>)}
+                  </select>
+                  <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                    <input type="number" value={r.cantidad ?? ""} onChange={e => setReceta(i, "cantidad", e.target.value)} placeholder="1" style={{ ...inpE, padding:"7px 8px" }}/>
+                    <span style={{ fontSize:11, color:"#a09080", whiteSpace:"nowrap" }}>{mm ? unidadUsoMateria(mm) : ""}</span>
+                  </div>
+                  <span style={{ fontSize:12, fontWeight:700, color:"#1a2340", textAlign:"right" }}>{d?.sub ? $ar(d.sub) : "—"}</span>
+                  <button type="button" onClick={() => setForm(f => ({ ...f, receta: (f.receta||[]).filter((_, j) => j !== i) }))} style={{ ...btnDel, padding:"3px 6px" }}>✕</button>
+                </div>
+              );
+            })}
+            <button type="button" onClick={() => setForm(f => ({ ...f, receta: [...(f.receta||[]), { materiaId:"", cantidad:"" }] }))}
+              style={{ background:"#fff", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:6, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer" }}>➕ Material</button>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8, marginTop:10 }}>
+              <div><label style={{ ...lbl, fontSize:11 }}>Desperdicio %</label><input type="number" value={form.desperdicio ?? ""} onChange={e => set("desperdicio", e.target.value)} placeholder="0" style={{ ...inpE, padding:"7px 8px" }}/></div>
+              <div><label style={{ ...lbl, fontSize:11 }}>Minutos de trabajo</label><input type="number" value={form.manoObraMin ?? ""} onChange={e => set("manoObraMin", e.target.value)} placeholder="0" style={{ ...inpE, padding:"7px 8px" }}/></div>
+              <div><label style={{ ...lbl, fontSize:11 }}>Otros costos $</label><input type="number" value={form.otrosCosto ?? ""} onChange={e => set("otrosCosto", e.target.value)} placeholder="0" style={{ ...inpE, padding:"7px 8px" }}/></div>
+            </div>
+            <div style={{ marginTop:10, fontSize:12, color:"#4a5568", lineHeight:1.6 }}>
+              Materiales <b>{$ar(rec.materiales)}</b>
+              {rec.desperdicio > 0 && <> + desperdicio <b>{$ar(rec.desperdicio)}</b></>}
+              {rec.manoObra > 0 && <> + trabajo <b>{$ar(rec.manoObra)}</b> <span style={{ color:"#a09080" }}>({form.manoObraMin} min × {$ar(TALLER.minuto)})</span></>}
+              {parseFloat(form.manoObraMin) > 0 && !TALLER.minuto && <span style={{ color:"#e65100" }}> · falta el minuto de taller</span>}
+              {rec.otros > 0 && <> + otros <b>{$ar(rec.otros)}</b></>}
+              {" "}= <b style={{ fontSize:14, color:"#1a2340" }}>costo {$ar(rec.total)}</b>
+            </div>
+          </div>
         )}
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:8, alignItems:"end" }}>
@@ -9240,6 +9905,7 @@ function InsumosView({ setView, showToast }) {
   const [tabActiva, setTabActiva]     = useState("productos"); // productos | materias
   const [filtroTipo, setFiltroTipo]   = useState("todos");
   const [materiasMP] = useColeccion("materiasPrimas");
+  const taller = useCostosTaller();
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "insumos"), snap => {
@@ -9352,11 +10018,16 @@ function InsumosView({ setView, showToast }) {
       codigo:       editModal.codigo,
       categoria:    editModal.categoria,
       tipo:         editModal.tipo || "",
-      materiaId:    editModal.materiaId || "",
+      costoModo:    modoCosto(editModal),
+      materiaId:    modoCosto(editModal) === "materia" ? (editModal.materiaId || "") : "",
       materiaCant:  parseFloat(editModal.materiaCant)||1,
+      receta:       modoCosto(editModal) === "receta" ? (editModal.receta||[]).filter(r => r.materiaId && parseFloat(r.cantidad) > 0).map(r => ({ materiaId:r.materiaId, cantidad:parseFloat(r.cantidad) })) : [],
+      desperdicio:  parseFloat(editModal.desperdicio)||0,
+      manoObraMin:  parseFloat(editModal.manoObraMin)||0,
+      otrosCosto:   parseFloat(editModal.otrosCosto)||0,
       margen:       parseFloat(editModal.margen)||0,
       precioAuto,
-      precioCompra: editModal.materiaId ? costoCalc : (parseFloat(editModal.precioCompra)||0),
+      precioCompra: modoCosto(editModal) !== "manual" ? costoCalc : (parseFloat(editModal.precioCompra)||0),
       precioVenta:  precioAuto ? precioConMargen(costoCalc, editModal.margen) : (parseFloat(editModal.precioVenta)||0),
       precioGremio: parseFloat(editModal.precioGremio)||0,
       stockMinimo:  parseFloat(editModal.stockMinimo)||0,
@@ -9432,6 +10103,8 @@ function InsumosView({ setView, showToast }) {
         </div>
       )}
 
+      <TarjetaMinutoTaller taller={taller} showToast={showToast}/>
+
       {/* Filtros */}
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap" }}>
         <div style={{ position:"relative", flex:"1 1 220px" }}>
@@ -9502,7 +10175,8 @@ function InsumosView({ setView, showToast }) {
                     </td>
                     <td style={{ padding:"11px 14px", color:"#4a5568" }}>
                       {(() => { const c = costoArticulo(ins, materiasMP); return c ? $ar(c) : "—"; })()}
-                      {ins.materiaId && <div style={{ fontSize:10, color:"#1565c0", fontWeight:600 }} title="El costo sale de una materia prima">🧱 {materiasMP.find(m => m.fireId === ins.materiaId)?.nombre || "materia prima"}</div>}
+                      {modoCosto(ins) === "materia" && <div style={{ fontSize:10, color:"#1565c0", fontWeight:600 }} title="El costo sale de una materia prima">🧱 {materiasMP.find(m => m.fireId === ins.materiaId)?.nombre || "materia prima"}</div>}
+                      {modoCosto(ins) === "receta" && <div style={{ fontSize:10, color:"#6a1b9a", fontWeight:600 }} title={(ins.receta||[]).map(r => `${materiasMP.find(m => m.fireId === r.materiaId)?.nombre || "?"} × ${r.cantidad}`).join("\n") + (ins.manoObraMin ? `\n${ins.manoObraMin} min de trabajo` : "")}>📋 Receta · {(ins.receta||[]).length} material{(ins.receta||[]).length!==1?"es":""}{ins.manoObraMin ? ` + ${ins.manoObraMin} min` : ""}</div>}
                     </td>
                     <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>
                       {ins.precioVenta?`$${parseFloat(ins.precioVenta).toLocaleString("es-AR")}`:"—"}
@@ -9523,7 +10197,7 @@ function InsumosView({ setView, showToast }) {
                     </td>
                     <td style={{ padding:"11px 14px" }}>
                       <div style={{ display:"flex", gap:5 }}>
-                        <button onClick={() => setEditModal({...ins})} style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>✏️</button>
+                        <button onClick={() => setEditModal({ ...ins, ...(!ins.costoModo && !ins.materiaId && ins.tipo === "elaborado" ? { costoModo:"receta", receta:[{ materiaId:"", cantidad:"" }] } : {}) })} style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>✏️</button>
                         <button onClick={() => handleDelete(ins)} style={{ background:"#ffebee", border:"none", color:"#c62828", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer" }}>🗑</button>
                       </div>
                     </td>
@@ -9777,7 +10451,9 @@ function MateriasPrimasView({ showToast }) {
                   <tr key={m.fireId} style={{ borderBottom:"1px solid #f0f3f9" }}
                     onMouseOver={e=>e.currentTarget.style.background="#fafbff"}
                     onMouseOut={e=>e.currentTarget.style.background="#fff"}>
-                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1a2340" }}>{m.nombre}</td>
+                    <td style={{ padding:"12px 14px", fontWeight:700, color:"#1a2340" }}>{m.nombre}
+                      {m.cotizador && <div style={{ fontSize:10, color:"#1565c0", fontWeight:600 }}>💲 {USOS_COTIZADOR.find(u => u.id === m.cotizador)?.label || "Cotizador"}</div>}
+                    </td>
                     <td style={{ padding:"12px 14px", color:"#4a5568", maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.descripcion||"—"}</td>
                     <td style={{ padding:"12px 14px" }}>
                       <span style={{ background:"#e8eaf6", color:"#3949ab", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{m.unidad||"unidad"}</span>
@@ -9896,6 +10572,10 @@ function ModalMateriaPrima({ materia, proveedores, unidades, onClose, showToast 
     setSaving(true);
     const data = { ...form, precioCosto: parseFloat(form.precioCosto)||0, stock: parseFloat(form.stock)||0, rendimiento: parseFloat(form.rendimiento)||0,
       unidadUso: form.unidadUso || (necesitaRendimiento ? (form.categoriaKey === "filamento_pla" ? "g" : "m²") : "hojas"),
+      ...(["impresion","posicionador","base","rotulado"].includes(form.cotizador)
+        ? { rendimiento: rendimientoPorMedidas({ ...form, anchoCm: form.anchoCm || 60 }) || 0, unidadUso:"m²",
+            anchoRollo: nv(form.anchoRollo), largoRollo: nv(form.largoRollo), planchaAncho: nv(form.planchaAncho), planchaAlto: nv(form.planchaAlto), anchoCm: nv(form.anchoCm || 60) }
+        : form.cotizador === "polyfan" ? { rendimiento: 0 } : {}),
       ...(materia && parseFloat(form.precioCosto) !== parseFloat(materia.precioCosto) ? { costoFecha: hoyISO(), origenCosto:"manual" } : {}) };
     if (materia?.fireId) {
       await updateDoc(doc(db,"materiasPrimas",materia.fireId), data);
@@ -9964,6 +10644,44 @@ function ModalMateriaPrima({ materia, proveedores, unidades, onClose, showToast 
             {form.categoriaKey && <div style={{ fontSize:11, color:"var(--c-pri)", marginTop:4, fontWeight:600 }}>✅ Esta materia prima se usará automáticamente en las calculadoras</div>}
           </div>
 
+          {/* Uso en el Cotizador */}
+          <div style={{ gridColumn:"1/-1", background:"#f3f8ff", border:"1px solid #bbdefb", borderRadius:10, padding:"10px 12px" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#1565c0", marginBottom:6 }}>💲 Uso en el Cotizador</label>
+            <select value={form.cotizador||""} onChange={e=>setForm(f=>({...f,cotizador:e.target.value,
+                ...(e.target.value==="rotulado" ? { unidad:"metro" } : e.target.value==="base" ? { unidad:"plancha" } : e.target.value==="polyfan" ? { unidad:"placa" } : (e.target.value==="impresion"||e.target.value==="posicionador") ? { unidad:"rollo" } : e.target.value==="tinta" ? { unidadUso:"ml" } : {}) }))}
+              style={{ ...inp, cursor:"pointer" }}>
+              <option value="">— No se usa en el cotizador —</option>
+              {USOS_COTIZADOR.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
+            </select>
+            {(form.cotizador==="impresion"||form.cotizador==="posicionador") && (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:10 }}>
+                <div><label style={{ display:"block", fontSize:12, color:"#4a5568", marginBottom:4 }}>Ancho del rollo (m)</label><input type="number" step="0.01" value={form.anchoRollo||""} onChange={e=>setForm(f=>({...f,anchoRollo:e.target.value}))} placeholder="1.27" style={inp}/></div>
+                <div><label style={{ display:"block", fontSize:12, color:"#4a5568", marginBottom:4 }}>Largo del rollo (m)</label><input type="number" step="0.1" value={form.largoRollo||""} onChange={e=>setForm(f=>({...f,largoRollo:e.target.value}))} placeholder="50" style={inp}/></div>
+              </div>
+            )}
+            {form.cotizador==="base" && (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:10 }}>
+                <div><label style={{ display:"block", fontSize:12, color:"#4a5568", marginBottom:4 }}>Ancho de la plancha (cm)</label><input type="number" value={form.planchaAncho||""} onChange={e=>setForm(f=>({...f,planchaAncho:e.target.value}))} placeholder="100" style={inp}/></div>
+                <div><label style={{ display:"block", fontSize:12, color:"#4a5568", marginBottom:4 }}>Alto de la plancha (cm)</label><input type="number" value={form.planchaAlto||""} onChange={e=>setForm(f=>({...f,planchaAlto:e.target.value}))} placeholder="70" style={inp}/></div>
+              </div>
+            )}
+            {form.cotizador==="rotulado" && (
+              <div style={{ marginTop:10 }}>
+                <label style={{ display:"block", fontSize:12, color:"#4a5568", marginBottom:4 }}>Ancho del vinilo (el precio de costo es por metro lineal)</label>
+                <div style={{ display:"flex", gap:6 }}>
+                  {[60,120].map(a => <button key={a} type="button" onClick={()=>setForm(f=>({...f,anchoCm:a}))}
+                    style={{ flex:1, padding:"8px", borderRadius:8, fontWeight:700, cursor:"pointer", border:`1.5px solid ${nv(form.anchoCm||60)===a ? "#1565c0" : "var(--c-border)"}`, background: nv(form.anchoCm||60)===a ? "#e3f2fd" : "#fff", color: nv(form.anchoCm||60)===a ? "#1565c0" : "#4a5568" }}>{a} cm</button>)}
+                </div>
+              </div>
+            )}
+            {rendimientoPorMedidas({ ...form, anchoCm: form.anchoCm || 60 }) > 0 && parseFloat(form.precioCosto) > 0 && (
+              <div style={{ marginTop:8, fontSize:12, color:"#1565c0", fontWeight:700 }}>
+                = {fmtN(rendimientoPorMedidas({ ...form, anchoCm: form.anchoCm || 60 }))} m² → {$n(parseFloat(form.precioCosto) / rendimientoPorMedidas({ ...form, anchoCm: form.anchoCm || 60 }))} por m²
+              </div>
+            )}
+            {form.cotizador==="polyfan" && <div style={{ marginTop:8, fontSize:12, color:"#a09080" }}>Poné el precio de costo de una placa de 1,20 × 0,60.</div>}
+          </div>
+
           <div>
             <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio de costo ($)</label>
             <input type="number" value={form.precioCosto} onChange={e=>setForm(f=>({...f,precioCosto:e.target.value}))} placeholder="0" style={inp}/>
@@ -9976,7 +10694,7 @@ function ModalMateriaPrima({ materia, proveedores, unidades, onClose, showToast 
           </div>
 
           {/* Rendimiento: cuántas unidades de uso trae cada unidad de compra */}
-          {!necesitaRendimiento && (
+          {!necesitaRendimiento && !["impresion","posicionador","base","rotulado","polyfan"].includes(form.cotizador) && (
             <div style={{ gridColumn:"1/-1", display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, background:"var(--c-softer)", border:"1px dashed var(--c-border)", borderRadius:10, padding:"10px 12px" }}>
               <div style={{ gridColumn:"1/-1", fontSize:12, color:"#4a5568" }}>¿Cuánto rinde 1 {form.unidad || "unidad"}? <span style={{ color:"#a09080" }}>(ej: 1 resma = 500 hojas · 1 rollo = 63,5 m² · 1 botella = 1000 ml)</span></div>
               <input type="number" step="0.01" value={form.rendimiento||""} onChange={e=>setForm(f=>({...f,rendimiento:e.target.value}))} placeholder="Ej: 500" style={inp}/>
@@ -11965,7 +12683,7 @@ function CostoFijoMensual({ movs, cfg, monedaDe }) {
     setDoc(doc(db, "config", "costoFijo"), {
       mensual: r.mensual, porDiaHabil: Math.round(r.mensual / 22), meses: r.meses,
       categorias: Object.fromEntries(r.porCat), actualizado: new Date().toISOString(),
-    }).catch(() => {});
+    }).then(() => recalcularArticulos()).catch(() => {});   // el minuto de taller sale de acá
   }, [r.mensual, r.meses.join(","), r.fijas.join(",")]);
   const mesesTxt = r.meses.map(ym => MESES_ES[+ym.slice(5)-1].toLowerCase()).join(", ");
   const maxEv = Math.max(1, ...r.evolucion.map(x => x.total));
@@ -14116,7 +14834,8 @@ export default function App() {
         .mobile-menu-btn{display:none;background:transparent;border:1.5px solid var(--c-border);color:var(--c-pri);font-size:20px;cursor:pointer;padding:5px 10px;border-radius:8px;font-weight:700;line-height:1}
         .ctx-btn{background:rgba(var(--c-pri-rgb),.1);color:var(--c-pri);border:1.5px solid rgba(var(--c-pri-rgb),.3);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:"DM Sans",sans-serif;transition:all .18s}
         .ctx-btn:hover{background:var(--c-pri);color:#fff}
-        .cotizador-frame{width:100%;height:calc(100vh - 150px);min-height:520px;border:none;border-radius:14px;background:#17191b;display:block;box-shadow:0 2px 14px rgba(0,0,0,.12)}
+        .cot-2col{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+        .cot-res{position:sticky;top:76px}
         @media(max-width:900px){
           .sidebar{position:fixed;top:0;left:0;height:100vh;z-index:200;transform:translateX(0);transition:width .25s cubic-bezier(.4,0,.2,1)}
           .sidebar.collapsed{width:0;overflow:hidden}
@@ -14155,7 +14874,8 @@ export default function App() {
           .card[style*="padding: 32px"],.card[style*="padding: 28px"],.card[style*="padding: 36px"]{padding:18px 14px!important}
           .modal-ov>div,div[style*="position: fixed"][style*="inset: 0"]>div{max-width:calc(100vw - 20px)!important;max-height:calc(100vh - 40px)!important;overflow-y:auto;padding-left:18px!important;padding-right:18px!important}
           .busq-global-box{top:calc(12px + env(safe-area-inset-top))}
-          .cotizador-frame{height:calc(100dvh - 54px - env(safe-area-inset-top) - 120px);min-height:420px;border-radius:10px}
+          .cot-2col{grid-template-columns:1fr}
+          .cot-res{position:static}
           .compra-fila{grid-template-columns:1fr 1fr 1fr!important}
           .compra-fila>div:first-child{grid-column:1 / -1}
           .compra-fila label{display:block!important}
@@ -15025,7 +15745,7 @@ export default function App() {
 
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
-        {view==="cotizador" && <CotizadorView urlExterna={(APP_CFG.accesos||[]).find(esAccesoCotizador)?.url}/>}
+        {view==="cotizador" && <CotizadorView showToast={showToast}/>}
         {view==="produccion"   && <ProduccionView showToast={showToast} pedidos={pedidos}/>}
         {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido} clientes={clientes}/>}
 
