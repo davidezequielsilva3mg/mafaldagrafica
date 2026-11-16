@@ -7970,7 +7970,7 @@ async function migrarCotizadorAMaterias(cz, materias) {
   return n;
 }
 
-function CotizadorView({ showToast }) {
+function CotizadorView({ showToast, abrirPedidoFlotante }) {
   const [cz, setCz] = useState(null);
   const [materias] = useColeccion("materiasPrimas");
   const [tab, setTab] = useState("impresos");
@@ -8011,7 +8011,8 @@ function CotizadorView({ showToast }) {
   };
 
   const TABS = [["impresos","🖨️ Impresos"],["carteleria","🪧 Cartelería"],["rotulados","✂️ Rotulados"],["polyfan","🟡 Polyfan"],["ajustes","⚙️ Precios y ajustes"]];
-  const props = { cz, guardar, materias, deUso, productos, tintaM2, tinta, prep, showToast };
+  const aPedido = abrirPedidoFlotante ? (datos) => abrirPedidoFlotante({ ...datos, origen:"cotizador" }) : null;
+  const props = { cz, guardar, materias, deUso, productos, tintaM2, tinta, prep, showToast, aPedido };
   return (
     <div>
       {faltaMigrar && (
@@ -8080,7 +8081,7 @@ function CotFila({ l, v, fuerte, color, nota }) {
     </div>
   );
 }
-function CotResultado({ filas, total, etiqueta = "Precio recomendado", vacio, extra }) {
+function CotResultado({ filas, total, etiqueta = "Precio recomendado", vacio, extra, onPedido }) {
   return (
     <div style={{ ...prodCard, padding:"18px 20px" }}>
       {vacio ? <div style={{ color:"#a09080", fontSize:13, textAlign:"center", padding:"30px 0" }}>{vacio}</div> : (
@@ -8091,6 +8092,9 @@ function CotResultado({ filas, total, etiqueta = "Precio recomendado", vacio, ex
             <div style={{ fontSize:11, fontWeight:700, textTransform:"uppercase", opacity:.9 }}>{etiqueta}</div>
             <div style={{ fontSize:30, fontWeight:800 }}>{$n(total)}</div>
           </div>
+          {onPedido && total > 0 && (
+            <button onClick={onPedido} style={{ ...btnPri("#1a2340"), width:"100%", marginTop:10, padding:"12px", fontSize:14 }}>📋 Llevar a un pedido</button>
+          )}
           {extra}
         </>
       )}
@@ -8119,7 +8123,7 @@ function SinMateriales({ que, uso }) {
 }
 
 // ── Impresos ──
-function CotImpresos({ productos, tintaM2, prep }) {
+function CotImpresos({ productos, tintaM2, prep, aPedido }) {
   const [q, setQ] = useState({ productId:"", modo:"simple", unidad:"cm", w:"", h:"", cw:"", ch:"", sep:"0.5", cant:"", prepIds:[] });
   const set = (k, v) => setQ(x => ({ ...x, [k]: v }));
   const p = productos.find(x => x.id === q.productId) || productos[0];
@@ -8170,6 +8174,15 @@ function CotImpresos({ productos, tintaM2, prep }) {
           <CotChecks items={prep} elegidos={q.prepIds} onChange={v => set("prepIds", v)} precio={c => `${$n(c.price)}${c.porM2 ? "/m²" : ""}`}/></div>
       </div>}
       der={<CotResultado vacio={area > 0 ? null : (q.modo === "matriz" ? "Cargá medidas de la copia, separación y cantidad." : "Cargá ancho y alto para ver la cotización.")} total={total}
+        onPedido={aPedido && (() => {
+          const enCm = (v) => Math.round(aMetros(v, q.unidad) * 10000) / 100;
+          const matriz_ = q.modo === "matriz", cant = matriz_ ? nv(q.cant) : 1;
+          const ancho = enCm(matriz_ ? q.cw : q.w), alto = enCm(matriz_ ? q.ch : q.h);
+          const extras = elegidos.map(c => c.name).join(", ");
+          aPedido({ categoriaSugerida: "vinilo impreso|impres|plotter", nombre: `${matriz_ ? `${fmtN(cant)} × ` : ""}${p.name} ${fmtN(ancho)}×${fmtN(alto)} cm`,
+            items: [{ cant, detalle: `${matriz_ ? "Copias" : "Impresión"}${extras ? ` (${extras})` : ""}`, material: p.materia?.nombre || p.name, materiaId: p.materiaId || "",
+              ancho, alto, unit: total / (cant || 1), total }] });
+        })}
         filas={<>
           {matriz && <>
             <CotFila l="Copias por fila" v={matriz.columnas}/><CotFila l="Filas" v={matriz.filas}/>
@@ -8193,7 +8206,7 @@ function CotImpresos({ productos, tintaM2, prep }) {
 }
 
 // ── Cartelería ──
-function CotCarteleria({ productos, deUso, cz, prep }) {
+function CotCarteleria({ productos, deUso, cz, prep, aPedido }) {
   const bases = deUso("base");
   const [q, setQ] = useState({ unidad:"cm", w:"", h:"", materialId:"", baseId:"", prepIds:[], minimo:"" });
   const set = (k, v) => setQ(x => ({ ...x, [k]: v }));
@@ -8232,6 +8245,12 @@ function CotCarteleria({ productos, deUso, cz, prep }) {
         <CotCampo label="Precio mínimo de trabajo" value={q.minimo} onChange={v => set("minimo", v)}/>
       </div>}
       der={<CotResultado vacio={m2 > 0 ? null : "Cargá las medidas del cartel."} total={total} etiqueta="Precio de venta"
+        onPedido={aPedido && mat && (() => {
+          const ancho = Math.round(aMetros(q.w, q.unidad) * 10000) / 100, alto = Math.round(aMetros(q.h, q.unidad) * 10000) / 100;
+          const extras = [base?.nombre, ...elegidos.map(c => c.name)].filter(Boolean).join(" + ");
+          aPedido({ categoriaSugerida: "cartel|carteler", nombre: `Cartel ${fmtN(ancho)}×${fmtN(alto)} cm`,
+            items: [{ cant: 1, detalle: `Cartel ${mat.name}${extras ? ` + ${extras}` : ""}`, material: mat.materia?.nombre || mat.name, materiaId: mat.materiaId || "", ancho, alto, unit: total, total }] });
+        })}
         filas={<>
           <CotFila l="Superficie" v={`${fmtN(m2)} m²`}/>
           {mat && <CotFila l={`${mat.name} — material`} v={`${$n(mat.costoMat * m2)} costo · ${$n(nv(mat.salePriceM2) * m2)} venta`}/>}
@@ -8245,7 +8264,7 @@ function CotCarteleria({ productos, deUso, cz, prep }) {
 }
 
 // ── Rotulados ──
-function CotRotulados({ deUso, cz }) {
+function CotRotulados({ deUso, cz, aPedido }) {
   const vinilos = deUso("rotulado"), pos = deUso("posicionador")[0];
   const r = cz.rotulados || {};
   const [q, setQ] = useState({ viniloId:"", w:"", h:"", comp:"baja", tiempo:"rapido" });
@@ -8275,6 +8294,8 @@ function CotRotulados({ deUso, cz }) {
         {!pos && <div style={{ fontSize:12, color:"#a09080" }}>Sin posicionador cargado (Materias primas → Uso: Posicionador).</div>}
       </div>}
       der={<CotResultado vacio={m2 > 0 ? null : "Cargá ancho y alto."} total={venta} etiqueta="Precio de venta"
+        onPedido={aPedido && (() => aPedido({ categoriaSugerida: "rotul|corte", nombre: `Rotulado ${fmtN(q.w)}×${fmtN(q.h)} cm`,
+          items: [{ cant: 1, detalle: `Rotulado (complejidad ${q.comp}, tiempo ${q.tiempo})`, material: vin?.nombre || "", materiaId: vin?.fireId || "", ancho: nv(q.w), alto: nv(q.h), unit: venta, total: venta }] }))}
         filas={<>
           <CotFila l="Superficie" v={`${fmtN(m2)} m²`}/>
           {vin && <CotFila l={vin.nombre} v={$n(vM2 * m2)}/>}
@@ -8289,7 +8310,7 @@ function CotRotulados({ deUso, cz }) {
 }
 
 // ── Polyfan ──
-function CotPolyfan({ deUso, cz }) {
+function CotPolyfan({ deUso, cz, aPedido }) {
   const placa = deUso("polyfan")[0];
   const pf = cz.polyfan || {};
   const [cantSel, setCantSel] = useState("1");
@@ -8315,6 +8336,9 @@ function CotPolyfan({ deUso, cz }) {
           <CotChecks items={PF_ADICIONALES} elegidos={adic} onChange={setAdic} precio={a => nv((pf.adicionales||{})[a.id]) ? $n((pf.adicionales||{})[a.id]) : "sin precio"}/></div>
       </div>}
       der={<CotResultado total={total} etiqueta="Precio de venta"
+        onPedido={aPedido && (() => aPedido({ categoriaSugerida: "polyfan|polifan", nombre: `Polyfan ${etiqueta}`,
+          items: [{ cant, detalle: `Polyfan${lineas.length ? ` (${lineas.map(a => a.label).join(", ")})` : ""}`, material: placa?.nombre || "", materiaId: placa?.fireId || "",
+            ancho: 120, alto: 60, unit: total / (cant || 1), total }] }))}
         filas={<>
           <CotFila l="Cantidad" v={etiqueta}/>
           <CotFila l="Área total" v={`${fmtN(PF_AREA * cant)} m²`}/>
@@ -8474,7 +8498,7 @@ const textoRenglon = (it) => {
   return `${cant && cant !== 1 ? `${fmtN(cant)} × ` : ""}${(it.detalle||"").trim()}${it.material ? ` — ${it.material}` : ""}${medida}`.trim();
 };
 function limpiarRenglones(items) {
-  return (items||[]).filter(it => (it.detalle||"").trim() || it.material || parseFloat(it.total) > 0).map(it => ({
+  return (items||[]).filter(it => (it.detalle||"").trim() || it.material || (parseFloat(it.total)||0) !== 0).map(it => ({
     cant: parseFloat(it.cant)||1, detalle: (it.detalle||"").trim(), material: it.material||"", materiaId: it.materiaId||"",
     ancho: parseFloat(it.ancho)||0, alto: parseFloat(it.alto)||0, unit: parseFloat(it.unit)||0, total: parseFloat(it.total)||0,
     m2: Math.round(m2Renglon(it) * 10000) / 10000,
@@ -9805,6 +9829,213 @@ function costoReceta(ins, materias, minuto = TALLER.minuto) {
 }
 const modoCosto = (ins) => ins?.costoModo || (ins?.materiaId ? "materia" : "manual");
 
+// ── Productos y servicios: cómo se cobran, servicios incluidos, parte fija y mínimo de cobro ──
+// insumos.cobro: "unidad" | "m2" | "hora" (hora solo para servicios)
+// insumos.serviciosIncl: [{ servicioId, cant }] → van dentro del precio (por unidad o por m²), a precio de venta del servicio
+// insumos.parteFija:     [{ servicioId, cant }] → se suman una sola vez por renglón (ej: colocación)
+// insumos.minM2 / minPesos: mínimo de cobro de los productos por m² (vacío = el de config/productos)
+const MIN_COBRO_DEF = { minM2: 0.2, minPesos: 6000 };
+const MINIMOS = { ...MIN_COBRO_DEF };
+function useMinimosCobro() {
+  const [m, setM] = useState({ ...MINIMOS });
+  useEffect(() => onSnapshot(doc(db, "config", "productos"), s => {
+    const d = s.exists() ? s.data() : {};
+    const n = { minM2: d.minM2 ?? MIN_COBRO_DEF.minM2, minPesos: d.minPesos ?? MIN_COBRO_DEF.minPesos };
+    Object.assign(MINIMOS, n); setM(n);
+  }, () => {}), []);
+  return m;
+}
+const COBROS = [
+  { id:"unidad", label:"Por unidad", suf:"" },
+  { id:"m2",     label:"Por m²",     suf:"/m²" },
+  { id:"hora",   label:"Por hora",   suf:"/h" },
+];
+const cobroDe = (ins) => ins?.cobro || "unidad";
+const sufCobro = (ins) => COBROS.find(c => c.id === cobroDe(ins))?.suf || "";
+const esServicio = (ins) => ins?.tipo === "servicio";
+const minimoDe = (ins, campo) => (ins?.[campo] !== undefined && ins?.[campo] !== null && ins?.[campo] !== "") ? (parseFloat(ins[campo])||0) : MINIMOS[campo];
+function serviciosDe(lista, insumos, materias = []) {
+  return (lista||[]).map(x => {
+    const s = (insumos||[]).find(i => i.fireId === x.servicioId);
+    const cant = parseFloat(x.cant) || 0;
+    return { ...x, s, cant, precio: s ? (parseFloat(s.precioVenta)||0) * cant : 0, costo: s ? costoArticulo(s, materias) * cant : 0 };
+  });
+}
+// Costo y precio de un producto: (materiales + trabajo + otros) × % ganancia + servicios incluidos (a su precio de venta)
+function calcProducto(ins, materias, insumos) {
+  const costoPropio = costoArticulo(ins, materias);
+  const serv = esServicio(ins) ? [] : serviciosDe(ins?.serviciosIncl, insumos, materias);
+  const ventaServ = serv.reduce((s, d) => s + d.precio, 0), costoServ = serv.reduce((s, d) => s + d.costo, 0);
+  const formula = (parseFloat(ins?.margen) > 0 ? precioConMargen(costoPropio, ins.margen) : 0) + ventaServ;
+  const precio = ins?.precioAuto && parseFloat(ins?.margen) > 0 ? formula : (parseFloat(ins?.precioVenta)||0);
+  return { costoPropio, serv, ventaServ, costoServ, costo: costoPropio + costoServ, formula, precio };
+}
+// Precio de un renglón: cant × medidas × precio por m² (con mínimo) o cant × precio por unidad, + parte fija una sola vez
+function precioRenglonProducto(ins, { cant, ancho, alto }, insumos, tipoPrecio) {
+  const c = parseFloat(cant) || 1;
+  const fija = serviciosDe(ins?.parteFija, insumos).reduce((s, d) => s + d.precio, 0);
+  const precio = parseFloat(ins?.precioVenta) || 0;
+  if (cobroDe(ins) === "m2") {
+    const m2 = c * (parseFloat(ancho)||0) * (parseFloat(alto)||0) / 10000;
+    if (!(m2 > 0)) return { m2:0, m2Cobrado:0, sub:0, fija, total:0, minimo:null, faltanMedidas:true };
+    const minM2 = minimoDe(ins, "minM2"), minP = minimoDe(ins, "minPesos");
+    const m2Cobrado = Math.max(m2, minM2);
+    let sub = m2Cobrado * precio, minimo = m2Cobrado > m2 ? "m2" : null;
+    if (sub < minP) { sub = minP; minimo = "pesos"; }
+    sub = Math.round(sub);
+    return { m2, m2Cobrado, sub, fija, total: sub + fija, minimo, minM2, minP };
+  }
+  const unit = ins?.escalas?.length ? precioPorCantidad(ins, c, tipoPrecio).precio : precio;
+  const sub = Math.round(unit * c * 100) / 100;
+  return { sub, fija, total: sub + fija, unit };
+}
+
+// Lista de servicios dentro de la ficha de un producto (incluidos en el precio o parte fija)
+function ListaServiciosForm({ titulo, ayuda, campo, form, setForm, insumos }) {
+  const servicios = (insumos||[]).filter(esServicio).sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""));
+  const lista = form[campo] || [];
+  const det = serviciosDe(lista, insumos);
+  const setFila = (i, k, v) => setForm(f => ({ ...f, [campo]: (f[campo]||[]).map((x, j) => j === i ? { ...x, [k]: v } : x) }));
+  const inpS = { ...prodInp, padding:"7px 8px", fontSize:13 };
+  return (
+    <div style={{ background:"#fff", border:"1px solid var(--c-border)", borderRadius:8, padding:"10px 12px" }}>
+      <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", marginBottom:2 }}>{titulo}</div>
+      {ayuda && <div style={{ fontSize:11, color:"#a09080", marginBottom:6 }}>{ayuda}</div>}
+      {lista.map((x, i) => (
+        <div key={i} style={{ display:"grid", gridTemplateColumns:"minmax(140px,2fr) minmax(60px,.7fr) minmax(70px,.8fr) 26px", gap:6, alignItems:"center", marginBottom:6 }}>
+          <select value={x.servicioId||""} onChange={e => setFila(i, "servicioId", e.target.value)} style={{ ...inpS, cursor:"pointer" }}>
+            <option value="">— Servicio —</option>
+            {servicios.map(s => <option key={s.fireId} value={s.fireId}>{s.nombre} ({$ar(s.precioVenta)}{sufCobro(s)})</option>)}
+          </select>
+          <input type="number" value={x.cant ?? ""} onChange={e => setFila(i, "cant", e.target.value)} placeholder="1" style={inpS} title="Cantidad"/>
+          <span style={{ fontSize:12, fontWeight:700, color:"#1a2340", textAlign:"right" }}>{det[i]?.precio ? $ar(det[i].precio) : "—"}</span>
+          <button type="button" onClick={() => setForm(f => ({ ...f, [campo]: (f[campo]||[]).filter((_, j) => j !== i) }))} style={{ ...btnDel, padding:"3px 6px" }}>✕</button>
+        </div>
+      ))}
+      {servicios.length ? (
+        <button type="button" onClick={() => setForm(f => ({ ...f, [campo]: [...(f[campo]||[]), { servicioId:"", cant:"1" }] }))}
+          style={{ background:"#fff", border:"1.5px solid #1565c0", color:"#1565c0", borderRadius:6, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer" }}>➕ Servicio</button>
+      ) : <div style={{ fontSize:12, color:"#a09080" }}>Todavía no hay servicios cargados (pestaña 🛠️ Servicios).</div>}
+    </div>
+  );
+}
+
+// Parte fija, mínimo de cobro y probador de precio (ficha del producto)
+function BloqueCobroProducto({ form, setForm, insumos, materias }) {
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const porM2 = cobroDe(form) === "m2";
+  const [prueba, setPrueba] = useState({ cant:"1", ancho:"100", alto:"70" });
+  const calc = calcProducto(form, materias, insumos);
+  const r = precioRenglonProducto({ ...form, precioVenta: calc.precio }, prueba, insumos);
+  const inpS = { ...prodInp, padding:"7px 8px", fontSize:13 };
+  const lbl = { display:"block", fontSize:11, fontWeight:600, color:"#4a5568", marginBottom:3 };
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+      <ListaServiciosForm titulo="📌 Parte fija (se suma una sola vez por renglón)" ayuda="Ej: colocación, diseño. No depende de la cantidad ni de las medidas." campo="parteFija" form={form} setForm={setForm} insumos={insumos}/>
+      {porM2 && (
+        <div style={{ background:"#fff", border:"1px solid var(--c-border)", borderRadius:8, padding:"10px 12px" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", marginBottom:6 }}>📏 Mínimo de cobro</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            <div><label style={lbl}>m² mínimos</label><input type="number" value={form.minM2 ?? ""} onChange={e => set("minM2", e.target.value)} placeholder={`${fmtN(MINIMOS.minM2)} (general)`} style={inpS}/></div>
+            <div><label style={lbl}>$ mínimo</label><input type="number" value={form.minPesos ?? ""} onChange={e => set("minPesos", e.target.value)} placeholder={`${fmtN(MINIMOS.minPesos)} (general)`} style={inpS}/></div>
+          </div>
+          <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>Vacío = usa el mínimo general. Se aplica sobre el total de m² del renglón.</div>
+        </div>
+      )}
+      <div style={{ background:"#e3f2fd", borderRadius:8, padding:"10px 12px" }}>
+        <div style={{ fontSize:11, fontWeight:700, color:"#1565c0", textTransform:"uppercase", marginBottom:6 }}>🧮 Probar precio</div>
+        <div style={{ display:"grid", gridTemplateColumns: porM2 ? "1fr 1fr 1fr" : "1fr 2fr", gap:8, alignItems:"end" }}>
+          <div><label style={lbl}>Cantidad</label><input type="number" value={prueba.cant} onChange={e => setPrueba(p => ({ ...p, cant:e.target.value }))} style={inpS}/></div>
+          {porM2 && <div><label style={lbl}>Ancho cm</label><input type="number" value={prueba.ancho} onChange={e => setPrueba(p => ({ ...p, ancho:e.target.value }))} style={inpS}/></div>}
+          {porM2 && <div><label style={lbl}>Alto cm</label><input type="number" value={prueba.alto} onChange={e => setPrueba(p => ({ ...p, alto:e.target.value }))} style={inpS}/></div>}
+        </div>
+        <div style={{ fontSize:12, color:"#1a2340", marginTop:8, lineHeight:1.6 }} data-probador>
+          {porM2 ? (r.faltanMedidas ? "Cargá ancho y alto." : <>
+            {fmtN(Math.round(r.m2 * 1000) / 1000)} m²
+            {r.minimo === "m2" && <> → se cobra el mínimo de <b>{fmtN(r.m2Cobrado)} m²</b></>}
+            {" "}× {$ar(calc.precio)}/m²
+            {r.minimo === "pesos" ? <> → mínimo <b>{$ar(r.sub)}</b></> : <> = {$ar(r.sub)}</>}
+          </>) : <>{fmtN(parseFloat(prueba.cant)||1)} × {$ar(r.unit)} = {$ar(r.sub)}</>}
+          {r.fija > 0 && <> + parte fija {$ar(r.fija)}</>}
+          {!r.faltanMedidas && <> = <b style={{ fontSize:15 }}>{$ar(r.total)}</b></>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Card: mínimo de cobro general de los productos por m²
+function TarjetaMinimosCobro({ minimos, showToast }) {
+  const [ed, setEd] = useState(null);
+  const guardar = async () => {
+    await setDoc(doc(db, "config", "productos"), { minM2: parseFloat(ed.minM2)||0, minPesos: parseFloat(ed.minPesos)||0 }, { merge:true });
+    setEd(null); showToast("Mínimo de cobro guardado ✅");
+  };
+  const inp = { width:80, padding:"6px 8px", borderRadius:6, border:"1.5px solid var(--c-border)", fontSize:13 };
+  return (
+    <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"12px 18px", marginBottom:14, display:"flex", gap:12, alignItems:"center", flexWrap:"wrap", borderLeft:"4px solid #6a1b9a" }}>
+      <div style={{ fontSize:13, color:"#1a2340" }}>
+        📏 <b>Mínimo de cobro (productos por m²): {fmtN(minimos.minM2)} m² · {$ar(minimos.minPesos)}</b>
+        <span style={{ color:"#a09080", fontSize:12, marginLeft:6 }}>se puede cambiar en cada producto</span>
+      </div>
+      {!ed ? (
+        <button onClick={() => setEd({ ...minimos })} style={{ marginLeft:"auto", background:"#fff", border:"1px solid var(--c-border)", borderRadius:6, padding:"4px 10px", fontSize:12, cursor:"pointer" }}>✏️ Ajustar</button>
+      ) : (
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginLeft:"auto", fontSize:12, color:"#4a5568" }}>
+          m² <input type="number" value={ed.minM2} onChange={e => setEd(x => ({ ...x, minM2:e.target.value }))} style={inp}/>
+          $ <input type="number" value={ed.minPesos} onChange={e => setEd(x => ({ ...x, minPesos:e.target.value }))} style={inp}/>
+          <button onClick={guardar} style={{ background:"#6a1b9a", color:"#fff", border:"none", borderRadius:6, padding:"6px 12px", fontWeight:700, cursor:"pointer" }}>Guardar</button>
+          <button onClick={() => setEd(null)} style={{ background:"transparent", border:"none", color:"#a09080", cursor:"pointer" }}>Cancelar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Pasa los productos y cargos del Cotizador a Productos / Servicios (una sola vez, sin cambiar precios)
+async function migrarCotizadorAProductos(cz, materias, insumos) {
+  const existe = (origen, nombre, servicio) => insumos.some(i => i.origenCot === origen || (normTxt(i.nombre) === normTxt(nombre) && esServicio(i) === servicio));
+  const tinta = materias.find(m => m.fireId === cz.tintaId) || materias.find(m => m.cotizador === "tinta");
+  const mlM2 = nv(cz.ink?.yieldMlM2 ?? 16);
+  const base = { codigo:"", stock:0, stockMinimo:0, escalas:[], margen:0, precioAuto:false, precioGremio:0, serviciosIncl:[], parteFija:[] };
+  const nuevos = [];
+  for (const c of (cz.prepCharges||[])) {
+    const nombre = c.name || c.label; if (!nombre) continue;
+    if (existe("prep:" + c.id, nombre, true)) continue;
+    nuevos.push({ ...base, nombre, tipo:"servicio", cobro: c.porM2 ? "m2" : "unidad", precioVenta: nv(c.price), costoModo:"manual", precioCompra:0, categoria:"Preparación", origenCot:"prep:" + c.id });
+  }
+  for (const p of (cz.products||[])) {
+    if (!p.name || existe("prod:" + p.id, p.name, false)) continue;
+    const receta = [p.materiaId && { materiaId:p.materiaId, cantidad:1 }, tinta && mlM2 && { materiaId:tinta.fireId, cantidad:mlM2 }].filter(Boolean);
+    const ins = { ...base, nombre:p.name, tipo:"elaborado", cobro:"m2", precioVenta: nv(p.salePriceM2), costoModo: receta.length ? "receta" : "manual", receta,
+      desperdicio: nv(p.wastePct), manoObraMin:0, otrosCosto:0, minM2: nv(p.minBillableArea) || null, minPesos: nv(p.minPrice) || null, categoria:"Impresión", origenCot:"prod:" + p.id };
+    ins.precioCompra = Math.round(costoArticulo(ins, materias) * 100) / 100;
+    nuevos.push(ins);
+  }
+  for (const m of materias.filter(x => x.cotizador === "base")) {
+    const venta = nv((cz.basesVenta||{})[m.fireId]), rend = nv(m.rendimiento);
+    if (!venta || !rend || existe("base:" + m.fireId, m.nombre, false)) continue;
+    nuevos.push({ ...base, nombre:m.nombre, tipo:"reventa", cobro:"m2", precioVenta: Math.round(venta / rend), costoModo:"materia", materiaId:m.fireId, materiaCant:1,
+      precioCompra: Math.round(costoUsoMateria(m) * 100) / 100, categoria:"Cartelería", origenCot:"base:" + m.fireId });
+  }
+  const pf = cz.polyfan || {};
+  if (nv(pf.venta)) {
+    const placa = materias.find(x => x.cotizador === "polyfan");
+    if (!existe("polyfan", "Polyfan placa 1,20 × 0,60", false))
+      nuevos.push({ ...base, nombre:"Polyfan placa 1,20 × 0,60", tipo:"elaborado", cobro:"unidad", precioVenta: nv(pf.venta), costoModo: placa ? "materia" : "manual",
+        materiaId: placa?.fireId || "", materiaCant:1, precioCompra: placa ? nv(placa.precioCosto) : nv(pf.costo), categoria:"Polyfan", origenCot:"polyfan" });
+    for (const a of PF_ADICIONALES) {
+      const precio = nv((pf.adicionales||{})[a.id]); if (!precio) continue;
+      const nombre = `Polyfan: ${a.label.toLowerCase()}`;
+      if (existe("pf:" + a.id, nombre, true)) continue;
+      nuevos.push({ ...base, nombre, tipo:"servicio", cobro:"unidad", precioVenta: precio, costoModo:"manual", precioCompra:0, categoria:"Polyfan", origenCot:"pf:" + a.id });
+    }
+  }
+  for (const n of nuevos) await addDoc(collection(db, "insumos"), n);
+  await setDoc(doc(db, "cotizadorConfig", "data"), { migradoProductos: hoyISO() }, { merge:true });
+  return { productos: nuevos.filter(n => !esServicio(n)).length, servicios: nuevos.filter(esServicio).length };
+}
+
 // Recalcula costo (y precio, si es automático) de todos los artículos que dependen de materias primas o recetas
 async function recalcularArticulos() {
   const [si, sm, scf, scc] = await Promise.all([getDocs(collection(db, "insumos")), getDocs(collection(db, "materiasPrimas")),
@@ -9813,16 +10044,17 @@ async function recalcularArticulos() {
   const minuto = calcMinutoTaller(scf?.exists?.() ? scf.data() : null, scc?.exists?.() ? scc.data() : null);
   TALLER.minuto = minuto;
   let n = 0;
-  for (const d of si.docs) {
-    const ins = { ...d.data(), fireId:d.id };
+  // Primero los servicios (los productos que los incluyen usan su precio actualizado)
+  const todos = si.docs.map(d => ({ ...d.data(), fireId:d.id })).sort((a, b) => (esServicio(b) ? 1 : 0) - (esServicio(a) ? 1 : 0));
+  for (const ins of todos) {
     const modo = modoCosto(ins);
     if (modo === "manual" && !ins.precioAuto) continue;
     const costo = Math.round((modo === "receta" ? costoReceta(ins, materias, minuto).total : costoArticulo(ins, materias)) * 100) / 100;
     const cambios = {};
     if (modo !== "manual" && costo !== (parseFloat(ins.precioCompra)||0)) cambios.precioCompra = costo;
     if (ins.precioAuto && parseFloat(ins.margen) > 0) {
-      const p = precioConMargen(costo, ins.margen);
-      if (p && p !== (parseFloat(ins.precioVenta)||0)) cambios.precioVenta = p;
+      const p = calcProducto(ins, materias, todos).formula;
+      if (p && p !== (parseFloat(ins.precioVenta)||0)) { cambios.precioVenta = p; ins.precioVenta = p; }
     }
     if (Object.keys(cambios).length) { await updateDoc(doc(db, "insumos", ins.fireId), cambios); n++; }
   }
@@ -9865,14 +10097,15 @@ function TarjetaMinutoTaller({ taller, showToast }) {
 }
 
 // Bloque del formulario del artículo: tipo, de dónde sale el costo y % de ganancia
-function EditorCostoArticulo({ form, setForm, materias }) {
+function EditorCostoArticulo({ form, setForm, materias, insumos = [] }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const modo = modoCosto(form);
   const m = materias.find(x => x.fireId === form.materiaId);
   const rec = costoReceta(form, materias);
-  const costo = modo === "receta" ? rec.total : costoArticulo(form, materias);
-  const sugerido = precioConMargen(costo, form.margen);
-  const actual = gananciaPct(costo, parseFloat(form.precioVenta)||0);
+  const calc = calcProducto(form, materias, insumos);
+  const costo = calc.costoPropio;
+  const actual = gananciaPct(calc.costo, calc.precio);
+  const porM2 = cobroDe(form) === "m2", suf = sufCobro(form), cadaUno = porM2 ? "por m²" : cobroDe(form) === "hora" ? "por hora" : "por unidad";
   const materiasOrd = [...materias].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""));
   const inpE = { width:"100%", padding:"9px 12px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", background:"#fff" };
   const lbl = { display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:4 };
@@ -9924,7 +10157,7 @@ function EditorCostoArticulo({ form, setForm, materias }) {
 
         {modo === "receta" && (
           <div style={{ background:"#fff", border:"1px solid var(--c-border)", borderRadius:8, padding:"10px 12px" }}>
-            <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", marginBottom:6 }}>Materiales por unidad</div>
+            <div style={{ fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", marginBottom:6 }}>Materiales {cadaUno}</div>
             {(form.receta||[]).map((r, i) => {
               const d = rec.detalle[i], mm = d?.m;
               return (
@@ -9946,8 +10179,8 @@ function EditorCostoArticulo({ form, setForm, materias }) {
               style={{ background:"#fff", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:6, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer" }}>➕ Material</button>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8, marginTop:10 }}>
               <div><label style={{ ...lbl, fontSize:11 }}>Desperdicio %</label><input type="number" value={form.desperdicio ?? ""} onChange={e => set("desperdicio", e.target.value)} placeholder="0" style={{ ...inpE, padding:"7px 8px" }}/></div>
-              <div><label style={{ ...lbl, fontSize:11 }}>Minutos de trabajo</label><input type="number" value={form.manoObraMin ?? ""} onChange={e => set("manoObraMin", e.target.value)} placeholder="0" style={{ ...inpE, padding:"7px 8px" }}/></div>
-              <div><label style={{ ...lbl, fontSize:11 }}>Otros costos $</label><input type="number" value={form.otrosCosto ?? ""} onChange={e => set("otrosCosto", e.target.value)} placeholder="0" style={{ ...inpE, padding:"7px 8px" }}/></div>
+              <div><label style={{ ...lbl, fontSize:11 }}>Minutos de trabajo{porM2 ? " por m²" : ""}</label><input type="number" value={form.manoObraMin ?? ""} onChange={e => set("manoObraMin", e.target.value)} placeholder="0" style={{ ...inpE, padding:"7px 8px" }}/></div>
+              <div><label style={{ ...lbl, fontSize:11 }} title="Ej: desgaste del equipo">Otros costos ${porM2 ? " por m²" : ""}</label><input type="number" value={form.otrosCosto ?? ""} onChange={e => set("otrosCosto", e.target.value)} placeholder="0" style={{ ...inpE, padding:"7px 8px" }}/></div>
             </div>
             <div style={{ marginTop:10, fontSize:12, color:"#4a5568", lineHeight:1.6 }}>
               Materiales <b>{$ar(rec.materiales)}</b>
@@ -9960,21 +10193,40 @@ function EditorCostoArticulo({ form, setForm, materias }) {
           </div>
         )}
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:8, alignItems:"end" }}>
-        <div>
-          <label style={lbl}>% de ganancia</label>
-          <input type="number" value={form.margen ?? ""} onChange={e => set("margen", e.target.value)} placeholder="Ej: 40" style={inpE}/>
+      {!esServicio(form) && (
+        <ListaServiciosForm titulo={`🛠️ Servicios incluidos ${cadaUno}`} ayuda="Ej: pegado, corte. Se suman al precio con su precio de venta." campo="serviciosIncl" form={form} setForm={setForm} insumos={insumos}/>
+      )}
+      <div>
+        <label style={lbl}>Precio de venta {cadaUno}</label>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
+          {[[true, "📐 Por fórmula (costo + % ganancia)"], [false, "🏷️ Precio fijo (de mercado)"]].map(([v, t]) => (
+            <button key={t} type="button" onClick={() => set("precioAuto", v)}
+              style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${!!form.precioAuto===v ? "var(--c-pri)" : "var(--c-border)"}`, background: !!form.precioAuto===v ? "var(--c-tint)" : "#fff", color: !!form.precioAuto===v ? "var(--c-pri)" : "#4a5568" }}>{t}</button>
+          ))}
         </div>
-        <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#4a5568", cursor:"pointer", paddingBottom:10 }}>
-          <input type="checkbox" checked={!!form.precioAuto} onChange={e => setForm(f => ({ ...f, precioAuto: e.target.checked, ...(e.target.checked && sugerido ? { precioVenta: sugerido } : {}) }))} style={{ accentColor:"var(--c-pri)" }}/>
-          Calcular el precio de venta solo con este % (se actualiza cuando cambia el costo)
-        </label>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, alignItems:"end" }}>
+          <div>
+            <label style={{ ...lbl, fontSize:11 }}>% de ganancia{form.precioAuto ? "" : " (para comparar)"}</label>
+            <input type="number" value={form.margen ?? ""} onChange={e => set("margen", e.target.value)} placeholder="Ej: 40" style={inpE} aria-label="% de ganancia"/>
+          </div>
+          {form.precioAuto ? (
+            <div style={{ padding:"9px 12px", borderRadius:7, background:"#fff", border:"1.5px solid var(--c-border)", fontSize:15, fontWeight:800, color:"#1a2340" }} data-precio-formula>
+              {calc.formula ? `${$ar(calc.formula)}${suf}` : <span style={{ fontSize:12, fontWeight:600, color:"#e65100" }}>Poné el % de ganancia</span>}
+            </div>
+          ) : (
+            <div>
+              <label style={{ ...lbl, fontSize:11 }}>Precio{suf}</label>
+              <input type="number" value={form.precioVenta ?? ""} onChange={e => set("precioVenta", e.target.value)} placeholder="$" style={{ ...inpE, fontWeight:700 }} aria-label="Precio de venta"/>
+            </div>
+          )}
+        </div>
       </div>
-      <div style={{ fontSize:12, color:"#4a5568" }}>
-        Costo <b>{costo ? $ar(costo) : "—"}</b>
-        {parseFloat(form.margen) > 0 && costo > 0 && <> · Precio con {form.margen}%: <b>{$ar(sugerido)}</b>
-          {!form.precioAuto && sugerido !== (parseFloat(form.precioVenta)||0) && <button type="button" onClick={() => set("precioVenta", sugerido)} style={{ marginLeft:6, background:"#fff", border:"1px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:6, padding:"1px 7px", fontSize:11, fontWeight:700, cursor:"pointer" }}>usar</button>}</>}
-        {actual !== null && <> · Ganancia actual: <b style={{ color: actual < 20 ? "#c62828" : "#2e7d32" }}>{actual}%</b></>}
+      <div style={{ fontSize:12, color:"#4a5568", lineHeight:1.6 }}>
+        Costo <b>{calc.costo ? $ar(calc.costo) : "—"}</b>{suf}
+        {calc.serv.length > 0 && <span style={{ color:"#a09080" }}> (materiales y trabajo {$ar(costo)} + servicios {$ar(calc.costoServ)})</span>}
+        {parseFloat(form.margen) > 0 && costo > 0 && <> · Con {form.margen}%: <b>{$ar(precioConMargen(costo, form.margen))}</b>{calc.ventaServ > 0 && <> + servicios {$ar(calc.ventaServ)} = <b>{$ar(calc.formula)}</b></>}
+          {!form.precioAuto && calc.formula !== (parseFloat(form.precioVenta)||0) && <button type="button" onClick={() => set("precioVenta", calc.formula)} style={{ marginLeft:6, background:"#fff", border:"1px solid var(--c-pri)", color:"var(--c-pri)", borderRadius:6, padding:"1px 7px", fontSize:11, fontWeight:700, cursor:"pointer" }}>usar</button>}</>}
+        {actual !== null && <> · Ganancia actual: <b style={{ color: actual < 20 ? "#c62828" : "#2e7d32" }}>{actual}%</b>{actual < 20 && <span style={{ color:"#c62828" }}> ⚠️ baja</span>}</>}
       </div>
     </div>
   );
@@ -10010,10 +10262,26 @@ function InsumosView({ setView, showToast }) {
   const [loadingInsumos, setLoadingInsumos] = useState(true);
   const [editingId, setEditingId]     = useState(null);
   const [editModal, setEditModal]     = useState(null);
-  const [tabActiva, setTabActiva]     = useState("productos"); // productos | materias
+  const [tabActiva, setTabActiva]     = useState("productos"); // productos | servicios | materias
   const [filtroTipo, setFiltroTipo]   = useState("todos");
   const [materiasMP] = useColeccion("materiasPrimas");
   const taller = useCostosTaller();
+  const minimos = useMinimosCobro();
+  const [cz, setCz] = useState(null);
+  const [migrando, setMigrando] = useState(false);
+  useEffect(() => onSnapshot(doc(db, "cotizadorConfig", "data"), s => setCz(s.exists() ? s.data() : {}), () => setCz({})), []);
+  const esServTab = tabActiva === "servicios";
+  const deTab = insumos.filter(i => esServTab ? esServicio(i) : !esServicio(i));
+  const nuevoArticulo = () => setEditModal({ nombre:"", codigo:"", categoria:"", tipo: esServTab ? "servicio" : "elaborado", cobro:"unidad", costoModo:"manual",
+    margen:"", precioAuto:false, precioVenta:"", precioGremio:"", stockMinimo:"", escalas:[], serviciosIncl:[], parteFija:[] });
+  const faltaMigrarCot = cz && !cz.migradoProductos && ((cz.products||[]).length || (cz.prepCharges||[]).length || nv(cz.polyfan?.venta));
+  const migrarCot = async () => {
+    if (!window.confirm("Se van a crear en Productos los productos del Cotizador (impresión por m², bases, polyfan) y en Servicios los cargos de preparación y adicionales, con los precios actuales. ¿Seguimos?")) return;
+    setMigrando(true);
+    try { const r = await migrarCotizadorAProductos(cz, materiasMP, insumos); showToast(`Listo: ${r.productos} producto${r.productos!==1?"s":""} y ${r.servicios} servicio${r.servicios!==1?"s":""} ✅`); }
+    catch(e) { console.error(e); showToast("Error al pasar los productos", "error"); }
+    setMigrando(false);
+  };
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "insumos"), snap => {
@@ -10023,15 +10291,15 @@ function InsumosView({ setView, showToast }) {
     return () => unsub();
   }, []);
 
-  const categorias = ["Todas", ...Array.from(new Set(insumos.map(i => i.categoria).filter(Boolean))).sort()];
+  const categorias = ["Todas", ...Array.from(new Set(deTab.map(i => i.categoria).filter(Boolean))).sort()];
 
-  const filtrados = insumos.filter(i => {
+  const filtrados = deTab.filter(i => {
     if (busq) {
       const palabras = busq.toLowerCase().split(/\s+/).filter(Boolean);
       const texto = `${i.nombre||""} ${i.codigo||""} ${i.categoria||""}`.toLowerCase();
       if (!palabras.every(p => texto.includes(p))) return false;
     }
-    if (filtroTipo !== "todos" && (filtroTipo === "sin" ? !!tipoArticulo(i.tipo) : i.tipo !== filtroTipo)) return false;
+    if (!esServTab && filtroTipo !== "todos" && (filtroTipo === "sin" ? !!tipoArticulo(i.tipo) : i.tipo !== filtroTipo)) return false;
     return filtroCat === "Todas" || i.categoria === filtroCat;
   }).sort((a,b) => (a.categoria||"").localeCompare(b.categoria||"") || (a.nombre||"").localeCompare(b.nombre||""));
   const cambiarTipo = async (ins, tipo) => { await updateDoc(doc(db, "insumos", ins.fireId), { tipo }); };
@@ -10119,29 +10387,42 @@ function InsumosView({ setView, showToast }) {
 
   const handleEditSave = async () => {
     if (!editModal) return;
+    if (!(editModal.nombre||"").trim()) { showToast("Poné el nombre", "error"); return; }
+    const modo = modoCosto(editModal);
     const costoCalc = Math.round(costoArticulo(editModal, materiasMP) * 100) / 100;
     const precioAuto = !!editModal.precioAuto && parseFloat(editModal.margen) > 0;
-    await updateDoc(doc(db, "insumos", editModal.fireId), {
-      nombre:       editModal.nombre,
-      codigo:       editModal.codigo,
-      categoria:    editModal.categoria,
+    const calc = calcProducto({ ...editModal, precioAuto }, materiasMP, insumos);
+    const servs = (l) => (l||[]).filter(x => x.servicioId && parseFloat(x.cant) > 0).map(x => ({ servicioId:x.servicioId, cant:parseFloat(x.cant) }));
+    const numONull = (v) => v === "" || v === undefined || v === null ? null : (parseFloat(v)||0);
+    const serv = esServicio(editModal);
+    const datos = {
+      nombre:       editModal.nombre.trim(),
+      codigo:       editModal.codigo || "",
+      categoria:    editModal.categoria || "",
       tipo:         editModal.tipo || "",
-      costoModo:    modoCosto(editModal),
-      materiaId:    modoCosto(editModal) === "materia" ? (editModal.materiaId || "") : "",
+      cobro:        cobroDe(editModal) === "hora" && !serv ? "unidad" : cobroDe(editModal),
+      costoModo:    modo,
+      materiaId:    modo === "materia" ? (editModal.materiaId || "") : "",
       materiaCant:  parseFloat(editModal.materiaCant)||1,
-      receta:       modoCosto(editModal) === "receta" ? (editModal.receta||[]).filter(r => r.materiaId && parseFloat(r.cantidad) > 0).map(r => ({ materiaId:r.materiaId, cantidad:parseFloat(r.cantidad) })) : [],
+      receta:       modo === "receta" ? (editModal.receta||[]).filter(r => r.materiaId && parseFloat(r.cantidad) > 0).map(r => ({ materiaId:r.materiaId, cantidad:parseFloat(r.cantidad) })) : [],
       desperdicio:  parseFloat(editModal.desperdicio)||0,
       manoObraMin:  parseFloat(editModal.manoObraMin)||0,
       otrosCosto:   parseFloat(editModal.otrosCosto)||0,
       margen:       parseFloat(editModal.margen)||0,
       precioAuto,
-      precioCompra: modoCosto(editModal) !== "manual" ? costoCalc : (parseFloat(editModal.precioCompra)||0),
-      precioVenta:  precioAuto ? precioConMargen(costoCalc, editModal.margen) : (parseFloat(editModal.precioVenta)||0),
+      precioCompra: modo !== "manual" ? costoCalc : (parseFloat(editModal.precioCompra)||0),
+      precioVenta:  precioAuto ? calc.formula : (parseFloat(editModal.precioVenta)||0),
       precioGremio: parseFloat(editModal.precioGremio)||0,
       stockMinimo:  parseFloat(editModal.stockMinimo)||0,
-      escalas:      limpiarEscalas(editModal.escalas),
-    });
-    showToast("Insumo actualizado ✅");
+      escalas:      cobroDe(editModal) === "unidad" ? limpiarEscalas(editModal.escalas) : [],
+      serviciosIncl: serv ? [] : servs(editModal.serviciosIncl),
+      parteFija:    serv ? [] : servs(editModal.parteFija),
+      minM2:        cobroDe(editModal) === "m2" ? numONull(editModal.minM2) : null,
+      minPesos:     cobroDe(editModal) === "m2" ? numONull(editModal.minPesos) : null,
+    };
+    if (editModal.fireId) await updateDoc(doc(db, "insumos", editModal.fireId), datos);
+    else await addDoc(collection(db, "insumos"), { ...datos, stock:0 });
+    showToast(editModal.fireId ? "Guardado ✅" : `${serv ? "Servicio" : "Producto"} creado ✅`);
     setEditModal(null);
   };
 
@@ -10151,31 +10432,28 @@ function InsumosView({ setView, showToast }) {
     <div>
       {/* Tabs */}
       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:20, flexWrap:"wrap" }}>
-        <button onClick={()=>setTabActiva("productos")}
-          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
-            background:tabActiva==="productos"?"var(--c-pri)":"#fff", color:tabActiva==="productos"?"#fff":"#4a5568",
-            boxShadow:tabActiva==="productos"?"0 3px 10px rgba(var(--c-pri-rgb),.2)":"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>
-          🏷️ Servicios y Productos
-          <span style={{ marginLeft:6, background:tabActiva==="productos"?"rgba(255,255,255,.25)":"#f0f3f9", color:tabActiva==="productos"?"#fff":"#a09080", borderRadius:20, padding:"1px 7px", fontSize:12, fontWeight:700 }}>{insumos.length}</span>
-        </button>
-        <button onClick={()=>setTabActiva("materias")}
-          style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
-            background:tabActiva==="materias"?"#1a2340":"#fff", color:tabActiva==="materias"?"#fff":"#4a5568",
-            boxShadow:tabActiva==="materias"?"0 3px 10px rgba(26,35,64,.2)":"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>
-          🧪 Materias Primas
-        </button>
+        {[["materias","🧪 Materias primas", null], ["productos","🏷️ Productos", insumos.filter(x => !esServicio(x)).length], ["servicios","🛠️ Servicios", insumos.filter(esServicio).length]].map(([id, l, n]) => (
+          <button key={id} onClick={() => { setTabActiva(id); setFiltroTipo("todos"); setFiltroCat("Todas"); }}
+            style={{ padding:"9px 20px", borderRadius:20, fontSize:14, fontWeight:600, cursor:"pointer", border:"none", fontFamily:"'DM Sans',sans-serif",
+              background:tabActiva===id?(id==="materias"?"#1a2340":"var(--c-pri)"):"#fff", color:tabActiva===id?"#fff":"#4a5568",
+              boxShadow:tabActiva===id?"0 3px 10px rgba(var(--c-pri-rgb),.2)":"0 1px 6px rgba(var(--c-pri-rgb),.07)" }}>
+            {l}
+            {n !== null && <span style={{ marginLeft:6, background:tabActiva===id?"rgba(255,255,255,.25)":"#f0f3f9", color:tabActiva===id?"#fff":"#a09080", borderRadius:20, padding:"1px 7px", fontSize:12, fontWeight:700 }}>{n}</span>}
+          </button>
+        ))}
       </div>
 
       {/* ── TAB MATERIAS PRIMAS ── */}
       {tabActiva==="materias" && <MateriasPrimasView showToast={showToast}/>}
 
-      {tabActiva==="productos" && (
+      {tabActiva!=="materias" && (
       <div>
 
       {/* Header productos */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
-        <p style={{ fontSize:14, color:"#a09080" }}>{insumos.length} productos · {filtrados.length} mostrados</p>
-        <div style={{ display:"flex", gap:10 }}>
+        <p style={{ fontSize:14, color:"#a09080" }}>{deTab.length} {esServTab ? "servicios" : "productos"} · {filtrados.length} mostrados</p>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+          {!esServTab && <>
           <button onClick={async () => {
             if (!window.confirm(`⚠️ ¿Seguro que querés borrar los ${insumos.length} insumos? Esta acción no se puede deshacer.`)) return;
             const snap = await getDocs(collection(db, "insumos"));
@@ -10193,9 +10471,10 @@ function InsumosView({ setView, showToast }) {
             📥 Importar Excel
             <input type="file" accept=".xlsx,.xls" onChange={handleExcel} style={{ display:"none" }}/>
           </label>
-          <button onClick={() => setView("nuevoInsumo")}
+          </>}
+          <button onClick={nuevoArticulo}
             style={{ background:"var(--c-pri)", color:"#fff", border:"none", padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            ➕ Nuevo Producto
+            ➕ {esServTab ? "Nuevo servicio" : "Nuevo producto"}
           </button>
         </div>
       </div>
@@ -10211,7 +10490,18 @@ function InsumosView({ setView, showToast }) {
         </div>
       )}
 
+      {faltaMigrarCot && !esServTab && (
+        <div style={{ ...prodCard, padding:"14px 18px", marginBottom:14, borderLeft:"5px solid #e65100", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+          <div style={{ flex:"1 1 260px", fontSize:13, color:"#1a2340" }}>
+            <b>🧮 Traé los productos del Cotizador.</b>
+            <div style={{ fontSize:12, color:"#a09080" }}>Los productos de impresión por m², las bases y el polyfan pasan a Productos; los cargos de preparación y adicionales, a Servicios. Con los precios de hoy (no cambia ninguno). Se hace una sola vez.</div>
+          </div>
+          <button onClick={migrarCot} disabled={migrando} style={btnPri("#e65100")}>{migrando ? "Pasando…" : "🧮 Traerlos ahora"}</button>
+        </div>
+      )}
+
       <TarjetaMinutoTaller taller={taller} showToast={showToast}/>
+      {!esServTab && <TarjetaMinimosCobro minimos={minimos} showToast={showToast}/>}
 
       {/* Filtros */}
       <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"14px 18px", marginBottom:18, display:"flex", gap:12, flexWrap:"wrap" }}>
@@ -10225,8 +10515,8 @@ function InsumosView({ setView, showToast }) {
           {categorias.map(c => <option key={c}>{c}</option>)}
         </select>
         <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", width:"100%" }}>
-          {[["todos","Todos"], ...TIPOS_ARTICULO.map(t => [t.id, t.label]), ["sin","❓ Sin clasificar"]].map(([v,l]) => {
-            const n = v === "todos" ? insumos.length : v === "sin" ? insumos.filter(i => !tipoArticulo(i.tipo)).length : insumos.filter(i => i.tipo === v).length;
+          {!esServTab && [["todos","Todos"], ...TIPOS_ARTICULO.filter(t => t.id !== "servicio").map(t => [t.id, t.label]), ["sin","❓ Sin clasificar"]].map(([v,l]) => {
+            const n = v === "todos" ? deTab.length : v === "sin" ? deTab.filter(i => !tipoArticulo(i.tipo)).length : deTab.filter(i => i.tipo === v).length;
             return (
               <button key={v} onClick={() => setFiltroTipo(v)}
                 style={{ padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", border:"none",
@@ -10245,15 +10535,15 @@ function InsumosView({ setView, showToast }) {
       ) : filtrados.length === 0 ? (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", padding:"52px 24px", textAlign:"center" }}>
           <div style={{ fontSize:40, marginBottom:14 }}>📦</div>
-          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq||filtroCat!=="Todas"?"Sin resultados":"No hay insumos aún"}</div>
-          <div style={{ color:"#a09080", fontSize:14 }}>Importá tu lista desde Excel o agregá insumos uno a uno</div>
+          <div style={{ fontWeight:700, fontSize:18, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{busq||filtroCat!=="Todas"?"Sin resultados":esServTab?"No hay servicios aún":"No hay productos aún"}</div>
+          <div style={{ color:"#a09080", fontSize:14 }}>{esServTab ? "Agregá corte, colocación, diseño… con el botón ➕ Nuevo servicio" : "Importá tu lista desde Excel o agregá productos uno a uno"}</div>
         </div>
       ) : (
         <div style={{ background:"#fff", borderRadius:14, boxShadow:"0 2px 14px rgba(var(--c-pri-rgb),.07)", overflow:"hidden" }}>
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>
             <thead>
               <tr style={{ background:"var(--c-softer)" }}>
-                {["Código","Nombre","Categoría","Costo","P. Venta","Ganancia","P. Gremio","Stock",""].map(h => (
+                {(esServTab ? ["Código","Nombre","Categoría","Costo","Precio","Ganancia",""] : ["Código","Nombre","Categoría","Costo","P. Venta","Ganancia","P. Gremio","Stock",""]).map(h => (
                   <th key={h} style={{ padding:"11px 14px", textAlign:"left", fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".6px", borderBottom:"1px solid var(--c-row2)", whiteSpace:"nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -10263,6 +10553,8 @@ function InsumosView({ setView, showToast }) {
                 const stockN = parseFloat(ins.stock)||0;
                 const minN   = parseFloat(ins.stockMinimo)||0;
                 const bajo   = minN > 0 && stockN <= minN;
+                const cp     = calcProducto(ins, materiasMP, insumos);
+                const fijaR  = serviciosDe(ins.parteFija, insumos).reduce((s2, d) => s2 + d.precio, 0);
                 return (
                   <tr key={ins.fireId} style={{ borderBottom:"1px solid var(--c-row)", background:bajo?"var(--c-soft)":"#fff" }}>
                     <td style={{ padding:"11px 14px", color:"#a09080", fontSize:12, fontFamily:"monospace" }}>{ins.codigo||"—"}</td>
@@ -10282,27 +10574,30 @@ function InsumosView({ setView, showToast }) {
                       <span style={{ background:"#fff3e0", color:"#bf360c", padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600 }}>{ins.categoria||"—"}</span>
                     </td>
                     <td style={{ padding:"11px 14px", color:"#4a5568" }}>
-                      {(() => { const c = costoArticulo(ins, materiasMP); return c ? $ar(c) : "—"; })()}
+                      {cp.costo ? <>{$ar(cp.costo)}<span style={{ fontSize:11, color:"#a09080" }}>{sufCobro(ins)}</span></> : "—"}
                       {modoCosto(ins) === "materia" && <div style={{ fontSize:10, color:"#1565c0", fontWeight:600 }} title="El costo sale de una materia prima">🧱 {materiasMP.find(m => m.fireId === ins.materiaId)?.nombre || "materia prima"}</div>}
                       {modoCosto(ins) === "receta" && <div style={{ fontSize:10, color:"#6a1b9a", fontWeight:600 }} title={(ins.receta||[]).map(r => `${materiasMP.find(m => m.fireId === r.materiaId)?.nombre || "?"} × ${r.cantidad}`).join("\n") + (ins.manoObraMin ? `\n${ins.manoObraMin} min de trabajo` : "")}>📋 Receta · {(ins.receta||[]).length} material{(ins.receta||[]).length!==1?"es":""}{ins.manoObraMin ? ` + ${ins.manoObraMin} min` : ""}</div>}
                     </td>
                     <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>
-                      {ins.precioVenta?`$${parseFloat(ins.precioVenta).toLocaleString("es-AR")}`:"—"}
+                      {ins.precioVenta?<>{`$${parseFloat(ins.precioVenta).toLocaleString("es-AR")}`}<span style={{ fontSize:11, color:"#a09080", fontWeight:600 }}>{sufCobro(ins)}</span></>:"—"}
+                      {cp.serv.length > 0 && <div title={cp.serv.map(d => `${d.s?.nombre || "?"} × ${d.cant}`).join("\n")} style={{ fontSize:10, color:"#1565c0", fontWeight:700, marginTop:2 }}>🛠️ incluye {cp.serv.length} servicio{cp.serv.length!==1?"s":""}</div>}
+                      {fijaR > 0 && <div style={{ fontSize:10, color:"#6a1b9a", fontWeight:700 }}>📌 + {$ar(fijaR)} fijo</div>}
+                      {cobroDe(ins) === "m2" && <div style={{ fontSize:10, color:"#a09080" }}>mín. {fmtN(minimoDe(ins, "minM2"))} m² · {$ar(minimoDe(ins, "minPesos"))}</div>}
                       {escalasDe(ins).length>0 && <div title={textoEscalas(ins)} style={{ fontSize:10, color:"#2e7d32", fontWeight:700, marginTop:2 }}>🔻 {escalasDe(ins).length} escala{escalasDe(ins).length>1?"s":""}</div>}
                     </td>
                     <td style={{ padding:"11px 14px", whiteSpace:"nowrap" }}>
-                      {(() => { const g = gananciaPct(costoArticulo(ins, materiasMP), parseFloat(ins.precioVenta)||0);
+                      {(() => { const g = gananciaPct(cp.costo, parseFloat(ins.precioVenta)||0);
                         return g === null ? <span style={{ color:"#c0b0a0" }}>—</span> : <b style={{ color: g < 20 ? "#c62828" : g < 40 ? "#e65100" : "#2e7d32" }}>{g}%</b>; })()}
                       {ins.precioAuto && <div style={{ fontSize:10, color:"#a09080" }}>auto {ins.margen}%</div>}
                     </td>
-                    <td style={{ padding:"11px 14px", fontWeight:600, color:"var(--c-pri)" }}>{ins.precioGremio?`$${parseFloat(ins.precioGremio).toLocaleString("es-AR")}`:"—"}</td>
-                    <td style={{ padding:"11px 14px" }}>
+                    {!esServTab && <td style={{ padding:"11px 14px", fontWeight:600, color:"var(--c-pri)" }}>{ins.precioGremio?`$${parseFloat(ins.precioGremio).toLocaleString("es-AR")}`:"—"}</td>}
+                    {!esServTab && <td style={{ padding:"11px 14px" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                         <button onClick={() => handleStockUpdate(ins,-1)} style={{ background:"#ffebee", border:"none", color:"#c62828", width:24, height:24, borderRadius:5, fontWeight:700, cursor:"pointer", fontSize:14 }}>−</button>
                         <span style={{ fontWeight:700, color:bajo?"#c62828":"#1a2340", minWidth:28, textAlign:"center" }}>{stockN}</span>
                         <button onClick={() => handleStockUpdate(ins,1)}  style={{ background:"#e8f5e9", border:"none", color:"#2e7d32", width:24, height:24, borderRadius:5, fontWeight:700, cursor:"pointer", fontSize:14 }}>+</button>
                       </div>
-                    </td>
+                    </td>}
                     <td style={{ padding:"11px 14px" }}>
                       <div style={{ display:"flex", gap:5 }}>
                         <button onClick={() => setEditModal({ ...ins, ...(!ins.costoModo && !ins.materiaId && ins.tipo === "elaborado" ? { costoModo:"receta", receta:[{ materiaId:"", cantidad:"" }] } : {}) })} style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>✏️</button>
@@ -10384,25 +10679,51 @@ function InsumosView({ setView, showToast }) {
         </div>
       )}
 
-      {/* Modal editar inline */}
-      {editModal && (
+      {/* Modal editar / nuevo producto o servicio */}
+      {editModal && (() => {
+        const serv = esServicio(editModal);
+        const setE = (k, v) => setEditModal(m => ({ ...m, [k]: v }));
+        const campo = (label, key, extra = {}) => (
+          <div style={{ gridColumn: extra.col || "auto" }}>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:4 }}>{label}</label>
+            <input value={editModal[key] ?? ""} onChange={e => setE(key, e.target.value)} placeholder={extra.ph || ""} type={extra.type || "text"} aria-label={label}
+              style={{ width:"100%", padding:"9px 12px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+          </div>
+        );
+        return (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }} onClick={() => setEditModal(null)}>
-          <div style={{ background:"#fff", borderRadius:16, padding:"28px 32px", width:"100%", maxWidth:540, maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:20 }}>✏️ Editar producto / servicio</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+          <div style={{ background:"#fff", borderRadius:16, padding:"24px 26px", width:"100%", maxWidth:580, maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1a2340", marginBottom:16 }}>
+              {editModal.fireId ? "✏️ Editar" : "➕ Nuevo"} {serv ? "servicio" : "producto"}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              {campo("Nombre *", "nombre", { col:"1 / -1", ph: serv ? "Ej: Colocación" : "Ej: Vinilo impreso base blanca" })}
+              {campo("Código", "codigo")}
+              {campo("Categoría", "categoria")}
               <div style={{ gridColumn:"1 / -1" }}>
-                <EditorCostoArticulo form={editModal} setForm={setEditModal} materias={materiasMP}/>
-              </div>
-              {[["Nombre","nombre","1 / -1"],["Código","codigo"],["Categoría","categoria"],["Precio Venta","precioVenta"],["Precio Gremio","precioGremio"],["Stock Mínimo","stockMinimo"]].map(([label,key,col]) => (
-                <div key={key} style={{ gridColumn:col||"auto" }}>
-                  <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:4 }}>{label}</label>
-                  <input value={editModal[key]||""} onChange={e=>setEditModal(m=>({...m,[key]:e.target.value}))}
-                    style={{ width:"100%", padding:"9px 12px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box" }}/>
+                <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:4 }}>¿Cómo se cobra?</label>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  {COBROS.filter(c => serv || c.id !== "hora").map(c => (
+                    <button key={c.id} type="button" onClick={() => setE("cobro", c.id)}
+                      style={{ padding:"7px 16px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", border:`1.5px solid ${cobroDe(editModal)===c.id ? "#1a2340" : "var(--c-border)"}`, background: cobroDe(editModal)===c.id ? "#1a2340" : "#fff", color: cobroDe(editModal)===c.id ? "#fff" : "#4a5568" }}>{c.label}</button>
+                  ))}
                 </div>
-              ))}
-              <div style={{ gridColumn:"1 / -1" }}>
-                <EditorEscalas compacto escalas={editModal.escalas} onChange={l=>setEditModal(m=>({...m, escalas:l}))}/>
               </div>
+              <div style={{ gridColumn:"1 / -1" }}>
+                <EditorCostoArticulo form={editModal} setForm={setEditModal} materias={materiasMP} insumos={insumos}/>
+              </div>
+              {!serv && (
+                <div style={{ gridColumn:"1 / -1" }}>
+                  <BloqueCobroProducto form={editModal} setForm={setEditModal} insumos={insumos} materias={materiasMP}/>
+                </div>
+              )}
+              {!serv && campo("Precio gremio", "precioGremio", { type:"number" })}
+              {!serv && campo("Stock mínimo", "stockMinimo", { type:"number" })}
+              {!serv && cobroDe(editModal) === "unidad" && (
+                <div style={{ gridColumn:"1 / -1" }}>
+                  <EditorEscalas compacto escalas={editModal.escalas} onChange={l=>setEditModal(m=>({...m, escalas:l}))}/>
+                </div>
+              )}
             </div>
             <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:20 }}>
               <button onClick={() => setEditModal(null)} style={{ padding:"9px 18px", background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
@@ -10410,7 +10731,8 @@ function InsumosView({ setView, showToast }) {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
       </div>
       )}
     </div>
@@ -14467,8 +14789,14 @@ export default function App() {
   const [editingId, setEditingId]         = useState(null);
   const [formFlotante, setFormFlotante]   = useState(false);   // formulario de pedido en ventana flotante
   const cerrarFormulario = () => { if (formFlotante) setFormFlotante(false); else setView("lista"); };
-  const abrirPedidoFlotante = ({ fechaEntrega = "", categoria = "" } = {}) => {
-    setFormData({ ...EMPTY_FORM, categoria: categoria || CATEGORIAS[0] || "", fechaPedido: new Date().toLocaleDateString("sv-SE"), fechaEntrega, origenCalendario: true });
+  const abrirPedidoFlotante = ({ fechaEntrega = "", categoria = "", categoriaSugerida = "", nombre = "", items = null, origen = "calendario" } = {}) => {
+    const re = categoriaSugerida ? new RegExp(categoriaSugerida, "i") : null;
+    const cat = categoria || (re && CATEGORIAS.find(c => re.test(normTxt(c)))) || CATEGORIAS[0] || "";
+    const filas = items ? items.map(it => ({ ...renglonVacio(), ...Object.fromEntries(Object.entries(it).map(([k, v]) => [k, typeof v === "number" ? String(Math.round(v * 100) / 100) : v])) })) : [];
+    const total = sumaRenglones(filas);
+    setFormData({ ...EMPTY_FORM, categoria: cat, nombre, fechaPedido: new Date().toLocaleDateString("sv-SE"), fechaEntrega, items: filas,
+      ...(total > 0 ? { precio: String(Math.round(total * 100) / 100) } : {}),
+      ...(origen === "calendario" ? { origenCalendario: true } : { origenCotizador: true }) });
     setEditingId(null); setErrors({}); setSelectedClienteId(null); setClienteSearch(""); setFormFlotante(true);
   };
   const [busqueda, setBusqueda]           = useState("");
@@ -14675,7 +15003,9 @@ export default function App() {
     // Renglones: se guardan ordenados y además como texto (para la orden de trabajo y WhatsApp)
     const itemsOk = limpiarRenglones(formData.items);
     const notasStr = itemsOk.length ? itemsOk.map(textoRenglon).filter(Boolean).join("\n") : (formData.notasItems||[""]).filter(x=>x.trim()).join("\n");
-    const extrasRenglones = { items: itemsOk, m2Total: Math.round(itemsOk.reduce((t, it) => t + it.m2, 0) * 10000) / 10000 };
+    const sumaItems = Math.round(itemsOk.reduce((t, it) => t + it.total, 0) * 100) / 100;
+    const extrasRenglones = { items: itemsOk, m2Total: Math.round(itemsOk.reduce((t, it) => t + it.m2, 0) * 10000) / 10000,
+      ...(sumaItems !== 0 ? { precio: String(sumaItems) } : {}) };
     if (editingId !== null) {
       const prev    = pedidos.find(p => p.fireId === editingId || p.id === editingId);
       const updated = limpiar({ ...formData, ...extrasRenglones, notas: notasStr || (itemsOk.length ? "" : formData.notas), notasItems: undefined, id: prev?.id, clienteId: selectedClienteId||prev?.clienteId||null });
@@ -15012,7 +15342,14 @@ export default function App() {
 
               <div>
                 <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:6 }}>Precio Total ($)</label>
-                <input type="number" value={formData.precio} onChange={e=>setFormData(p=>({...p,precio:e.target.value}))} placeholder="0.00" style={inp()}/>
+                {sumaRenglones(formData.items) !== 0 ? (
+                  <>
+                    <input type="number" value={formData.precio} readOnly title="Se calcula con los renglones del detalle" style={{ ...inp(), background:"var(--c-soft)", fontWeight:700, cursor:"default" }}/>
+                    <div style={{ fontSize:11, color:"#a09080", marginTop:4 }}>Suma de los renglones. Para un descuento, agregá un renglón con valor negativo.</div>
+                  </>
+                ) : (
+                  <input type="number" value={formData.precio} onChange={e=>setFormData(p=>({...p,precio:e.target.value}))} placeholder="0.00" style={inp()}/>
+                )}
               </div>
 
               <div>
@@ -15065,10 +15402,9 @@ export default function App() {
               <div style={{ gridColumn:"1 / -1" }}>
                 <label style={{ display:"block", fontSize:13, fontWeight:600, color:"#4a5568", marginBottom:8 }}>📝 Detalle del pedido</label>
                 <RenglonesPedido items={formData.items} onChange={items => setFormData(p => {
-                  // El Precio Total sigue a la suma de los renglones, salvo que lo hayas cambiado a mano
-                  const antes = sumaRenglones(p.items), ahora = sumaRenglones(items);
-                  const sigue = !p.precio || Math.abs((parseFloat(p.precio)||0) - antes) < 0.01;
-                  return { ...p, items, ...(sigue && ahora > 0 ? { precio: String(ahora) } : {}) };
+                  // El Precio Total es siempre la suma de los renglones (si los renglones tienen valores)
+                  const antes = sumaRenglones(p.items), ahora = Math.round(sumaRenglones(items) * 100) / 100;
+                  return { ...p, items, ...(ahora !== 0 ? { precio: String(ahora) } : antes !== 0 ? { precio: "" } : {}) };
                 })}/>
               </div>
             </div>
@@ -15370,9 +15706,6 @@ export default function App() {
             )}
             {(view==="clientes"||view==="nuevoCliente") && (
               <button className="ctx-btn" onClick={()=>setView("nuevoCliente")}>➕ Nuevo Cliente</button>
-            )}
-            {(view==="insumos"||view==="nuevoInsumo") && (
-              <button className="ctx-btn" onClick={()=>setView("nuevoInsumo")}>➕ Nuevo Producto</button>
             )}
             {view==="ventas" && (
               <button className="ctx-btn" onClick={()=>setEgresoRapido(true)} style={{ color:"#c62828", borderColor:"#ef9a9a", background:"#ffebee" }}>➖ Egreso</button>
@@ -15863,7 +16196,7 @@ export default function App() {
 
         {/* ── FINANZAS ── */}
         {view==="calculadora" && <CalculadoraCostos/>}
-        {view==="cotizador" && <CotizadorView showToast={showToast}/>}
+        {view==="cotizador" && <CotizadorView showToast={showToast} abrirPedidoFlotante={abrirPedidoFlotante}/>}
         {view==="produccion"   && <ProduccionView showToast={showToast} pedidos={pedidos}/>}
         {view==="pedidosOnline" && <PedidosOnlineView showToast={showToast} setView={setView} setSelectedPedido={setSelectedPedido} clientes={clientes} abrirPedidoFlotante={abrirPedidoFlotante}/>}
         {formFlotante && (
