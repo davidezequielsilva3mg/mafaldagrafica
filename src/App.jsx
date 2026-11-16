@@ -3328,6 +3328,203 @@ function ChipsColores({ t }) {
   );
 }
 
+// ── Costos por impresora: insumos de impresión → costo fijo por impresión → productos que salen de esa impresora ──
+// costeoImpresoras/{impresoraId}: { nombre, unidad: "hoja"|"m2"|"copia", insumos:[{ detalle, costo, rendimiento }] }
+// insumos (productos) con costoModo "impresora": impresoraId, materiaId + materiaCant, impresiones
+const UNIDADES_IMPRESION = [
+  { id:"hoja",  label:"Hoja / carilla", corto:"hoja" },
+  { id:"m2",    label:"m²",             corto:"m²" },
+  { id:"copia", label:"Copia (clic)",   corto:"copia" },
+];
+const COSTEOS = {};
+const costoPorImpresion = (c) => (c?.insumos||[]).reduce((s, x) => { const r = parseFloat(x.rendimiento)||0; return s + (r > 0 ? (parseFloat(x.costo)||0) / r : 0); }, 0);
+function cargarCosteos(docs) {
+  Object.keys(COSTEOS).forEach(k => delete COSTEOS[k]);
+  docs.forEach(d => { const c = d.data(); COSTEOS[d.id] = { ...c, costo: costoPorImpresion(c) }; });
+}
+function useCosteos() {
+  const [st, setSt] = useState({ map:{ ...COSTEOS }, cargado:false });
+  useEffect(() => onSnapshot(collection(db, "costeoImpresoras"), snap => { cargarCosteos(snap.docs); setSt({ map:{ ...COSTEOS }, cargado:true }); }, () => setSt(s => ({ ...s, cargado:true }))), []);
+  return st;
+}
+function costoImpresoraArticulo(ins, materias, costeoActual) {
+  const m = materias.find(x => x.fireId === ins?.materiaId);
+  const mat = m ? costoUsoMateria(m) * (parseFloat(ins.materiaCant)||1) : 0;
+  const unit = costeoActual !== undefined ? costeoActual : (COSTEOS[ins?.impresoraId]?.costo || 0);
+  const imp = unit * (parseFloat(ins?.impresiones)||1);
+  return { m, mat, unit, imp, total: mat + imp };
+}
+
+function CosteoImpresora({ impId, nombre, showToast }) {
+  const { map, cargado } = useCosteos();
+  const [materias] = useColeccion("materiasPrimas");
+  const [insumos] = useColeccion("insumos");
+  const [f, setF] = useState(null);
+  const [dirty, setDirty] = useState(false);
+  const [pf, setPf] = useState(null);   // producto que se está cargando / editando
+  useEffect(() => {
+    if (!cargado || f) return;
+    const g = map[impId];
+    setF({ unidad: g?.unidad || "hoja", insumos: g?.insumos?.length ? g.insumos.map(x => ({ ...x })) : [{ detalle:"", costo:"", rendimiento:"" }] });
+  }, [cargado]);
+  if (!f) return <div style={{ padding:30, textAlign:"center", color:"#a09080" }}>Cargando…</div>;
+
+  const uni = UNIDADES_IMPRESION.find(u => u.id === f.unidad) || UNIDADES_IMPRESION[0];
+  const costoImp = costoPorImpresion(f);
+  const setIns = (i, k, v) => { setF(x => ({ ...x, insumos: x.insumos.map((r, j) => j === i ? { ...r, [k]: v } : r) })); setDirty(true); };
+  const guardarCosteo = async (silencioso) => {
+    const limpios = f.insumos.filter(x => (x.detalle||"").trim() || parseFloat(x.costo) > 0)
+      .map(x => ({ detalle:(x.detalle||"").trim(), costo: parseFloat(x.costo)||0, rendimiento: parseFloat(x.rendimiento)||0 }));
+    await setDoc(doc(db, "costeoImpresoras", impId), { nombre, unidad: f.unidad, insumos: limpios, actualizado: hoyISO() });
+    COSTEOS[impId] = { nombre, unidad: f.unidad, insumos: limpios, costo: costoPorImpresion({ insumos: limpios }) };
+    setDirty(false);
+    const n = await recalcularArticulos();
+    if (!silencioso) showToast(`Costos guardados ✅${n ? ` · ${n} producto${n!==1?"s":""} actualizado${n!==1?"s":""}` : ""}`);
+  };
+
+  const productos = insumos.filter(i => i.impresoraId === impId).sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""));
+  const materiasOrd = [...materias].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""));
+  const calcPf = pf ? costoImpresoraArticulo(pf, materias, costoImp) : null;
+  const precioPf = calcPf ? precioConMargen(calcPf.total, pf.margen) : 0;
+  const guardarProducto = async () => {
+    if (!(pf.nombre||"").trim()) { showToast("Poné el nombre del producto", "error"); return; }
+    if (!(parseFloat(pf.margen) > 0)) { showToast("Poné el % de ganancia", "error"); return; }
+    if (dirty) await guardarCosteo(true);
+    const datos = { nombre: pf.nombre.trim(), tipo:"elaborado", cobro: f.unidad === "m2" ? "m2" : "unidad", costoModo:"impresora", impresoraId: impId,
+      materiaId: pf.materiaId || "", materiaCant: parseFloat(pf.materiaCant)||1, impresiones: parseFloat(pf.impresiones)||1,
+      margen: parseFloat(pf.margen)||0, precioAuto:true, precioCompra: Math.round(calcPf.total * 100) / 100, precioVenta: precioPf };
+    if (pf.fireId) await updateDoc(doc(db, "insumos", pf.fireId), datos);
+    else await addDoc(collection(db, "insumos"), { ...datos, codigo:"", categoria: nombre, stock:0, stockMinimo:0, precioGremio:0, escalas:[], serviciosIncl:[], parteFija:[], receta:[] });
+    showToast(pf.fireId ? "Producto actualizado ✅" : "Producto agregado a Productos ✅");
+    setPf(null);
+  };
+  const borrarProducto = async (p) => {
+    if (!window.confirm(`¿Borrar "${p.nombre}" de Productos?`)) return;
+    await deleteDoc(doc(db, "insumos", p.fireId)); showToast("Producto borrado", "error");
+  };
+  const inpC = { ...prodInp, padding:"8px 10px", fontSize:13 };
+  const th = { fontSize:11, fontWeight:700, color:"#a09080", textTransform:"uppercase", letterSpacing:".4px" };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {/* 1) Insumos de impresión */}
+      <div style={{ ...prodCard, padding:"16px 18px" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:10 }}>
+          <div>
+            <div style={{ fontWeight:800, fontSize:15, color:"#1a2340" }}>💧 Insumos de impresión</div>
+            <div style={{ fontSize:12, color:"#a09080" }}>Tintas, tóner, cabezal, mantenimiento… con lo que cuestan y cuántas impresiones rinden.</div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#4a5568" }}>
+            Rinde por
+            <select value={f.unidad} onChange={e => { setF(x => ({ ...x, unidad:e.target.value })); setDirty(true); }} style={{ ...inpC, width:"auto", cursor:"pointer" }} aria-label="Unidad de impresión">
+              {UNIDADES_IMPRESION.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="costeo-grid costeo-head" style={{ marginBottom:6 }}>
+          <span style={th}>Insumo</span><span style={th}>Costo $</span><span style={th}>Rinde ({uni.corto}s)</span><span style={th}>Por {uni.corto}</span><span/>
+        </div>
+        {f.insumos.map((x, i) => {
+          const r = parseFloat(x.rendimiento)||0, c = parseFloat(x.costo)||0;
+          return (
+            <div key={i} className="costeo-grid" style={{ marginBottom:6 }}>
+              <input value={x.detalle} onChange={e => setIns(i, "detalle", e.target.value)} placeholder={i === 0 ? "Ej: Tinta negra 70 ml" : "Insumo"} style={inpC} aria-label="Insumo"/>
+              <input type="number" inputMode="decimal" value={x.costo} onChange={e => setIns(i, "costo", e.target.value)} placeholder="Costo $" style={inpC} aria-label="Costo"/>
+              <input type="number" inputMode="decimal" value={x.rendimiento} onChange={e => setIns(i, "rendimiento", e.target.value)} placeholder={`Rinde (${uni.corto}s)`} style={inpC} aria-label="Rendimiento"/>
+              <span style={{ fontSize:13, fontWeight:700, color:"#1a2340", textAlign:"right" }}>{r > 0 && c > 0 ? $n(c / r) : "—"}</span>
+              <button type="button" onClick={() => { setF(z => ({ ...z, insumos: z.insumos.length > 1 ? z.insumos.filter((_, j) => j !== i) : [{ detalle:"", costo:"", rendimiento:"" }] })); setDirty(true); }} style={{ ...btnDel, padding:"4px 7px" }}>✕</button>
+            </div>
+          );
+        })}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap", marginTop:8 }}>
+          <button type="button" onClick={() => setF(x => ({ ...x, insumos: [...x.insumos, { detalle:"", costo:"", rendimiento:"" }] }))}
+            style={{ background:"#fff", border:"1.5px dashed var(--c-border)", color:"var(--c-pri)", borderRadius:6, padding:"5px 14px", fontSize:13, fontWeight:700, cursor:"pointer" }}>➕ Insumo</button>
+          <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+            <div style={{ background:"#1a2340", color:"#fff", borderRadius:10, padding:"8px 14px" }} data-costo-impresion>
+              <span style={{ fontSize:11, opacity:.8, textTransform:"uppercase", fontWeight:700 }}>Costo fijo por {uni.corto}</span>
+              <div style={{ fontSize:20, fontWeight:800 }}>{$n(costoImp)}</div>
+            </div>
+            {dirty && <button onClick={() => guardarCosteo()} style={btnPri()}>💾 Guardar costos</button>}
+          </div>
+        </div>
+      </div>
+
+      {/* 2) Productos que salen de esta impresora */}
+      <div style={{ ...prodCard, padding:"16px 18px" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:10 }}>
+          <div>
+            <div style={{ fontWeight:800, fontSize:15, color:"#1a2340" }}>🏷️ Productos de esta impresora</div>
+            <div style={{ fontSize:12, color:"#a09080" }}>Material (de Materias primas) + costo de impresión + % de ganancia. Se guardan en Servicios y Productos → Productos.</div>
+          </div>
+          {!pf && <button onClick={() => setPf({ nombre:"", materiaId:"", materiaCant:"1", impresiones:"1", margen:"" })} style={btnPri("#1a2340")}>➕ Generar producto</button>}
+        </div>
+
+        {pf && (
+          <div style={{ background:"var(--c-softer)", border:"1.5px dashed var(--c-border)", borderRadius:10, padding:"12px 14px", marginBottom:12, display:"flex", flexDirection:"column", gap:10 }}>
+            <div><label style={prodLbl}>Nombre del producto *</label>
+              <input value={pf.nombre} onChange={e => setPf(x => ({ ...x, nombre:e.target.value }))} placeholder="Ej: Foto A4 papel fotográfico brillante" style={inpC} aria-label="Nombre del producto" autoFocus/></div>
+            <div style={{ display:"grid", gridTemplateColumns:"minmax(0,2fr) minmax(0,1fr)", gap:10 }}>
+              <div><label style={prodLbl}>Material</label>
+                <select value={pf.materiaId} onChange={e => setPf(x => ({ ...x, materiaId:e.target.value }))} style={{ ...inpC, cursor:"pointer" }} aria-label="Material">
+                  <option value="">— Sin material —</option>
+                  {materiasOrd.map(m => <option key={m.fireId} value={m.fireId}>{m.nombre} ({$n(costoUsoMateria(m))} por {unidadUsoMateria(m).replace(/s$/,"")})</option>)}
+                </select></div>
+              <div><label style={prodLbl}>Cant. de material</label>
+                <input type="number" inputMode="decimal" value={pf.materiaCant} onChange={e => setPf(x => ({ ...x, materiaCant:e.target.value }))} style={inpC} aria-label="Cantidad de material"/></div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <div><label style={prodLbl}>Impresiones ({uni.corto}s)</label>
+                <input type="number" inputMode="decimal" value={pf.impresiones} onChange={e => setPf(x => ({ ...x, impresiones:e.target.value }))} style={inpC} aria-label="Impresiones" title="Ej: doble faz = 2, A3 = 2 hojas A4"/></div>
+              <div><label style={prodLbl}>% de ganancia</label>
+                <input type="number" inputMode="decimal" value={pf.margen} onChange={e => setPf(x => ({ ...x, margen:e.target.value }))} placeholder="Ej: 150" style={inpC} aria-label="% de ganancia"/></div>
+            </div>
+            <div style={{ fontSize:13, color:"#4a5568", lineHeight:1.7 }} data-calc-producto>
+              {calcPf.m ? <>Material {$n(calcPf.mat)}</> : <>Sin material</>}
+              {" "}+ impresión {$n(calcPf.unit)} × {fmtN(parseFloat(pf.impresiones)||1)} = {$n(calcPf.imp)}
+              {" "}→ <b>costo {$n(calcPf.total)}</b>
+              {parseFloat(pf.margen) > 0 && <> · con {pf.margen}% → <b style={{ fontSize:16, color:"var(--c-pri)" }}>{$ar(precioPf)}{f.unidad === "m2" ? "/m²" : ""}</b></>}
+            </div>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={() => setPf(null)} style={{ background:"transparent", border:"1.5px solid var(--c-border)", color:"#a09080", borderRadius:8, padding:"8px 14px", fontSize:13, fontWeight:600, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={guardarProducto} style={btnPri()}>💾 {pf.fireId ? "Guardar cambios" : "Agregar a Productos"}</button>
+            </div>
+          </div>
+        )}
+
+        {productos.length === 0 ? (
+          !pf && <div style={{ padding:"18px 0", textAlign:"center", color:"#a09080", fontSize:13 }}>Todavía no generaste productos para esta impresora.</div>
+        ) : (
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead><tr>{["Producto","Material","Impr.","Costo","Ganancia","Precio",""].map(h => <th key={h} style={prodTh}>{h}</th>)}</tr></thead>
+              <tbody>
+                {productos.map(p => {
+                  const c = costoImpresoraArticulo(p, materias);
+                  return (
+                    <tr key={p.fireId}>
+                      <td style={{ ...prodTd, fontWeight:700, color:"#1a2340" }}>{p.nombre}</td>
+                      <td style={prodTd}>{c.m ? `${c.m.nombre}${(parseFloat(p.materiaCant)||1) !== 1 ? ` × ${fmtN(p.materiaCant)}` : ""}` : "—"}</td>
+                      <td style={prodTd}>{fmtN(parseFloat(p.impresiones)||1)}</td>
+                      <td style={prodTd}>{$n(c.total)}</td>
+                      <td style={prodTd}>{p.precioAuto ? `${fmtN(p.margen)}%` : <span title="Precio fijo">fijo</span>}</td>
+                      <td style={{ ...prodTd, fontWeight:800, color:"var(--c-pri)", whiteSpace:"nowrap" }}>{$ar(p.precioVenta)}{sufCobro(p)}</td>
+                      <td style={{ ...prodTd, whiteSpace:"nowrap" }}>
+                        <button onClick={() => setPf({ fireId:p.fireId, nombre:p.nombre||"", materiaId:p.materiaId||"", materiaCant:String(p.materiaCant ?? 1), impresiones:String(p.impresiones ?? 1), margen:String(p.margen || "") })}
+                          style={{ background:"var(--c-soft)", border:"1.5px solid var(--c-pri)", color:"var(--c-pri)", padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer", marginRight:5 }}>✏️</button>
+                        <button onClick={() => borrarProducto(p)} style={btnDel}>🗑</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ImpresorasView({ showToast }) {
   const [impresoras, cargI] = useColeccion("impresoras");
   const [tintas] = useColeccion("tintasInkjet");
@@ -3336,6 +3533,17 @@ function ImpresorasView({ showToast }) {
   const [modalImp, setModalImp] = useState(null);       // {} nueva | impresora a editar
   const [modalTinta, setModalTinta] = useState(null);   // { impresoraId }
   const [modalServ, setModalServ] = useState(null);     // { impresoraId }
+  const [seccion, setSeccion] = useState("registro");    // registro | costos
+  useEffect(() => setSeccion("registro"), [abierta]);
+  const pestañas = (izq) => (
+    <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+      {[["registro", izq], ["costos","🧮 Costos y productos"]].map(([id, l]) => (
+        <button key={id} onClick={() => setSeccion(id)}
+          style={{ padding:"8px 16px", borderRadius:20, fontSize:13, fontWeight:700, cursor:"pointer", border:"none",
+            background: seccion===id ? "#1a2340" : "#fff", color: seccion===id ? "#fff" : "#4a5568", boxShadow:"0 1px 6px rgba(var(--c-pri-rgb),.08)" }}>{l}</button>
+      ))}
+    </div>
+  );
 
   const lista = [...impresoras].sort((a,b) => (a.nombre||"").localeCompare(b.nombre||""));
   const ids = new Set(lista.map(i => i.fireId));
@@ -3382,7 +3590,8 @@ function ImpresorasView({ showToast }) {
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
         {volver}<div style={{ fontSize:18, fontWeight:800, color:"#1a2340" }}>🖥️ Konica Minolta C558</div>
       </div>
-      <KonicaView showToast={showToast}/>
+      {pestañas("📊 Contadores y tóner")}
+      {seccion === "costos" ? <CosteoImpresora impId={KONICA_ID} nombre="Konica Minolta C558" showToast={showToast}/> : <KonicaView showToast={showToast}/>}
     </div>
   );
 
@@ -3404,6 +3613,8 @@ function ImpresorasView({ showToast }) {
           <button onClick={() => setModalImp(imp)} style={{ background:"#fff", border:"1.5px solid var(--c-border)", borderRadius:8, padding:"8px 12px", cursor:"pointer", fontSize:13 }}>✏️ Editar</button>
           <button onClick={() => borrarImpresora(imp)} style={{ ...btnDel, padding:"9px 12px", fontSize:13 }}>🗑</button>
         </div>
+        {pestañas("📜 Registro")}
+        {seccion === "costos" ? <CosteoImpresora key={imp.fireId} impId={imp.fireId} nombre={imp.nombre} showToast={showToast}/> : <>
         <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
           <button onClick={() => setModalTinta({ impresoraId:imp.fireId })} style={btnPri()}>💧 Cargar tinta</button>
           <button onClick={() => setModalServ({ impresoraId:imp.fireId })} style={btnPri("#4a5568")}>🔧 Registrar service</button>
@@ -3451,6 +3662,7 @@ function ImpresorasView({ showToast }) {
             </div>
           )}
         </div>
+        </>}
         {modales}
       </div>
     );
@@ -9778,6 +9990,7 @@ const unidadUsoMateria = (m) => (parseFloat(m?.rendimiento) > 0
   : (m?.unidad || "unidad"));
 function costoArticulo(ins, materias) {
   if (modoCosto(ins) === "receta") return costoReceta(ins, materias).total;
+  if (modoCosto(ins) === "impresora") return costoImpresoraArticulo(ins, materias).total;
   if (ins?.materiaId) {
     const m = materias.find(x => x.fireId === ins.materiaId);
     if (m) return costoUsoMateria(m) * (parseFloat(ins.materiaCant)||1);
@@ -10041,6 +10254,7 @@ async function recalcularArticulos() {
   const [si, sm, scf, scc] = await Promise.all([getDocs(collection(db, "insumos")), getDocs(collection(db, "materiasPrimas")),
     getDoc(doc(db, "config", "costoFijo")).catch(() => null), getDoc(doc(db, "config", "costos")).catch(() => null)]);
   const materias = sm.docs.map(d => ({ ...d.data(), fireId:d.id }));
+  try { cargarCosteos((await getDocs(collection(db, "costeoImpresoras"))).docs); } catch(e) {}
   const minuto = calcMinutoTaller(scf?.exists?.() ? scf.data() : null, scc?.exists?.() ? scc.data() : null);
   TALLER.minuto = minuto;
   let n = 0;
@@ -10110,7 +10324,7 @@ function EditorCostoArticulo({ form, setForm, materias, insumos = [] }) {
   const inpE = { width:"100%", padding:"9px 12px", borderRadius:7, border:"1.5px solid var(--c-border)", fontSize:13, fontFamily:"'DM Sans',sans-serif", outline:"none", boxSizing:"border-box", background:"#fff" };
   const lbl = { display:"block", fontSize:12, fontWeight:600, color:"#4a5568", marginBottom:4 };
   const botonModo = (id, txt) => (
-    <button type="button" onClick={() => setForm(f => ({ ...f, costoModo:id, ...(id !== "materia" ? { materiaId:"" } : {}),
+    <button type="button" onClick={() => setForm(f => ({ ...f, costoModo:id, ...(id !== "materia" && id !== "impresora" ? { materiaId:"" } : {}),
         ...(id === "receta" && !(f.receta||[]).length ? { receta:[{ materiaId:"", cantidad:"" }] } : {}) }))}
       style={{ padding:"6px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${modo===id ? "#1a2340" : "var(--c-border)"}`, background: modo===id ? "#1a2340" : "#fff", color: modo===id ? "#fff" : "#4a5568" }}>{txt}</button>
   );
@@ -10133,7 +10347,33 @@ function EditorCostoArticulo({ form, setForm, materias, insumos = [] }) {
           {botonModo("manual", "✍️ Lo pongo yo")}
           {botonModo("materia", "🧱 De una materia prima")}
           {botonModo("receta", "📋 Receta (varios materiales + trabajo)")}
+          {(modo === "impresora" || Object.keys(COSTEOS).length > 0) && botonModo("impresora", "🖨️ De una impresora")}
         </div>
+
+        {modo === "impresora" && (() => {
+          const ci = costoImpresoraArticulo(form, materias), cst = COSTEOS[form.impresoraId];
+          const un = UNIDADES_IMPRESION.find(u => u.id === cst?.unidad)?.corto || "impresión";
+          return (
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+              <select value={form.impresoraId||""} onChange={e => set("impresoraId", e.target.value)} style={{ ...inpE, cursor:"pointer", gridColumn:"1 / -1" }} aria-label="Impresora">
+                <option value="">— Elegí la impresora —</option>
+                {Object.entries(COSTEOS).map(([id, c]) => <option key={id} value={id}>{c.nombre} ({$n(c.costo)} por {UNIDADES_IMPRESION.find(u => u.id === c.unidad)?.corto || "impresión"})</option>)}
+              </select>
+              <select value={form.materiaId||""} onChange={e => set("materiaId", e.target.value)} style={{ ...inpE, cursor:"pointer" }}>
+                <option value="">— Sin material —</option>
+                {materiasOrd.map(x => <option key={x.fireId} value={x.fireId}>{x.nombre}</option>)}
+              </select>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                <input type="number" value={form.materiaCant ?? ""} onChange={e => set("materiaCant", e.target.value)} placeholder="Cant. mat." title="Cantidad de material" style={inpE}/>
+                <input type="number" value={form.impresiones ?? ""} onChange={e => set("impresiones", e.target.value)} placeholder="Impr." title="Impresiones" style={inpE}/>
+              </div>
+              <div style={{ gridColumn:"1 / -1", fontSize:12, color:"#1565c0" }}>
+                Material {$n(ci.mat)} + impresión {$n(ci.unit)} × {fmtN(parseFloat(form.impresiones)||1)} {un} = <b>costo {$n(ci.total)}</b>
+                <span style={{ color:"#a09080" }}> · los costos de impresión se cambian en Producción → Impresoras</span>
+              </div>
+            </div>
+          );
+        })()}
 
         {modo === "manual" && <input type="number" value={form.precioCompra ?? ""} onChange={e => set("precioCompra", e.target.value)} placeholder="Costo ($)" style={inpE}/>}
 
@@ -10267,6 +10507,7 @@ function InsumosView({ setView, showToast }) {
   const [materiasMP] = useColeccion("materiasPrimas");
   const taller = useCostosTaller();
   const minimos = useMinimosCobro();
+  useCosteos();
   const [cz, setCz] = useState(null);
   const [migrando, setMigrando] = useState(false);
   useEffect(() => onSnapshot(doc(db, "cotizadorConfig", "data"), s => setCz(s.exists() ? s.data() : {}), () => setCz({})), []);
@@ -10402,7 +10643,9 @@ function InsumosView({ setView, showToast }) {
       tipo:         editModal.tipo || "",
       cobro:        cobroDe(editModal) === "hora" && !serv ? "unidad" : cobroDe(editModal),
       costoModo:    modo,
-      materiaId:    modo === "materia" ? (editModal.materiaId || "") : "",
+      materiaId:    modo === "materia" || modo === "impresora" ? (editModal.materiaId || "") : "",
+      impresoraId:  modo === "impresora" ? (editModal.impresoraId || "") : "",
+      impresiones:  parseFloat(editModal.impresiones)||1,
       materiaCant:  parseFloat(editModal.materiaCant)||1,
       receta:       modo === "receta" ? (editModal.receta||[]).filter(r => r.materiaId && parseFloat(r.cantidad) > 0).map(r => ({ materiaId:r.materiaId, cantidad:parseFloat(r.cantidad) })) : [],
       desperdicio:  parseFloat(editModal.desperdicio)||0,
@@ -10576,6 +10819,7 @@ function InsumosView({ setView, showToast }) {
                     <td style={{ padding:"11px 14px", color:"#4a5568" }}>
                       {cp.costo ? <>{$ar(cp.costo)}<span style={{ fontSize:11, color:"#a09080" }}>{sufCobro(ins)}</span></> : "—"}
                       {modoCosto(ins) === "materia" && <div style={{ fontSize:10, color:"#1565c0", fontWeight:600 }} title="El costo sale de una materia prima">🧱 {materiasMP.find(m => m.fireId === ins.materiaId)?.nombre || "materia prima"}</div>}
+                      {modoCosto(ins) === "impresora" && <div style={{ fontSize:10, color:"#00695c", fontWeight:600 }}>🖨️ {COSTEOS[ins.impresoraId]?.nombre || "impresora"}</div>}
                       {modoCosto(ins) === "receta" && <div style={{ fontSize:10, color:"#6a1b9a", fontWeight:600 }} title={(ins.receta||[]).map(r => `${materiasMP.find(m => m.fireId === r.materiaId)?.nombre || "?"} × ${r.cantidad}`).join("\n") + (ins.manoObraMin ? `\n${ins.manoObraMin} min de trabajo` : "")}>📋 Receta · {(ins.receta||[]).length} material{(ins.receta||[]).length!==1?"es":""}{ins.manoObraMin ? ` + ${ins.manoObraMin} min` : ""}</div>}
                     </td>
                     <td style={{ padding:"11px 14px", fontWeight:600, color:"#1a2340" }}>
@@ -15494,6 +15738,7 @@ export default function App() {
         .form-flotante-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1500;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow-y:auto}
         .form-flotante{position:relative;width:100%;max-width:1000px;margin:auto 0}
         .form-flotante-x{position:absolute;top:14px;right:14px;z-index:2;width:34px;height:34px;border-radius:50%;border:1.5px solid var(--c-border);background:#fff;color:#a09080;font-size:16px;cursor:pointer}
+        .costeo-grid{display:grid;grid-template-columns:minmax(140px,2fr) minmax(80px,1fr) minmax(90px,1fr) 90px 28px;gap:6px;align-items:center}
         .renglon-grid{display:grid;grid-template-columns:22px 64px minmax(150px,2.2fr) minmax(130px,1.6fr) 74px 74px 100px 110px 24px;gap:6px;align-items:center}
         .renglon-n{font-size:12px;color:#a09080;text-align:right}
         .renglon-info{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:11px;color:#1565c0;margin:4px 0 0 28px}
@@ -15542,6 +15787,9 @@ export default function App() {
           .renglon-head{display:none!important}
           .renglon-card{background:var(--c-softer);border:1px solid var(--c-border);border-radius:10px;padding:8px}
           .renglon-grid{grid-template-columns:1fr 1fr 1fr;gap:6px}
+          .costeo-grid{grid-template-columns:1fr 1fr 70px 28px}
+          .costeo-grid>input[aria-label="Insumo"]{grid-column:1 / -1}
+          .costeo-head{display:none}
           .renglon-grid>.renglon-n{display:none}
           .renglon-grid>.renglon-detalle{grid-column:1 / -1;order:-2}
           .renglon-grid>input[list]{grid-column:1 / -1;order:-1}
